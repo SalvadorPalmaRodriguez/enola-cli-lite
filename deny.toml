@@ -1,0 +1,47 @@
+# cargo-deny configuration — MED-03 (supply chain security)
+# Docs: https://embarkstudios.github.io/cargo-deny/
+#
+# Run: cargo deny check
+# Or:  bash scripts/supply-chain-check.sh
+
+[advisories]
+# cargo-deny 0.20.x: all advisories (vulnerability, unmaintained, unsound, yanked, notice)
+# are denied by default. Use `ignore` to suppress specific advisory IDs.
+unmaintained = "all"
+
+[licenses]
+# Allow only permissive and weak-copyleft licenses.
+# See docs/dev/LICENSE_AUDIT.md for justification of weak-copyleft exceptions.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0", # webpki-roots — Community Data License Agreement Permissive 2.0
+]
+# cargo-deny 0.20.x: all licenses not in `allow` are denied by default.
+# Strong copyleft (GPL, AGPL, LGPL) is implicitly denied — not listed in `allow`.
+# Confidence threshold for license detection.
+confidence-threshold = 0.8
+
+[licenses.private]
+# Ignore workspace crates that use license-file instead of license field.
+ignore = true
+
+[bans]
+# Warn on multiple versions of the same crate (potential bloat/conflicts).
+multiple-versions = "warn"
+# Warn on wildcards in Cargo.toml (e.g. version = "*").
+wildcards = "warn"
+
+[sources]
+# Only allow crates from crates.io — no private/git registries.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+unknown-git = "deny"

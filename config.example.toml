@@ -1,0 +1,109 @@
+# ══════════════════════════════════════════════════════════════════════════
+# Enola CLI — ejemplo de configuración centralizada (CLIENTE)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Documento: config.example.toml
+# Versión: 2.1 | Actualizado: 2026-08-02
+# Referencias: CONFIG-001..009, QUAL-001, QUAL-003
+#
+# Copia este fichero a `~/.enola/config.toml` y ajústalo a tu entorno.
+# Permisos obligatorios:  chmod 0600 ~/.enola/config.toml
+#
+# Prioridad de resolución (alta → baja):
+#   1. Flags CLI           (ej.  --web-url, --binary-base-url)
+#   2. Variables de entorno (ENOLA_WEB_URL, …)
+
+
+# ── 1. URLs públicas de la web del proyecto ────────────────────────────────
+# Env-vars equivalentes: ENOLA_WEB_URL, ENOLA_DOCS_URL
+#
+# Se usan en mensajes del CLI (quickref, errores) para dirigir al
+# usuario al portal correcto. Si se dejan vacías, el CLI no muestra enlaces.
+[web]
+web_public_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite"
+# docs_url     = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite#docs"   # opcional
+
+# Variante .onion:
+# web_public_url = "http://tudominio-abc123…56chars.onion"
+
+
+# ── 2. Distribución (descarga de binarios) ─────────────────────────────────
+# Env-vars equivalentes: ENOLA_BINARY_BASE_URL, ENOLA_MINISIGN_PUBKEY_URL
+[distribution]
+# Base URL desde donde se descargan los artefactos de release.
+# Si está vacío (default), se usa ruta relativa /releases/… sobre la web.
+binary_base_url     = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download"
+
+# URL para descargar la clave pública minisign (verificación de firmas).
+# Si está vacío, se usa la clave embebida en el binario (minisign.pub).
+minisign_pubkey_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/minisign.pub"
+
+
+# ── 3. Feed de actualizaciones / advisories (UPD-CLI-001) ─────────────────
+# Env-var equivalente: ENOLA_UPDATE_FEED_URL
+#
+# Si se configura, `enola-cli update check` consulta este feed JSON para:
+#   - detectar nuevas versiones disponibles,
+#   - mostrar avisos de seguridad que afecten a tu versión,
+#   - rastrear hitos PQC del roadmap.
+#
+# El endpoint puede vivir en clearweb o en `.onion`. Si usas `.onion`, el
+# CLI lo enruta automáticamente por Tor (vía [http].tor_socks_proxy).
+[update]
+# feed_url = "https://salvadorpalmarodriguez.github.io/enola-cli-lite/releases/advisories.json"
+# signature_url = "https://salvadorpalmarodriguez.github.io/enola-cli-lite/releases/advisories.json.minisig"
+
+# feed_url = "https://salvadorpalmarodriguez.github.io/enola-cli-lite/releases/advisories.json"
+# feed_url = "http://updates-abc123…56chars.onion/advisories.json"
+
+# Firma minisign sidecar del feed. Si se omite, el CLI usa por defecto:
+#   {feed_url}.minisig
+# signature_url = "https://salvadorpalmarodriguez.github.io/enola-cli-lite/releases/advisories.json.minisig"
+
+# Clave pública minisign para verificar el feed. Si se omite, el CLI usa la
+# clave pública embebida del proyecto (`minisign.pub`). Úsala en forks o en
+# despliegues white-label del operador.
+# minisign_pubkey = "RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
+
+
+# ── 4. HTTP / Tor (QUAL-003) ───────────────────────────────────────────────
+# Proxy SOCKS5 que el CLI usa para cualquier petición a un `.onion`.
+# El esquema `socks5h://` (con "h") delega la resolución DNS a Tor — crítico
+# para no filtrar DNS fuera del circuito.
+#
+# Prioridad de resolución (alta → baja):
+#   1. Flag CLI                  --tor-socks socks5h://HOST:PUERTO
+#   2. Variable de entorno       ENOLA_TOR_SOCKS_PROXY=socks5h://...
+#   3. Esta sección              [http].tor_socks_proxy = "..."
+#   4. Default del binario       socks5h://127.0.0.1:9050
+[http]
+# Tor local (por defecto):
+tor_socks_proxy = "socks5h://127.0.0.1:9050"
+
+# Tor Browser en la misma máquina (escucha en 9150):
+# tor_socks_proxy = "socks5h://127.0.0.1:9150"
+
+# Daemon Tor en host remoto de la LAN:
+# tor_socks_proxy = "socks5h://10.0.0.5:9050"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# REFERENCIAS CRUZADAS (sincronización 2026-08-02)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Este archivo de configuración es consumido por los siguientes módulos:
+#
+# Módulo Rust                          | Sección TOML      | Referencia
+# ---------------------------------------|-------------------|------------------
+# infrastructure/config_loader.rs       | Todas             | CONFIG-001..002
+# infrastructure/http.rs                | [http]            | QUAL-003
+# domain/app_config.rs                  | [web], [dist]     | CONFIG-001..008
+# application/update_checker.rs          | [update]          | UPD-CLI-001
+# application/config_inspector.rs       | Todas (catálogo)  | CONFIG-001..009
+#
+# Tareas relacionadas en TAREAS.md:
+#   - CONFIG-001..009  (sistema de configuración)
+#   - QUAL-001, QUAL-003 (calidad/privacidad)
+#   - UPD-CLI-001      (feed de actualizaciones)
+# ══════════════════════════════════════════════════════════════════════════
+

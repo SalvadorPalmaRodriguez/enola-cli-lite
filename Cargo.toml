@@ -1,0 +1,126 @@
+[package]
+name = "enola-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Salvador Palma Rodriguez"]
+description = "Enola CLI — CLI for managing Tor hidden services, CMS, VPN, firewall, and more"
+license-file = "LICENSE"
+publish = false
+
+[features]
+default = []
+testing = []  # Habilita mecanismo de token de test (solo desarrollo/CI)
+pqc_tls = []  # PQC-020: TLS hibrido ML-KEM
+# enola-sign-pqc — firma post-cuantica de releases (PQC-030)
+
+[lib]
+name = "enola_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "enola-cli"
+path = "src/main.rs"
+
+[[bin]]
+name = "enola-sign-pqc"
+path = "src/bin/enola-sign-pqc.rs"
+
+[dependencies]
+# CLI Parser
+clap = { version = "4.4", features = ["derive", "env"] }
+
+# Async & Runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+async-recursion = "1.0"
+
+# Networking
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "socks", "blocking"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# System & Hardware
+sysinfo = "0.30"
+bollard = "0.16" # Docker API
+nvml-wrapper = "0.9" # GPU support
+
+# Security & Secrets
+openssl = { version = "0.10", features = ["vendored"] }
+obfstr = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+bcrypt = "0.15"
+rpassword = "7.3"
+# PQC-030: Firma post-cuántica ML-DSA (FIPS 204)
+ml-dsa = { version = "0.1.0-rc.8", features = ["rand_core"] }
+hybrid-array = "0.4"
+signature = "2.2"
+hex = "0.4"
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging & Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Utilities
+directories = "5.0"
+config = "0.15"
+lazy_static = "1.4"
+rand = "0.8"
+data-encoding = "2.5"
+notify = "6.1"
+libc = "0.2"
+dirs = "5.0"
+regex = "1.10"
+base64 = "0.21"
+
+# Archive/Compression
+flate2 = "1.0"
+tar = "0.4"
+
+# Web GUI (embedded server)
+axum = { version = "0.8", features = ["ws", "json"] }
+
+# Config
+toml = "0.7"
+tempfile = "3"
+
+[build-dependencies]
+sha2 = "0.10"
+hex = "0.4"
+clap = { version = "4.4", features = ["derive", "env"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+mockall = "0.12"
+proptest = "1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Perfil RELEASE — endurecido para distribución pública (LAUNCH-007).
+# ─────────────────────────────────────────────────────────────────────────────
+[profile.release]
+opt-level       = "z"
+lto             = "fat"
+codegen-units   = 1
+strip           = "symbols"
+panic           = "abort"
+overflow-checks = false
+debug           = false
+rpath           = false
+incremental     = false
+
+[profile.release.build-override]
+opt-level    = "z"
+debug        = false
+strip        = "symbols"
+codegen-units = 1

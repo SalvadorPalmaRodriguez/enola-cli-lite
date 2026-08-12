@@ -1,0 +1,79 @@
+# Dockerfile.strapi — Imagen Strapi 5 de producción (CMS-STRAPI-PROD-001).
+#
+# Sigue la guía oficial de Strapi para producción
+# (https://docs.strapi.io/cms/installation/docker — "Production environment"):
+#   - Build multi-stage (builder con devDependencies + runtime slim).
+#   - Compila el panel admin con `NODE_ENV=production npm run build`.
+#   - Arranca con `npm run start` (modo producción, no `develop`).
+#   - El contenedor escucha en 1337; el binding a 127.0.0.1 lo aplica DockerAdapter.
+#
+# El usuario NUNCA invoca este Dockerfile manualmente. Se construye una sola vez:
+#   sudo enola-cli strapi build-image
+# El binario embebe este archivo (include_str!) y lo extrae al build context.
+#
+# Estrategia self-contained: en lugar de copiar el código de un proyecto Strapi
+# (que enola-cli no tiene), el stage builder genera un proyecto Strapi en blanco
+# con `create-strapi-app` y compila su admin. El esquema de content-types queda
+# fijado en build-time (modelo inmutable de producción de Strapi).
+
+ARG NODE_VERSION=20
+ARG STRAPI_VERSION=5.49.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 — builder: scaffold del proyecto + build del admin (necesita devDeps).
+# IMPORTANTE (guía oficial): NO fijar NODE_ENV=production antes de instalar deps,
+# porque npm omitiría devDependencies que Strapi necesita para compilar el admin.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-bookworm-slim AS builder
+ARG STRAPI_VERSION
+ENV NODE_ENV=development
+WORKDIR /opt/app
+
+# Herramientas de compilación para módulos nativos (better-sqlite3, sharp, etc.).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential python3 git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Scaffold de un proyecto Strapi en blanco (no interactivo).
+#   --js          → proyecto JavaScript (sin TypeScript, menor superficie)
+#   --no-run      → no arrancar tras crear
+#   --install     → instalar dependencias (incluye devDeps en NODE_ENV=development)
+#   --no-git-init → sin repo git
+#   --no-example  → sin datos de ejemplo
+#   --skip-cloud  → sin prompt de Strapi Cloud
+#   --skip-db     → sin prompt de BD (usa sqlite por defecto; en runtime se
+#                   sobreescribe con DATABASE_CLIENT=postgres vía env)
+RUN DOCKER=true npx --yes create-strapi-app@${STRAPI_VERSION} . \
+        --js --no-run --install --no-git-init --no-example --skip-cloud --skip-db
+
+# Install PostgreSQL driver (skipped by --skip-db but needed at runtime).
+RUN npm install pg --save
+
+# Compilar el panel admin para producción (requiere devDependencies presentes).
+RUN NODE_ENV=production npm run build
+
+# Eliminar devDependencies: el runtime solo necesita deps de producción.
+RUN npm prune --omit=dev && npm cache clean --force
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — runtime: imagen slim con solo lo necesario para servir.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+ENV NODE_ENV=production
+# Strapi escucha en todas las interfaces DENTRO del contenedor; el aislamiento
+# lo da el binding host 127.0.0.1 (DockerAdapter, SEC-EXT-DOCKER-042).
+ENV HOST=0.0.0.0
+ENV PORT=1337
+WORKDIR /srv/app
+
+# Runtime libs para sharp/libvips (procesamiento de imágenes del media library).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar el proyecto ya construido (admin compilado + node_modules de producción).
+COPY --from=builder --chown=node:node /opt/app /srv/app
+
+EXPOSE 1337
+USER node
+CMD ["npm", "run", "start"]

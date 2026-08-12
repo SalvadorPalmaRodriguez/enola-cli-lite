@@ -1,0 +1,288 @@
+================================================================================
+              ENOLA CLI — SOURCE-VISIBLE PROPRIETARY LICENSE
+                   Copyright (c) 2026 Salvador Palma Rodriguez.
+                          All Rights Reserved.
+================================================================================
+
+                          === ENGLISH VERSION ===
+
+SOURCE-VISIBLE PROPRIETARY LICENSE
+
+Copyright (c) 2026 Salvador Palma Rodriguez ("Licensor").
+All Rights Reserved.
+
+Contact: salvadorpalmarodriguez@gmail.com
+
+IMPORTANT — READ CAREFULLY BEFORE USING OR COMPILING.
+
+This license governs the use of this software, including source
+code, binaries, documentation, and all related materials (collectively, the
+"Software").
+
+
+1. GRANT OF RIGHTS
+
+1.1. SOURCE VISIBILITY. The Licensor grants you a limited, non-exclusive,
+     non-transferable, revocable right to view, read, and compile the source
+     code of the Software for your own personal, non-commercial use.
+
+1.2. PERSONAL USE. You may install, compile, and execute the Software on
+     systems owned or lawfully controlled by you for personal, non-commercial
+     purposes only. This is Fase 1 of the product: it operates without
+     registration or authentication.
+
+1.3. BACKUP COPIES. You may make a reasonable number of backup copies of
+     the Software solely for restoring it on your own systems.
+
+
+2. RESTRICTIONS
+
+You may NOT, without prior written authorization from the Licensor:
+
+2.1.  Use the Software for commercial, business, corporate, or enterprise
+      purposes, or for any revenue-generating activity, direct or indirect.
+2.2.  Redistribute, publish, transmit, sell, sublicense, rent, lease, host
+      as a service, or otherwise make the Software available to any third
+      party in source or binary form.
+2.3.  Fork the Software to create a competing product or service.
+2.4.  Remove, alter, or obscure any copyright notices, license terms,
+      trademarks, or integrity signatures.
+2.5.  Use the Software to design, develop, train, or facilitate the creation
+      of any product or service that competes with the Software.
+2.6.  Use the Software for any illegal, harmful, fraudulent, or malicious
+      purpose.
+
+
+3. INTELLECTUAL PROPERTY
+
+3.1. The Software is proprietary. This license does not constitute a sale
+     or transfer of ownership. The Licensor retains all intellectual property
+     rights, including copyrights, trademarks, trade secrets, and patents.
+
+3.2. This is not an open-source license. Nothing in this license shall be
+     construed as granting any copyleft obligation or open-source license.
+
+
+4. SERVICE AVAILABILITY
+
+4.1. The Software is provided free of charge. The Licensor makes NO
+     commitment regarding continuous availability of the Software or any
+     associated services (update feeds, web interfaces).
+
+4.2. The Licensor reserves the right to discontinue, suspend, or terminate
+     the Software and any associated services at any time, without prior
+     notice.
+
+4.3. No guarantee of future updates, bug fixes, security patches, or support
+     is provided. Any updates or support are voluntary and may be
+     discontinued at any time.
+
+
+5. COORDINATED DISCLOSURE — MANDATORY VULNERABILITY REPORTING
+
+5.1. If you discover any security vulnerability, bug, defect,
+     misconfiguration, weakness, or any issue that could affect the security,
+     stability, integrity, confidentiality, availability, or proper
+     functioning of the Software ("Security Issue"), you are OBLIGATED to
+     report such Security Issue directly and exclusively to:
+     salvadorpalmarodriguez@gmail.com within 72 hours of discovery.
+
+5.2. COORDINATED DISCLOSURE. You are STRICTLY PROHIBITED from disclosing,
+     publishing, promoting, or sharing any Security Issue with any third
+     party, through any public or private channel (including but not limited
+     to forums, social media, issue trackers, blogs, or conferences), before
+     obtaining written consent from the Licensor and until the Security Issue
+     has been remediated. This embargo protects the project and its users
+     from exploitation.
+
+5.2.1. LEGAL EXCEPTION. The embargo in Section 5.2 shall not prevent
+      communications required by applicable law, judicial order, or
+      competent authority, strictly limited to what is legally required.
+      The embargo remains in effect until the Security Issue has been
+      remediated or the Licensor authorizes disclosure in writing.
+
+5.3. Violation of this Section 5 constitutes a material breach of this
+     license and shall result in IMMEDIATE termination of the license.
+
+
+6. DISCLAIMER OF WARRANTIES
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS, IMPLIED, OR STATUTORY. THE LICENSOR DOES NOT WARRANT
+THAT THE SOFTWARE WILL MEET YOUR REQUIREMENTS, OPERATE WITHOUT ERRORS, OR
+BE SECURE. YOU ASSUME ALL RISK RELATED TO THE USE OF THE SOFTWARE.
+
+
+7. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
+PUNITIVE DAMAGES ARISING FROM THE USE OR INABILITY TO USE THE SOFTWARE.
+YOU ARE SOLELY RESPONSIBLE FOR YOUR USE OF THE SOFTWARE.
+
+
+8. TERMINATION
+
+8.1. This license terminates automatically upon any material breach.
+8.2. Upon termination, you must cease all use of the Software and destroy
+     all copies in your possession.
+8.3. Sections 2, 3, 5, 6, and 7 survive termination.
+
+
+9. GOVERNING LAW
+
+This license shall be governed by the laws of the Kingdom of Spain and the
+applicable regulations of the European Union. Any dispute shall be subject
+to the exclusive jurisdiction of the courts of the Licensor's city of
+residence in Spain.
+
+
+================================================================================
+
+                        === VERSION EN ESPAÑOL ===
+
+LICENCIA PROPIETARIA DE CÓDIGO VISIBLE
+
+Copyright (c) 2026 Salvador Palma Rodriguez ("Licenciante").
+Todos los derechos reservados.
+
+Contacto: salvadorpalmarodriguez@gmail.com
+
+IMPORTANTE — LEA ATENTAMENTE ANTES DE USAR O COMPILAR.
+
+Esta licencia regula el uso de este software, incluyendo código
+fuente, binarios, documentación y todos los materiales relacionados
+(en adelante, el "Software").
+
+
+1. CONCESIÓN DE DERECHOS
+
+1.1. VISIBILIDAD DEL CÓDIGO. El Licenciante le concede un derecho limitado,
+     no exclusivo, intransferible y revocable para ver, leer y compilar el
+     código fuente del Software para su uso personal no comercial.
+
+1.2. USO PERSONAL. Puede instalar, compilar y ejecutar el Software en
+     sistemas de su propiedad o bajo su control legítimo, exclusivamente
+     para fines personales no comerciales. Esta es la Fase 1 del producto:
+     opera sin registro ni autenticación.
+
+1.3. COPIAS DE SEGURIDAD. Puede realizar un número razonable de copias de
+     seguridad del Software únicamente para restauración en sus propios
+     sistemas.
+
+
+2. RESTRICCIONES
+
+NO puede, sin autorización previa por escrito del Licenciante:
+
+2.1.  Usar el Software para fines comerciales, empresariales, corporativos
+      o de negocio, o para cualquier actividad generadora de ingresos.
+2.2.  Redistribuir, publicar, transmitir, vender, sublicenciar, alquilar,
+      ofrecer como servicio o poner el Software a disposición de terceros
+      en forma fuente o binaria.
+2.3.  Bifurcar (fork) el Software para crear un producto o servicio
+      competidor.
+2.4.  Eliminar, alterar u ocultar avisos de copyright, términos de
+      licencia, marcas o firmas de integridad.
+2.5.  Usar el Software para diseñar, desarrollar o facilitar la creación
+      de productos o servicios que compitan con el Software.
+2.6.  Usar el Software para fines ilegales, dañinos, fraudulentos o
+      maliciosos.
+
+
+3. PROPIEDAD INTELECTUAL
+
+3.1. El Software es propietario. Esta licencia no constituye una venta ni
+     transferencia de propiedad. El Licenciante conserva todos los derechos
+     de propiedad intelectual, incluyendo derechos de autor, marcas,
+     secretos comerciales y patentes.
+
+3.2. Esta no es una licencia de código abierto. Nada en esta licencia
+     deberá interpretarse como concesión de obligación copyleft o licencia
+     open-source.
+
+
+4. DISPONIBILIDAD DEL SERVICIO
+
+4.1. El Software se proporciona gratis. El Licenciante NO hace ningún
+     compromiso respecto a la disponibilidad continua del Software o de
+     cualquier servicio asociado (feeds de actualización, interfaces web).
+
+4.2. El Licenciante se reserva el derecho a discontinuar, suspender o
+     terminar el Software y cualquier servicio asociado en cualquier
+     momento, sin previo aviso.
+
+4.3. No se garantiza la provisión de actualizaciones, correcciones de
+     errores, parches de seguridad o soporte. Cualquier actualización o
+     soporte es voluntario y puede discontinuarse en cualquier momento.
+
+
+5. DIVULGACIÓN COORDINADA — REPORTES OBLIGATORIOS DE VULNERABILIDAD
+
+5.1. Si descubre cualquier vulnerabilidad de seguridad, error, defecto,
+     configuración incorrecta, debilidad o cualquier problema que pueda
+     afectar la seguridad, estabilidad, integridad, confidencialidad,
+     disponibilidad o funcionamiento correcto del Software ("Problema de
+     Seguridad"), está OBLIGADO a reportar dicho Problema de Seguridad
+     directa y exclusivamente al Licenciante en:
+     salvadorpalmarodriguez@gmail.com dentro de las 72 horas siguientes al
+     descubrimiento.
+
+5.2. DIVULGACIÓN COORDINADA. Tiene ESTRICTAMENTE PROHIBIDO divulgar,
+     publicar, promover o compartir cualquier Problema de Seguridad con
+     terceros, por cualquier canal público o privado (incluyendo sin
+     limitación foros, redes sociales, issue trackers, blogs o
+     conferencias), antes de obtener consentimiento por escrito del
+     Licenciante y hasta que el Problema de Seguridad haya sido remediado.
+     Este embargo protege al proyecto y a sus usuarios de la explotación.
+
+5.2.1. EXCEPCIÓN LEGAL. El embargo de la Sección 5.2 no impedirá las
+      comunicaciones exigidas por una ley aplicable, resolución judicial
+      o autoridad competente, limitadas estrictamente a lo legalmente
+      requerido. El embargo permanece vigente hasta que el Problema de
+      Seguridad haya sido remediado o el Licenciante autorice por
+      escrito su divulgación.
+
+5.3. La violación de esta Sección 5 constituye un incumplimiento material
+     de esta licencia y resultará en la TERMINACIÓN INMEDIATA de la licencia.
+
+
+6. DESCARGO DE GARANTÍAS
+
+EL SOFTWARE SE PROPORCIONA "TAL CUAL" Y "TAL COMO ESTÁ DISPONIBLE", SIN
+GARANTÍA DE NINGÚN TIPO. EL LICENCIANTE NO GARANTIZA QUE EL SOFTWARE
+CUMPLA SUS REQUISITOS, OPERE SIN ERRORES O SEA SEGURO. USTED ASUME TODO
+EL RIESGO RELACIONADO CON EL USO DEL SOFTWARE.
+
+
+7. LIMITACIÓN DE RESPONSABILIDAD
+
+EN LA MÁXIMA MEDIDA PERMITIDA POR LA LEY APLICABLE, EL LICENCIANTE NO
+SERÁ RESPONSABLE DE NINGÚN DAÑO DIRECTO, INDIRECTO, INCIDENTAL,
+ESPECIAL, CONSECUENTE O PUNITIVO DERIVADO DEL USO O IMPOSIBILIDAD DE
+USO DEL SOFTWARE. USTED ES ÚNICA Y EXCLUSIVAMENTE RESPONSABLE DE SU USO
+DEL SOFTWARE.
+
+
+8. TERMINACIÓN
+
+8.1. Esta licencia termina automáticamente ante cualquier incumplimiento
+     material.
+8.2. Tras la terminación, debe cesar todo uso del Software y destruir
+     todas las copias en su posesión.
+8.3. Las Secciones 2, 3, 5, 6 y 7 sobreviven a la terminación.
+
+
+9. LEGISLACIÓN APLICABLE
+
+Esta licencia se regirá por las leyes del Reino de España y la normativa
+aplicable de la Unión Europea. Toda disputa se someterá a la jurisdicción
+exclusiva de los tribunales de la ciudad de residencia del Licenciante en
+España.
+
+
+================================================================================
+            Contact / Contacto: salvadorpalmarodriguez@gmail.com
+        Copyright (c) 2026 Salvador Palma Rodriguez. All Rights Reserved.
+                     Todos los derechos reservados.
+================================================================================

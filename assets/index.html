@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enola Dashboard</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="token-overlay">
+        <div class="token-box">
+            <h2>🔐 Enola Dashboard</h2>
+            <p>Enter the token from your terminal:</p>
+            <input type="password" id="token-input" placeholder="Token" autocomplete="off">
+            <button id="token-submit">Connect</button>
+            <div id="token-error"></div>
+        </div>
+    </div>
+
+    <div id="app" style="display:none;">
+        <header>
+            <h1>🧅 Enola Dashboard</h1>
+            <span id="version-badge"></span>
+            <span id="token-indicator">authenticated</span>
+            <button id="refresh-btn" class="btn-icon" title="Refresh">↻</button>
+        </header>
+
+        <nav id="tabs">
+            <button class="tab active" data-tab="services">Services</button>
+            <button class="tab" data-tab="tor">Tor</button>
+            <button class="tab" data-tab="git">Git</button>
+            <button class="tab" data-tab="wp">WordPress</button>
+            <button class="tab" data-tab="cms">CMS</button>
+            <button class="tab" data-tab="files">Files</button>
+            <button class="tab" data-tab="ports">Ports</button>
+            <button class="tab" data-tab="security">Security</button>
+            <button class="tab" data-tab="vpn">VPN</button>
+            <button class="tab" data-tab="maintenance">Maintenance</button>
+            <button class="tab" data-tab="diag">Diagnostics</button>
+            <button class="tab" data-tab="test">Test</button>
+            <button class="tab" data-tab="logs">Logs</button>
+            <button class="tab" data-tab="doctor">Doctor</button>
+            <button class="tab" data-tab="setup">Setup</button>
+            <button class="tab" data-tab="system">System</button>
+            <button class="tab" data-tab="update">Update</button>
+            <button class="tab" data-tab="docs">Docs</button>
+            <button class="tab" data-tab="console">Console</button>
+        </nav>
+
+        <main>
+            <section id="tab-services" class="tab-content active">
+                <h2>All Services</h2>
+                <div id="services-table"></div>
+            </section>
+
+            <section id="tab-tor" class="tab-content">
+                <h2>Tor Hidden Services</h2>
+                <div class="actions">
+                    <input type="text" id="tor-create-name" placeholder="Service name">
+                    <select id="tor-create-type">
+                        <option value="web">web (Nginx proxy)</option>
+                        <option value="raw">raw (TCP)</option>
+                        <option value="static">static (Nginx static)</option>
+                        <option value="files">files (Nginx fileserver)</option>
+                    </select>
+                    <input type="number" id="tor-create-vport" placeholder="Virtual port (default 80)" value="80">
+                    <input type="number" id="tor-create-tport" placeholder="Target port (optional)">
+                    <label><input type="checkbox" id="tor-create-ssl"> SSL</label>
+                    <button onclick="torCreate()">Create</button>
+                </div>
+                <div id="tor-list"></div>
+                <h3>Client Authorization</h3>
+                <div class="actions">
+                    <select id="tor-auth-service" onchange="torAuthLoadClients()">
+                        <option value="">-- Select service --</option>
+                    </select>
+                    <button onclick="torAuthList()">List Clients</button>
+                    <button onclick="torAuthEnable()">Enable Auth</button>
+                    <button onclick="torAuthDisable()">Disable Auth</button>
+                    <button onclick="torAuthRotate()">Rotate Keys</button>
+                </div>
+                <div id="tor-auth-clients"></div>
+                <div class="actions">
+                    <input type="text" id="tor-auth-gen-client" placeholder="Client name for key generation">
+                    <button onclick="torAuthGenerate()">Generate Keys</button>
+                </div>
+                <div class="actions">
+                    <input type="text" id="tor-auth-add-client" placeholder="Client name">
+                    <input type="text" id="tor-auth-add-pubkey" placeholder="Public key">
+                    <button onclick="torAuthAdd()">Add Client</button>
+                </div>
+                <div class="actions">
+                    <input type="text" id="tor-auth-revoke-client" placeholder="Client name to revoke">
+                    <button onclick="torAuthRevoke()" class="btn-danger">Revoke Client</button>
+                </div>
+                <div id="tor-auth-output"></div>
+            </section>
+
+            <section id="tab-git" class="tab-content">
+                <h2>Git Servers</h2>
+                <div class="actions">
+                    <input type="text" id="git-create-name" placeholder="Server name">
+                    <input type="text" id="git-create-user" placeholder="Admin user (optional)">
+                    <input type="password" id="git-create-pass" placeholder="Admin pass (optional)">
+                    <input type="number" id="git-create-http-port" placeholder="HTTP port (optional)">
+                    <input type="number" id="git-create-ssh-port" placeholder="SSH port (optional)">
+                    <label><input type="checkbox" id="git-create-ssl"> SSL</label>
+                    <button onclick="gitCreate()">Create</button>
+                </div>
+                <div class="actions" style="margin-top:4px">
+                    <button onclick="gitAction(null,'watcher')">Start Git Watcher</button>
+                </div>
+                <div id="git-list"></div>
+                <h3>User Management</h3>
+                <div class="actions">
+                    <select id="git-user-server"><option value="">-- Select server --</option></select>
+                    <input type="text" id="git-user-admin" placeholder="Admin user (optional)">
+                    <input type="password" id="git-user-adminpass" placeholder="Admin pass (optional)">
+                    <button onclick="gitUserList()">List Users</button>
+                </div>
+                <div class="actions">
+                    <input type="text" id="git-user-create-username" placeholder="Username">
+                    <input type="text" id="git-user-create-email" placeholder="Email">
+                    <input type="password" id="git-user-create-pass" placeholder="Password">
+                    <label><input type="checkbox" id="git-user-create-admin"> Admin</label>
+                    <button onclick="gitUserCreate()">Create User</button>
+                </div>
+                <div class="actions">
+                    <input type="text" id="git-user-delete-username" placeholder="Username to delete">
+                    <button onclick="gitUserDelete()">Delete User</button>
+                </div>
+                <div id="git-user-list"></div>
+            </section>
+
+            <section id="tab-wp" class="tab-content">
+                <h2>WordPress Sites</h2>
+                <div class="actions">
+                    <input type="text" id="wp-create-name" placeholder="Site name">
+                    <input type="number" id="wp-create-port" placeholder="Port (optional)">
+                    <button onclick="wpCreate()">Create</button>
+                </div>
+                <div id="wp-list"></div>
+            </section>
+
+            <section id="tab-wp-detail" class="tab-content" style="display:none">
+                <h2>WordPress Details</h2>
+                <div id="wp-detail-content"></div>
+            </section>
+
+            <section id="tab-cms" class="tab-content">
+                <h2>CMS Instances</h2>
+                <div class="actions">
+                    <select id="cms-type">
+                        <option value="drupal">Drupal</option>
+                        <option value="ghost">Ghost</option>
+                        <option value="magnolia">Magnolia</option>
+                        <option value="strapi">Strapi</option>
+                        <option value="wagtail">Wagtail</option>
+                    </select>
+                    <input type="text" id="cms-create-name" placeholder="Instance name">
+                    <input type="number" id="cms-create-port" placeholder="HTTP port (required)" required>
+                    <button onclick="cmsCreate()">Create</button>
+                    <button onclick="cmsList()">List</button>
+                    <button onclick="strapiBuildImage()">Build Strapi Image</button>
+                </div>
+                <div id="cms-list"></div>
+            </section>
+
+            <section id="tab-files" class="tab-content">
+                <h2>File Shares</h2>
+                <div class="actions">
+                    <input type="text" id="files-create-name" placeholder="Share name">
+                    <label><input type="checkbox" id="files-create-auth"> Auth</label>
+                    <label><input type="checkbox" id="files-create-ssl"> SSL</label>
+                    <button onclick="filesCreate()">Create</button>
+                </div>
+                <div id="files-list"></div>
+            </section>
+
+            <section id="tab-files-detail" class="tab-content" style="display:none">
+                <h2>File Share Details</h2>
+                <div id="files-detail-content"></div>
+            </section>
+
+            <section id="tab-ports" class="tab-content">
+                <h2>Port Usage</h2>
+                <div id="ports-list"></div>
+            </section>
+
+            <section id="tab-security" class="tab-content">
+                <h2>Security</h2>
+                <div class="security-grid">
+                    <div class="security-card" id="firewall-card">
+                        <h3>🔥 Firewall</h3>
+                        <div id="firewall-status"></div>
+                        <button onclick="firewallSetup()">Setup Secure Defaults</button>
+                        <div class="actions" style="margin-top:4px">
+                            <input type="number" id="fw-setup-ssh-port" placeholder="SSH port (default 22)">
+                        </div>
+                        <div class="actions" style="margin-top:8px">
+                            <input type="number" id="fw-allow-port" placeholder="Port">
+                            <select id="fw-allow-proto"><option value="tcp">tcp</option><option value="udp">udp</option><option value="both">both</option></select>
+                            <input type="text" id="fw-allow-from" placeholder="From (optional)">
+                            <button onclick="firewallAllow()">Allow</button>
+                        </div>
+                        <div class="actions" style="margin-top:4px">
+                            <input type="number" id="fw-deny-port" placeholder="Port">
+                            <select id="fw-deny-proto"><option value="tcp">tcp</option><option value="udp">udp</option><option value="both">both</option></select>
+                            <button onclick="firewallDeny()">Deny</button>
+                        </div>
+                    </div>
+                    <div class="security-card" id="apparmor-card">
+                        <h3>🛡️ AppArmor</h3>
+                        <div id="apparmor-status"></div>
+                        <button onclick="apparmorSetup()">Setup Profiles</button>
+                        <label><input type="checkbox" id="aa-setup-force"> Force</label>
+                        <div class="actions" style="margin-top:8px">
+                            <select id="aa-mode"><option value="enforce">enforce</option><option value="complain">complain</option><option value="disable">disable</option></select>
+                            <input type="text" id="aa-profile" placeholder="Profile (optional)">
+                            <button onclick="apparmorMode()">Set Mode</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-vpn" class="tab-content">
+                <h2>VPN (WireGuard)</h2>
+                <div class="actions">
+                    <input type="text" id="vpn-create-name" placeholder="Interface name">
+                    <input type="number" id="vpn-create-port" placeholder="Port (optional)">
+                    <input type="text" id="vpn-create-subnet" placeholder="Subnet (e.g. 10.8.0.0/24)">
+                    <label><input type="checkbox" id="vpn-create-autostart"> Autostart</label>
+                    <button onclick="vpnCreate()">Create</button>
+                </div>
+                <div id="vpn-list"></div>
+                <h3>Peer Management</h3>
+                <div class="actions">
+                    <select id="vpn-peer-iface"><option value="">-- Select --</option></select>
+                    <input type="text" id="vpn-peer-name" placeholder="Peer name">
+                    <input type="text" id="vpn-peer-endpoint" placeholder="Endpoint (optional)">
+                    <input type="text" id="vpn-peer-dns" placeholder="DNS (optional)">
+                    <input type="text" id="vpn-peer-ip" placeholder="IP (e.g. 10.8.0.3)">
+                    <label><input type="checkbox" id="vpn-peer-psk"> PSK</label>
+                    <button onclick="vpnPeerAdd()">Add Peer</button>
+                </div>
+                <div class="actions">
+                    <select id="vpn-peer-addpub-iface"><option value="">-- Select --</option></select>
+                    <input type="text" id="vpn-peer-addpub-name" placeholder="Peer name">
+                    <input type="text" id="vpn-peer-addpub-key" placeholder="Public key (base64)">
+                    <input type="text" id="vpn-peer-addpub-ip" placeholder="IP (e.g. 10.8.0.5)">
+                    <button onclick="vpnPeerAddPubkey()">Add by Pubkey</button>
+                </div>
+                <div class="actions">
+                    <select id="vpn-peer-remove-iface"><option value="">-- Select --</option></select>
+                    <input type="text" id="vpn-peer-remove-key" placeholder="Public key">
+                    <button onclick="vpnPeerRemove()">Remove Peer</button>
+                </div>
+                <pre id="vpn-peer-output"></pre>
+            </section>
+
+            <section id="tab-logs" class="tab-content">
+                <h2>Logs</h2>
+                <div class="actions">
+                    <select id="log-source">
+                        <option value="system">system</option>
+                        <option value="tor">tor</option>
+                        <option value="nginx">nginx</option>
+                        <option value="docker">docker</option>
+                    </select>
+                    <input type="number" id="log-lines" value="50" min="10" max="500">
+                    <button onclick="logsView()">View</button>
+                    <button onclick="logsInstall()">Install Logs</button>
+                    <button onclick="logsSmokeTest()">Smoke-Test Logs</button>
+                </div>
+                <pre id="logs-output"></pre>
+            </section>
+
+            <section id="tab-maintenance" class="tab-content">
+                <h2>Maintenance</h2>
+                <div class="actions">
+                    <button onclick="maintStatus()">Status</button>
+                    <button onclick="maintTimerStatus()">Timer Status</button>
+                    <button onclick="maintEnableChecks()">Enable Checks</button>
+                    <button onclick="maintDisableChecks()">Disable Checks</button>
+                    <button onclick="maintBackup()">Backup</button>
+                    <button onclick="maintSmokeTest()" disabled title="Not available in enola-cli-lite">Smoke Test</button>
+                </div>
+                <div class="actions">
+                    <button onclick="maintSshConfig()">SSH Config</button>
+                    <label><input type="checkbox" id="maint-pqc-force"> Force</label>
+                    <label><input type="checkbox" id="maint-pqc-dryrun"> Dry Run</label>
+                    <button onclick="maintSshHardenPqc()">SSH Harden PQC</button>
+                </div>
+                <div class="actions">
+                    <select id="maint-cleanup-target"><option value="all">all</option><option value="docker">docker</option><option value="logs">logs</option></select>
+                    <input type="number" id="maint-cleanup-days" value="30" min="1" max="365">
+                    <label><input type="checkbox" id="maint-cleanup-dryrun"> Dry Run</label>
+                    <button onclick="maintCleanup()">Cleanup</button>
+                </div>
+                <pre id="maintenance-output"></pre>
+            </section>
+
+            <section id="tab-diag" class="tab-content">
+                <h2>Diagnostics</h2>
+                <div class="actions">
+                    <button onclick="diagSummary()">Summary</button>
+                    <button onclick="diagNginx()">NGINX</button>
+                    <button onclick="diagTor()">Tor</button>
+                    <button onclick="diagSsh()">SSH</button>
+                    <button onclick="diagWordpress()">WordPress</button>
+                    <button onclick="diagWpSync()">WP Sync</button>
+                    <button onclick="diagNginxTest()">NGINX Test</button>
+                    <button onclick="diagResources()">Resources</button>
+                </div>
+                <pre id="diag-output"></pre>
+            </section>
+
+            <section id="tab-test" class="tab-content">
+                <h2>Tests</h2>
+                <div class="actions">
+                    <input type="text" id="test-filter" placeholder="Filter (optional)">
+                    <button onclick="testRun()">Run Tests</button>
+                    <button onclick="testList()">List Tests</button>
+                    <button onclick="testBenchmark()" disabled title="Not available in enola-cli-lite">Benchmark</button>
+                    <button onclick="testResults()">Results</button>
+                    <button onclick="testClean()">Clean</button>
+                </div>
+                <pre id="test-output"></pre>
+            </section>
+
+            <section id="tab-doctor" class="tab-content">
+                <h2>System Doctor</h2>
+                <div class="actions">
+                    <button onclick="doctorRun()">Run Diagnostics</button>
+                    <button onclick="doctorSecurity()">Security Audit</button>
+                </div>
+                <pre id="doctor-output"></pre>
+            </section>
+
+            <section id="tab-setup" class="tab-content">
+                <h2>Setup</h2>
+                <div class="actions">
+                    <label><input type="checkbox" id="setup-all"> All</label>
+                    <label><input type="checkbox" id="setup-vpn"> VPN</label>
+                    <label><input type="checkbox" id="setup-security"> Security</label>
+                    <label><input type="checkbox" id="setup-pqc-tls"> PQC TLS</label>
+                    <button onclick="setupRun()">Run Setup</button>
+                </div>
+                <pre id="setup-output"></pre>
+            </section>
+
+            <section id="tab-system" class="tab-content">
+                <h2>System</h2>
+                <div class="actions">
+                    <button onclick="sysQuickref()">Quick Reference</button>
+                    <button onclick="sysLicense()">License</button>
+                    <button onclick="sysConfigShow()">Config Show</button>
+                    <label><input type="checkbox" id="sys-config-reachable"> Reachable</label>
+                    <button onclick="sysConfigValidate()">Config Validate</button>
+                </div>
+                <h3>Verify Download (PQC)</h3>
+                <div class="actions">
+                    <input type="text" id="sys-verify-file" placeholder="File path to verify">
+                    <input type="text" id="sys-verify-pqsig" placeholder=".pqsig path (optional)">
+                    <input type="text" id="sys-verify-pubkey" placeholder="Public key path (optional)">
+                    <button onclick="sysVerify()">Verify</button>
+                </div>
+                <h3>Uninstall</h3>
+                <div class="actions">
+                    <label><input type="checkbox" id="sys-uninstall-yes"> --yes</label>
+                    <label><input type="checkbox" id="sys-uninstall-keepdata"> --keep-data</label>
+                    <label><input type="checkbox" id="sys-uninstall-removedeps"> --remove-deps</label>
+                    <label><input type="checkbox" id="sys-uninstall-force"> Force</label>
+                    <input type="text" id="sys-uninstall-only" placeholder="--only sections (optional)">
+                    <button onclick="sysUninstall()">Uninstall</button>
+                </div>
+                <pre id="system-output"></pre>
+            </section>
+
+            <section id="tab-update" class="tab-content">
+                <h2>Updates</h2>
+                <div class="actions">
+                    <label><input type="checkbox" id="upd-check-force"> Force</label>
+                    <button onclick="updCheck()">Check for Updates</button>
+                    <button onclick="updSchema()">Feed Schema</button>
+                </div>
+                <div class="actions">
+                    <input type="text" id="upd-vf-source" placeholder="Feed URL or path">
+                    <input type="text" id="upd-vf-signature" placeholder="Signature URL (optional)">
+                    <button onclick="updVerifyFeed()">Verify Feed</button>
+                </div>
+                <div class="actions">
+                    <label><input type="checkbox" id="upd-dl-yes"> --yes</label>
+                    <label><input type="checkbox" id="upd-dl-dryrun"> --dry-run</label>
+                    <label><input type="checkbox" id="upd-dl-force"> Force</label>
+                    <label><input type="checkbox" id="upd-dl-allow-unsigned"> Allow Unsigned</label>
+                    <button onclick="updDownload()">Download</button>
+                    <div class="actions" style="margin-top:4px">
+                        <input type="text" id="upd-apply-binary" placeholder="Binary path (optional)">
+                        <label><input type="checkbox" id="upd-apply-allow-unsigned"> Allow Unsigned</label>
+                        <button onclick="updApply()">Apply</button>
+                    </div>
+                </div>
+                <pre id="update-output"></pre>
+            </section>
+
+            <section id="tab-docs" class="tab-content">
+                <h2>Documentation</h2>
+                <div class="actions">
+                    <select id="docs-topic">
+                        <option value="quickstart">Quickstart</option>
+                        <option value="commands">Commands</option>
+                        <option value="concepts">Concepts</option>
+                        <option value="faq">FAQ</option>
+                        <option value="examples">Examples</option>
+                        <option value="quantum-security">Quantum Security</option>
+                        <option value="verify-downloads">Verify Downloads</option>
+                        <option value="search">Search</option>
+                    </select>
+                    <input type="text" id="docs-filter" placeholder="Filter/search term (optional)">
+                    <button onclick="docsShow()">Show</button>
+                </div>
+                <pre id="docs-output"></pre>
+            </section>
+
+            <section id="tab-console" class="tab-content">
+                <h2>Console — Run any Enola command</h2>
+                <p class="hint">Type full command args. Example: <code>tor create --name x --service-type web</code></p>
+                <div class="actions console-actions">
+                    <select id="console-preset" onchange="consolePreset()">
+                        <option value="">-- Preset --</option>
+                        <option value="tor list">tor list</option>
+                        <option value="git list">git list</option>
+                        <option value="wp list">wp list</option>
+                        <option value="files list">files list</option>
+                        <option value="vpn list">vpn list</option>
+                        <option value="firewall status">firewall status</option>
+                        <option value="apparmor status">apparmor status</option>
+                        <option value="ports list">ports list</option>
+                        <option value="doctor">doctor</option>
+                        <option value="doctor --security">doctor --security</option>
+                        <option value="logs list">logs list</option>
+                        <option value="maintenance status">maintenance status</option>
+                        <option value="diag summary">diag summary</option>
+                        <option value="test list">test list</option>
+                        <option value="setup --all">setup --all</option>
+                        <option value="quickref">quickref</option>
+                        <option value="license">license</option>
+                        <option value="config-show">config-show</option>
+                        <option value="config-validate">config-validate</option>
+                        <option value="update check">update check</option>
+                        <option value="docs quickstart">docs quickstart</option>
+                        <option value="tor create --name test --service-type web">tor create</option>
+                        <option value="git create --name gitea --ssl">git create</option>
+                        <option value="wp create --name blog">wp create</option>
+                        <option value="files create --name share --auth">files create</option>
+                        <option value="vpn create wg0 --port 51820">vpn create</option>
+                        <option value="drupal create --name site1 --http-port 8090">drupal create</option>
+                        <option value="firewall setup --ssh-port 22">firewall setup</option>
+                        <option value="apparmor setup --mode enforce">apparmor setup</option>
+                        <option value="update check">update check</option>
+                        <option value="update download --yes">update download</option>
+                        <option value="git watcher">git watcher</option>
+                        <option value="update verify-feed">update verify-feed</option>
+                    </select>
+                    <input type="text" id="console-args" placeholder="tor create --name test --service-type web" style="flex:1" list="console-suggestions" autocomplete="off">
+                    <datalist id="console-suggestions"></datalist>
+                    <button onclick="consoleRun()">Run</button>
+                </div>
+                <pre id="console-output"></pre>
+            </section>
+        </main>
+
+        <!-- Tor Edit Modal -->
+        <div id="tor-edit-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <h3>Editar servicio Tor: <span id="tor-edit-name"></span></h3>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="tor-edit-vport">Puerto Virtual (.onion)</label>
+                        <input type="number" id="tor-edit-vport" min="1" max="65535">
+                        <span class="hint">80 = HTTP estándar (recomendado). 443 = HTTPS.</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="tor-edit-nport">Puerto Nginx (intermedio)</label>
+                        <input type="number" id="tor-edit-nport" min="1" max="65535">
+                        <span class="hint">Asignado automáticamente. Normalmente no se cambia.</span>
+                    </div>
+                    <div class="form-row">
+                        <label for="tor-edit-tport">Puerto Backend (tu app)</label>
+                        <input type="number" id="tor-edit-tport" min="1" max="65535">
+                        <span class="hint">Donde escucha tu aplicación.</span>
+                    </div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="tor-edit-auto"> Auto-asignar puerto Nginx</label>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button onclick="torEditSave()">Guardar</button>
+                    <button onclick="torEditCancel()" class="btn-secondary">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Git Edit Modal -->
+        <div id="git-edit-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <h3>Edit Git Server: <span id="git-edit-name"></span></h3>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="git-edit-http">HTTP Port</label>
+                        <input type="number" id="git-edit-http" min="1" max="65535">
+                    </div>
+                    <div class="form-row">
+                        <label for="git-edit-https">HTTPS Port</label>
+                        <input type="number" id="git-edit-https" min="1" max="65535">
+                    </div>
+                    <div class="form-row">
+                        <label for="git-edit-ssh">SSH Port</label>
+                        <input type="number" id="git-edit-ssh" min="1" max="65535">
+                    </div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="git-edit-auto"> Auto-assign ports</label>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button onclick="gitEditSave()">Save</button>
+                    <button onclick="gitEditCancel()" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- WP Edit Modal -->
+        <div id="wp-edit-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <h3>Edit WordPress Site: <span id="wp-edit-name"></span></h3>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="wp-edit-http">HTTP Port</label>
+                        <input type="number" id="wp-edit-http" min="1" max="65535">
+                    </div>
+                    <div class="form-row">
+                        <label for="wp-edit-https">HTTPS Port</label>
+                        <input type="number" id="wp-edit-https" min="1" max="65535">
+                    </div>
+                    <div class="form-row">
+                        <label for="wp-edit-ssl">SSL</label>
+                        <select id="wp-edit-ssl"><option value="false">Disabled</option><option value="true">Enabled</option></select>
+                    </div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="wp-edit-auto"> Auto-assign ports</label>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button onclick="wpEditSave()">Save</button>
+                    <button onclick="wpEditCancel()" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Files Edit Modal -->
+        <div id="files-edit-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <h3>Edit File Share: <span id="files-edit-name"></span></h3>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="files-edit-port">Nginx Port</label>
+                        <input type="number" id="files-edit-port" min="1" max="65535">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button onclick="filesEditSave()">Save</button>
+                    <button onclick="filesEditCancel()" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CMS Edit Modal -->
+        <div id="cms-edit-modal" class="modal-overlay" style="display:none">
+            <div class="modal">
+                <h3>Edit CMS: <span id="cms-edit-name"></span></h3>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="cms-edit-port">HTTP Port</label>
+                        <input type="number" id="cms-edit-port" min="1" max="65535">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button onclick="cmsEditSave()">Save</button>
+                    <button onclick="cmsEditCancel()" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confirm Modal -->
+        <div id="confirm-modal" class="modal-overlay" style="display:none">
+            <div class="modal modal-confirm">
+                <h3 id="confirm-title">⚠️ Confirm</h3>
+                <p id="confirm-message"></p>
+                <div class="modal-actions">
+                    <button id="confirm-yes" class="btn-danger" onclick="_confirmYes()">Confirm</button>
+                    <button id="confirm-no" class="btn-secondary" onclick="_confirmNo()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="toast"></div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

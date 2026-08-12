@@ -1,0 +1,65 @@
+# =====================================================================
+# .cargo/config.example.toml — Plantilla de build endurecido
+# =====================================================================
+#
+# COPIA este archivo a `.cargo/config.toml` y ajusta los paths para
+# tu entorno. NUNCA commitees `.cargo/config.toml` — contiene paths
+# reales de tu sistema que filtrarían tu username en el binario.
+#
+# Este archivo se aplica automáticamente a TODOS los builds del proyecto.
+# Cambiar algo aquí altera la firma del binario distribuido.
+#
+# Verificación tras build:
+#     strings target/release/enola-cli | grep -E '/home/|/.cargo/'
+# debe NO devolver nada.
+# =====================================================================
+
+[build]
+# Mantener el directorio de output estándar para no romper scripts existentes.
+# (target/) ya está en .gitignore.
+
+# ---------------------------------------------------------------------
+# RUSTFLAGS aplicados a TODOS los targets / TODOS los profiles.
+#
+# --remap-path-prefix reescribe rutas absolutas embebidas en panic
+# messages, debug info y strings literales. Sin esto, el binario release
+# contiene paths como:
+#     /home/<user>/.cargo/registry/src/index.crates.io-XXXX/<crate>/...
+# que filtran:
+#   1. El nombre de usuario del desarrollador.
+#   2. La estructura de directorios.
+#   3. Las versiones exactas de cada dependencia (útil para CVE-mining
+#      contra el binario distribuido).
+#
+# IMPORTANTE:
+#   - Sustituye /home/YOUR_USER y /path/to/project con tus paths reales.
+#   - NO uses regla fallback --remap-path-prefix=/home/=/h/ porque rustc
+#     la aplica ANTES que las reglas específicas, rompiendo el remapping
+#     de /home/USER/.cargo/registry y /home/USER/.rustup.
+#   - OpenSSL build script embebe rutas absolutas (ENGINESDIR/MODULESDIR)
+#     que --remap-path-prefix NO puede reescribir (son del build system de C).
+#     Para releases, usar build_release.sh que compila con CARGO_TARGET_DIR
+#     en path neutro (/tmp/enola-release-build), eliminando estas rutas.
+# ---------------------------------------------------------------------
+[target.'cfg(all())']
+rustflags = [
+    # 1. Workspace local del desarrollador → "/build"
+    "--remap-path-prefix=/home/YOUR_USER/path/to/project=/build",
+    # 2. Cargo registry (deps descargadas) → "/cargo-registry"
+    "--remap-path-prefix=/home/YOUR_USER/.cargo/registry=/cargo-registry",
+    # 3. Cargo git deps → "/cargo-git"
+    "--remap-path-prefix=/home/YOUR_USER/.cargo/git=/cargo-git",
+    # 4. rustup toolchain (libstd, core) → "/rustc"
+    "--remap-path-prefix=/home/YOUR_USER/.rustup=/rustc",
+]
+
+# ---------------------------------------------------------------------
+# Alternativa sin .cargo/config.toml — usar RUSTFLAGS env var:
+#   RUSTFLAGS="--remap-path-prefix=$HOME/.cargo/registry=/cargo-registry \
+#              --remap-path-prefix=$HOME/.cargo/git=/cargo-git \
+#              --remap-path-prefix=$HOME/.rustup=/rustc \
+#              --remap-path-prefix=$PWD=/build" \
+#     cargo build --release
+#
+# Verifica SIEMPRE con `strings` que no quedan paths personales.
+# ---------------------------------------------------------------------

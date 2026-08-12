@@ -1,0 +1,426 @@
+{
+  "flags": {
+    "apparmor.mode": [
+      "--enforce",
+      "--complain",
+      "--disable",
+      "--profile"
+    ],
+    "apparmor.setup": [
+      "--mode",
+      "--force"
+    ],
+    "config-show": [
+      "--json"
+    ],
+    "config-validate": [
+      "--reachable",
+      "--json"
+    ],
+    "doctor": [
+      "--security"
+    ],
+    "drupal.create": [
+      "--name",
+      "--http-port"
+    ],
+    "drupal.delete": [
+      "--force"
+    ],
+    "drupal.edit": [
+      "--http-port"
+    ],
+    "files.create": [
+      "--name",
+      "--auth",
+      "--ssl"
+    ],
+    "files.delete": [
+      "--force"
+    ],
+    "files.edit": [
+      "--port"
+    ],
+    "firewall.allow": [
+      "--port",
+      "--proto",
+      "--from"
+    ],
+    "firewall.deny": [
+      "--port",
+      "--proto"
+    ],
+    "firewall.setup": [
+      "--ssh-port",
+      "--force"
+    ],
+    "ghost.create": [
+      "--name",
+      "--http-port"
+    ],
+    "ghost.delete": [
+      "--force"
+    ],
+    "ghost.edit": [
+      "--http-port"
+    ],
+    "git.create": [
+      "--name",
+      "--ssl",
+      "--http-port",
+      "--ssh-port",
+      "--admin-user",
+      "--admin-password"
+    ],
+    "git.delete": [
+      "--force"
+    ],
+    "git.edit": [
+      "--http-port",
+      "--https-port",
+      "--ssh-port",
+      "--auto-ports"
+    ],
+    "git.publish": [
+      "--ssl"
+    ],
+    "git.registration": [
+      "--enable",
+      "--disable",
+      "--status"
+    ],
+    "logs.view": [
+      "--lines",
+      "--follow"
+    ],
+    "magnolia.create": [
+      "--name",
+      "--http-port"
+    ],
+    "magnolia.delete": [
+      "--force"
+    ],
+    "maintenance.cleanup": [
+      "--target",
+      "--dry-run",
+      "--force",
+      "--keep-days"
+    ],
+    "maintenance.ssh-harden-pqc": [
+      "--force",
+      "--dry-run"
+    ],
+    "ports.list": [
+      "--json"
+    ],
+    "setup": [
+      "--all",
+      "--vpn",
+      "--security",
+      "--pqc-tls"
+    ],
+    "strapi.build-image": [
+      "--force"
+    ],
+    "strapi.create": [
+      "--name",
+      "--http-port"
+    ],
+    "strapi.delete": [
+      "--force"
+    ],
+    "test.run": [
+      "--filter"
+    ],
+    "tor.create": [
+      "--name",
+      "--service-type",
+      "--virtual-port",
+      "--target-port",
+      "--ssl"
+    ],
+    "tor.edit": [
+      "--virtual-port",
+      "--nginx-port",
+      "--target-port",
+      "--auto-ports"
+    ],
+    "tor.remove": [
+      "--force"
+    ],
+    "uninstall": [
+      "--yes",
+      "--keep-data",
+      "--only",
+      "--force",
+      "--remove-deps"
+    ],
+    "update.apply": [
+      "--binary",
+      "--json",
+      "--allow-unsigned"
+    ],
+    "update.check": [
+      "--json",
+      "--force"
+    ],
+    "update.download": [
+      "--yes",
+      "--dry-run",
+      "--json",
+      "--force",
+      "--allow-unsigned"
+    ],
+    "update.schema": [
+      "--json"
+    ],
+    "update.verify-feed": [
+      "--signature",
+      "--json"
+    ],
+    "verify": [
+      "--pqsig",
+      "--pubkey",
+      "--json"
+    ],
+    "vpn.create": [
+      "--port",
+      "--subnet",
+      "--autostart",
+      "--sync-firewall"
+    ],
+    "vpn.delete": [
+      "--force",
+      "--sync-firewall"
+    ],
+    "wagtail.create": [
+      "--name",
+      "--http-port"
+    ],
+    "wagtail.delete": [
+      "--force"
+    ],
+    "web": [
+      "--port"
+    ],
+    "wp.create": [
+      "--name",
+      "--http-port"
+    ],
+    "wp.delete": [
+      "--force"
+    ],
+    "wp.edit": [
+      "--http-port",
+      "--https-port",
+      "--ssl",
+      "--auto-ports"
+    ]
+  },
+  "modules": [
+    "tor",
+    "git",
+    "wp",
+    "drupal",
+    "ghost",
+    "magnolia",
+    "strapi",
+    "wagtail",
+    "files",
+    "maintenance",
+    "diag",
+    "test",
+    "logs",
+    "ports",
+    "firewall",
+    "apparmor",
+    "vpn",
+    "setup",
+    "doctor",
+    "quickref",
+    "license",
+    "verify",
+    "uninstall",
+    "config-show",
+    "config-validate",
+    "docs",
+    "update",
+    "web"
+  ],
+  "subcommands": {
+    "apparmor": [
+      "setup",
+      "status",
+      "mode"
+    ],
+    "diag": [
+      "summary",
+      "nginx",
+      "tor",
+      "ssh",
+      "word-press",
+      "wp-sync",
+      "nginx-test",
+      "resources"
+    ],
+    "docs": [
+      "quickstart",
+      "commands",
+      "concepts",
+      "faq",
+      "examples",
+      "search",
+      "quantum-security",
+      "verify-downloads",
+      "security",
+      "install-from-iso"
+    ],
+    "drupal": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "delete",
+      "status",
+      "publish",
+      "hide",
+      "edit"
+    ],
+    "files": [
+      "list",
+      "create",
+      "edit",
+      "delete",
+      "fix-perms"
+    ],
+    "firewall": [
+      "setup",
+      "status",
+      "allow",
+      "deny"
+    ],
+    "ghost": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "delete",
+      "status",
+      "publish",
+      "hide",
+      "edit"
+    ],
+    "git": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "status",
+      "delete",
+      "registration",
+      "edit",
+      "publish",
+      "hide",
+      "user",
+      "watcher"
+    ],
+    "logs": [
+      "list",
+      "view",
+      "install",
+      "smoke-test"
+    ],
+    "magnolia": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "delete",
+      "status",
+      "publish",
+      "hide"
+    ],
+    "maintenance": [
+      "status",
+      "smoke-test",
+      "enable-checks",
+      "disable-checks",
+      "timer-status",
+      "ssh-config",
+      "ssh-harden-pqc",
+      "backup",
+      "cleanup"
+    ],
+    "ports": [
+      "list"
+    ],
+    "strapi": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "delete",
+      "status",
+      "publish",
+      "hide",
+      "build-image"
+    ],
+    "test": [
+      "run",
+      "list",
+      "benchmark",
+      "results",
+      "clean"
+    ],
+    "tor": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "remove",
+      "edit",
+      "rotate",
+      "auth"
+    ],
+    "update": [
+      "check",
+      "schema",
+      "verify-feed",
+      "download",
+      "apply"
+    ],
+    "vpn": [
+      "create",
+      "start",
+      "stop",
+      "status",
+      "list",
+      "delete",
+      "peer"
+    ],
+    "wagtail": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "delete",
+      "status",
+      "publish",
+      "hide"
+    ],
+    "wp": [
+      "list",
+      "create",
+      "start",
+      "stop",
+      "restart",
+      "delete",
+      "update",
+      "config",
+      "status",
+      "publish",
+      "hide",
+      "edit"
+    ]
+  }
+}
