@@ -88,41 +88,14 @@ impl GitPort for GitClientAdapter {
 impl GitClientAdapter {
     /// Flattens a repository into a single text file (context window optimized)
     pub async fn flatten_repo(&self, repo_dir: &Path) -> Result<String> {
-        // Walkdir
         let mut content = String::new();
-
-        // Recursive walker needed.
-        // Since we are in async adapter, and recursive async fns need BoxFuture, let's use a stack or `walkdir` crate if added (not in cargo.toml).
-        // I'll implement simple recursive walker helper.
-
         self.visit_dir(repo_dir, &mut content).await?;
-
         Ok(content)
     }
 
-    #[async_recursion::async_recursion]
-    // Wait, async_recursion crate not in Cargo.toml.
-    // I will use Iterative Stack approach or just 1 level deep for MVP?
-    // Git repos are deep.
-    // `tokio::fs::read_dir` returns `ReadDir`.
-
-    // I'll modify logic to use `find` command if available for speed and simplicity in Linux?
-    // Or just simple recursion without `async_recursion` macro using Box::pin.
-
-    // Using `find` command is actually robust for "Enola Server" (Linux env).
-    // `find . -maxdepth 5 -not -path '*/.*' -type f`
-
-    // Let's stick to safe Rust recursion.
-    // Since I can't add crate easily without editing cargo.toml and network, I'll use a `Vec` stack.
-
+    /// Iterative directory walker using a stack (no recursion).
+    /// Ignores hidden directories, `target/`, and `node_modules/`.
     async fn visit_dir(&self, dir: &Path, content: &mut String) -> Result<()> {
-        // This function would be better iterative for async without recursion trait.
-        // But let's try `find` command approach for "flattening" to avoid re-implementing walkdir.
-
-        // Actually, let's just implement `SyncSource` assuming `GitCodeFlattening` allows `process_repo`.
-        // The task calls for "Clonar repo y generar contexto plano".
-
-        // Let's implement iterative walk.
         let mut stack = vec![dir.to_path_buf()];
 
         while let Some(path) = stack.pop() {

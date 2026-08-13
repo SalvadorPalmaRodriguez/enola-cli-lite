@@ -15,9 +15,11 @@ impl UpdateWordPress {
         let db_container = format!("db-{}", blog_name);
         let wp_container = format!("wp-{}", blog_name);
 
-        // 1. Pull latest images (optional, depends if we want to force update)
-        // ContainerPort should have a pull_image method for this.
-        // Assuming we want to update the WordPress image.
+        // 1. Pull latest images
+        self.container_manager.pull_image("mariadb:10.6").await?;
+        self.container_manager
+            .pull_image("wordpress:latest")
+            .await?;
 
         // 2. Restart Containers
         self.container_manager
@@ -37,8 +39,16 @@ mod tests {
     use crate::ports::container::MockContainerPort;
 
     #[tokio::test]
-    async fn test_update_restarts_both_containers() {
+    async fn test_update_pulls_images_and_restarts() {
         let mut mock = MockContainerPort::new();
+        mock.expect_pull_image()
+            .withf(|img| img == "mariadb:10.6")
+            .times(1)
+            .returning(|_| Ok(()));
+        mock.expect_pull_image()
+            .withf(|img| img == "wordpress:latest")
+            .times(1)
+            .returning(|_| Ok(()));
         mock.expect_restart_container()
             .withf(|id| id == "db-myblog")
             .times(1)
@@ -54,8 +64,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_update_fails_if_pull_fails() {
+        let mut mock = MockContainerPort::new();
+        mock.expect_pull_image().returning(|_| {
+            Err(crate::domain::error::EnolaError::InfrastructureError(
+                "Registry unreachable".to_string(),
+            ))
+        });
+
+        let service = UpdateWordPress::new(Arc::new(mock));
+        let result = service.execute("myblog").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
     async fn test_update_fails_if_db_restart_fails() {
         let mut mock = MockContainerPort::new();
+        mock.expect_pull_image().returning(|_| Ok(()));
         mock.expect_restart_container()
             .withf(|id| id == "db-myblog")
             .returning(|_| {

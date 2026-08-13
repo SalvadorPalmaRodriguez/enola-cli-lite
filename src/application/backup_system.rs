@@ -103,8 +103,26 @@ impl BackupSystem {
             )));
         }
 
-        // Optional: Backup current state before overwrite?
-        // For now, straight restore.
+        // Safety: backup current state before overwriting
+        if target_path.exists() {
+            let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let target_name = target_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let pre_restore_name = format!("pre-restore_{}_{}.bak", timestamp, target_name);
+            let pre_restore_path = self.backup_root.join(pre_restore_name);
+
+            self.file_manager.ensure_dir(&self.backup_root).await?;
+            self.file_manager
+                .copy_file(target_path, &pre_restore_path)
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Failed to create pre-restore backup: {}", e);
+                    e
+                })?;
+        }
 
         // Ensure parent of target exists
         if let Some(parent) = target_path.parent() {
@@ -127,6 +145,7 @@ impl BackupSystem {
     }
 
     /// Create backup of specific paths (for testing or custom backups)
+    /// Archives all existing paths into a single tar.gz by staging them in a temp directory.
     pub async fn create_backup_of_paths(
         &self,
         identifier: &str,
@@ -138,12 +157,41 @@ impl BackupSystem {
         let backup_name = format!("{}_{}_full.tar.gz", timestamp, identifier);
         let backup_path = self.backup_root.join(&backup_name);
 
-        // Archive each existing path via FileManagerPort
-        for path in paths {
-            if path.exists() {
-                self.file_manager.create_archive(path, &backup_path).await?;
-                break; // create_archive on the first found path; for multi-path a loop appending would be needed
+        // Collect existing paths
+        let existing: Vec<&PathBuf> = paths.iter().filter(|p| p.exists()).collect();
+
+        if existing.is_empty() {
+            // No paths to archive — return path anyway (empty backup)
+            return Ok(backup_path);
+        }
+
+        if existing.len() == 1 {
+            // Single path — archive directly
+            self.file_manager
+                .create_archive(existing[0], &backup_path)
+                .await?;
+        } else {
+            // Multiple paths — stage into a temp directory, then archive
+            let temp_dir =
+                std::env::temp_dir().join(format!("enola_backup_{}_{}", timestamp, identifier));
+            self.file_manager.ensure_dir(&temp_dir).await?;
+
+            for path in &existing {
+                let dest_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let dest = temp_dir.join(&dest_name);
+                self.file_manager.copy_file(path, &dest).await?;
             }
+
+            self.file_manager
+                .create_archive(&temp_dir, &backup_path)
+                .await?;
+
+            // Cleanup temp directory
+            let _ = tokio::fs::remove_dir_all(&temp_dir).await;
         }
 
         Ok(backup_path)
@@ -160,6 +208,57 @@ impl BackupSystem {
         // Extract to root
         let dest = PathBuf::from("/");
         self.file_manager.extract_archive(backup_path, &dest).await
+    }
+
+    /// Create a tar.gz archive backup of a directory.
+    /// Uses `create_archive` from `FileManagerPort`.
+    pub async fn create_archive_backup(
+        &self,
+        source_dir: &Path,
+        identifier: &str,
+    ) -> Result<PathBuf> {
+        if !source_dir.exists() {
+            return Err(EnolaError::NotFound(format!(
+                "Source directory not found: {:?}",
+                source_dir
+            )));
+        }
+
+        self.file_manager.ensure_dir(&self.backup_root).await?;
+
+        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        let filename = source_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let backup_name = format!("{}_{}_{}.tar.gz", timestamp, identifier, filename);
+        let backup_path = self.backup_root.join(backup_name);
+
+        self.file_manager
+            .create_archive(source_dir, &backup_path)
+            .await?;
+
+        Ok(backup_path)
+    }
+
+    /// Restore a directory from a tar.gz archive backup.
+    /// Uses `extract_archive` from `FileManagerPort`.
+    pub async fn restore_directory(&self, backup_archive: &Path, target_dir: &Path) -> Result<()> {
+        if !backup_archive.exists() {
+            return Err(EnolaError::NotFound(format!(
+                "Backup archive not found: {:?}",
+                backup_archive
+            )));
+        }
+
+        // Ensure target directory exists
+        self.file_manager.ensure_dir(target_dir).await?;
+
+        self.file_manager
+            .extract_archive(backup_archive, target_dir)
+            .await
     }
 
     async fn rotate_backups(&self, identifier: &str, _filename: &str) -> Result<()> {
@@ -351,5 +450,71 @@ mod tests {
         let mock = mock_file_manager();
         let system = BackupSystem::new(Arc::new(mock));
         assert_eq!(system.max_backups, 5);
+    }
+
+    #[tokio::test]
+    async fn test_restore_creates_pre_restore_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backup_root = tmp.path().join("backups");
+        std::fs::create_dir_all(&backup_root).unwrap();
+
+        // Create a fake "current" target file and a backup file
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, "current").unwrap();
+        let backup_file = backup_root.join("backup.bak");
+        std::fs::write(&backup_file, "backup_content").unwrap();
+
+        let mut mock = MockFileManagerPort::new();
+        mock.expect_ensure_dir().returning(|_| Ok(()));
+        // copy_file called twice: once for pre-restore, once for actual restore
+        mock.expect_copy_file().times(2).returning(|_, _| Ok(()));
+
+        let system = BackupSystem::with_backup_root(Arc::new(mock), backup_root);
+        let result = system.restore_backup(&backup_file, &target).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_restore_skips_pre_backup_if_target_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backup_root = tmp.path().join("backups");
+        std::fs::create_dir_all(&backup_root).unwrap();
+
+        let backup_file = backup_root.join("backup.bak");
+        std::fs::write(&backup_file, "backup_content").unwrap();
+
+        let mut mock = MockFileManagerPort::new();
+        mock.expect_ensure_dir().returning(|_| Ok(()));
+        // copy_file called once: only the actual restore (no pre-restore since target doesn't exist)
+        mock.expect_copy_file().times(1).returning(|_, _| Ok(()));
+
+        let system = BackupSystem::with_backup_root(Arc::new(mock), backup_root);
+        let target = tmp.path().join("nonexistent_target.txt");
+        let result = system.restore_backup(&backup_file, &target).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_multi_path_backup_stages_all_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backup_root = tmp.path().join("backups");
+
+        // Create two source files
+        let file1 = tmp.path().join("file1.txt");
+        let file2 = tmp.path().join("file2.txt");
+        std::fs::write(&file1, "content1").unwrap();
+        std::fs::write(&file2, "content2").unwrap();
+
+        let mut mock = MockFileManagerPort::new();
+        mock.expect_ensure_dir().returning(|_| Ok(()));
+        // For multi-path: copy_file called for each path (2), then create_archive once
+        mock.expect_copy_file().times(2).returning(|_, _| Ok(()));
+        mock.expect_create_archive()
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let system = BackupSystem::with_backup_root(Arc::new(mock), backup_root);
+        let result = system.create_backup_of_paths("test", &[file1, file2]).await;
+        assert!(result.is_ok());
     }
 }

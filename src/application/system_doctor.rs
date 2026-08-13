@@ -326,6 +326,7 @@ async fn section_hardware() -> String {
             ));
         }
     }
+    s.push_str(&format!("  Batería      : {:?}\n", specs.battery_status));
     s
 }
 

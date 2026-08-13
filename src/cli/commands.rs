@@ -5533,11 +5533,27 @@ pub mod diagnostics {
             "GPU: Unknown".to_string()
         };
 
+        let container_lines: Vec<String> = report
+            .containers
+            .iter()
+            .map(|c| {
+                format!(
+                    "    {} [{}] CPU: {:.1}%, Mem: {} MB",
+                    c.name,
+                    c.status,
+                    c.cpu_percent,
+                    c.memory_usage / 1024 / 1024
+                )
+            })
+            .collect();
+
         Ok(format!(
-            "System Resources:\n  Overall: {}\n  CPU: {:.1}%\n  Memory: {}/{} bytes\n  {}\n  Services: {:?}\n  Containers: {:?}",
+            "System Resources:\n  Overall: {}\n  CPU: {:.1}%\n  Memory: {}/{} bytes\n  {}\n  Services: {:?}\n  Containers ({}):\n{}",
             report.system.overall, report.system.cpu_usage, report.system.memory_used, report.system.memory_total,
             gpu_info,
-            report.services.keys().collect::<Vec<_>>(), report.containers.len()
+            report.services.keys().collect::<Vec<_>>(),
+            report.containers.len(),
+            if container_lines.is_empty() { "    (none)".to_string() } else { container_lines.join("\n") }
         ))
     }
 

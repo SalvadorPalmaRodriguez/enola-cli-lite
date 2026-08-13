@@ -5,6 +5,15 @@
 pub struct User {
     pub id: String,
     pub name: Option<String>,
+    pub role: UserRole,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum UserRole {
+    #[default]
+    User,
+    Admin,
+    Operator,
 }
 
 impl User {
@@ -12,7 +21,20 @@ impl User {
         Self {
             id: id.into(),
             name,
+            role: UserRole::default(),
         }
+    }
+
+    pub fn with_role(id: impl Into<String>, name: Option<String>, role: UserRole) -> Self {
+        Self {
+            id: id.into(),
+            name,
+            role,
+        }
+    }
+
+    pub fn is_admin(&self) -> bool {
+        self.role == UserRole::Admin
     }
 }
 
@@ -102,6 +124,32 @@ mod tests {
     fn ne_when_one_has_name_and_other_doesnt() {
         let a = User::new("id1", Some("X".into()));
         let b = User::new("id1", None);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn default_role_is_user() {
+        let u = User::new("u1", None);
+        assert_eq!(u.role, super::UserRole::User);
+    }
+
+    #[test]
+    fn with_role_admin() {
+        let u = User::with_role("u1", Some("Alice".into()), super::UserRole::Admin);
+        assert!(u.is_admin());
+    }
+
+    #[test]
+    fn with_role_operator() {
+        let u = User::with_role("u1", None, super::UserRole::Operator);
+        assert!(!u.is_admin());
+        assert_eq!(u.role, super::UserRole::Operator);
+    }
+
+    #[test]
+    fn different_roles_are_not_equal() {
+        let a = User::with_role("id1", None, super::UserRole::Admin);
+        let b = User::with_role("id1", None, super::UserRole::User);
         assert_ne!(a, b);
     }
 }
