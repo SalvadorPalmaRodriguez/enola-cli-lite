@@ -1,0 +1,30 @@
+{
+  "schema_version": "1",
+  "latest": "0.1.1-alpha",
+  "min_supported": "0.1.0-alpha",
+  "download_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli",
+  "published_at": "2026-08-22T00:00:00Z",
+  "docs_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite#readme",
+  "severity_summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "signature_urls": [
+    "https://salvadorpalmarodriguez.github.io/enola-cli-lite/feed/advisories.json.minisig"
+  ],
+  "advisories": [],
+  "pqc_milestones": [
+    { "id": "PQC-010", "status": "done", "description": "SSH MACs ETM en Forgejo", "target_version": "1.0.0" },
+    { "id": "PQC-012", "status": "done", "description": "SSH PQC híbrido en host", "target_version": "1.0.0" },
+    { "id": "PQC-013", "status": "done", "description": "Rotación de claves Tor", "target_version": "1.0.0" },
+    { "id": "PQC-020", "status": "done", "description": "TLS PQC (OpenSSL 3.5 + ML-KEM)", "target_version": "1.0.0" },
+    { "id": "PQC-021", "status": "done", "description": "TLSv1.3-only + RSA-4096 uniforme", "target_version": "1.0.0" },
+    { "id": "PQC-030", "status": "done", "description": "Firma binarios con ML-DSA-65", "target_version": "1.0.0" },
+    { "id": "PQC-022", "status": "blocked", "description": "Tokens JWT PQC", "target_version": "" },
+    { "id": "PQC-040", "status": "blocked", "description": "Tor circuit PQC (ntor-v3)", "target_version": "" },
+    { "id": "PQC-050", "status": "blocked", "description": "WireGuard PQC (Rosenpass)", "target_version": "" }
+  ],
+  "enforce_updates": false
+}
