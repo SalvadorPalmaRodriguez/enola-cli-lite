@@ -9,8 +9,18 @@
 </head>
 <body>
     <header class="site-header">
-        <div class="wrapper">
+        <div class="wrapper site-header-inner">
             <a class="site-title" href="{{ '/' | relative_url }}">{{ site.title | escape }}</a>
+            <div class="lang-switcher">
+                {% assign url_parts = page.url | split: '/' %}
+                {% if url_parts[1] == 'en' %}
+                    <a href="{{ '/' | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>
+                    <span class="lang-flag active" title="English">🇺🇸</span>
+                {% else %}
+                    <span class="lang-flag active" title="Español">🇪🇸</span>
+                    <a href="{{ '/en/' | relative_url }}" class="lang-flag" title="English">🇺🇸</a>
+                {% endif %}
+            </div>
         </div>
     </header>
     <main class="page-content">
