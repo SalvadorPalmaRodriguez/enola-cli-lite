@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ page.lang | default: site.lang | default: 'en' }}">
+<html lang="{{ page.lang | default: 'en' }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,20 +8,48 @@
     <link rel="stylesheet" href="{{ '/assets/enola-hacker.css' | relative_url }}">
 </head>
 <body>
+    {% comment %}── Language mapping ──{% endcomment %}
+    {% assign current_lang = 'en' %}
+    {% assign lang_alt = '/user/guia/quickstart.html' %}
+
+    {% if page.url contains '/user/' %}
+        {% assign current_lang = 'es' %}
+        {% assign lang_alt = '/' %}
+        {% case page.url %}
+        {% when '/user/guia/quickstart.html' %}{% assign lang_alt = '/en/quickstart.html' %}
+        {% when '/user/general/commands.html' %}{% assign lang_alt = '/en/commands.html' %}
+        {% when '/user/general/concepts.html' %}{% assign lang_alt = '/en/concepts.html' %}
+        {% when '/user/general/faq.html' %}{% assign lang_alt = '/en/faq.html' %}
+        {% when '/user/general/SECURITY.html' %}{% assign lang_alt = '/en/security-model.html' %}
+        {% when '/user/general/quantum-security.html' %}{% assign lang_alt = '/en/security-model.html' %}
+        {% when '/user/general/commands-simple.html' %}{% assign lang_alt = '/en/commands.html' %}
+        {% when '/user/verify/verify-downloads.html' %}{% assign lang_alt = '/en/verify-downloads.html' %}
+        {% when '/user/guia/examples.html' %}{% assign lang_alt = '/en/quickstart.html' %}
+        {% when '/user/guia/install-from-iso.html' %}{% assign lang_alt = '/en/quickstart.html' %}
+        {% endcase %}
+    {% elsif page.url contains '/en/' %}
+        {% assign current_lang = 'en' %}
+        {% assign lang_alt = '/user/guia/quickstart.html' %}
+        {% case page.url %}
+        {% when '/en/quickstart.html' %}{% assign lang_alt = '/user/guia/quickstart.html' %}
+        {% when '/en/commands.html' %}{% assign lang_alt = '/user/general/commands.html' %}
+        {% when '/en/concepts.html' %}{% assign lang_alt = '/user/general/concepts.html' %}
+        {% when '/en/faq.html' %}{% assign lang_alt = '/user/general/faq.html' %}
+        {% when '/en/security-model.html' %}{% assign lang_alt = '/user/general/SECURITY.html' %}
+        {% when '/en/verify-downloads.html' %}{% assign lang_alt = '/user/verify/verify-downloads.html' %}
+        {% endcase %}
+    {% endif %}
+
     <header class="site-header">
         <div class="wrapper site-header-inner">
             <a class="site-title" href="{{ '/' | relative_url }}">{{ site.title | escape }}</a>
             <div class="lang-switcher">
-                {% assign url_parts = page.url | split: '/' %}
-                {% if url_parts[1] == 'en' %}
-                    <a href="{{ '/' | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>
+                {% if current_lang == 'en' %}
+                    <a href="{{ lang_alt | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>
                     <span class="lang-flag active" title="English">🇺🇸</span>
-                {% elsif url_parts[1] == 'user' %}
-                    <span class="lang-flag active" title="Español">🇪🇸</span>
-                    <a href="{{ '/en/' | relative_url }}" class="lang-flag" title="English">🇺🇸</a>
                 {% else %}
-                    <a href="{{ '/user/guia/quickstart.html' | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>
-                    <span class="lang-flag active" title="English">🇺🇸</span>
+                    <span class="lang-flag active" title="Español">🇪🇸</span>
+                    <a href="{{ lang_alt | relative_url }}" class="lang-flag" title="English">🇺🇸</a>
                 {% endif %}
             </div>
         </div>
