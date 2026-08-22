@@ -2,7 +2,7 @@
 
 **English** · **[Español](README.es.md)**
 
-[![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue.svg)](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
+[![Version](https://img.shields.io/badge/version-0.1.1--alpha-blue.svg)](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
 [![License](https://img.shields.io/badge/license-Proprietary%20(source--visible)-orange.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](https://www.debian.org/)
 [![Rust](https://img.shields.io/badge/rust-1.96-orange.svg)](https://www.rust-lang.org/)

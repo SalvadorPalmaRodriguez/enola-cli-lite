@@ -43,7 +43,7 @@
 set -euo pipefail
 
 # ── Defaults configurables ─────────────────────────────────────────────────
-BASE_URL="${ENOLA_INSTALL_BASE_URL:-https://releases.tu-dominio.example}"
+BASE_URL="${ENOLA_INSTALL_BASE_URL:-https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download}"
 VERSION="${ENOLA_INSTALL_VERSION:-latest}"
 PREFIX="${ENOLA_INSTALL_PREFIX:-/usr/local}"
 NO_VERIFY="${ENOLA_INSTALL_NO_VERIFY:-0}"

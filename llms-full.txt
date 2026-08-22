@@ -4,7 +4,7 @@
 
 ## What it is
 
-- Product: `enola-cli`, a single Rust binary for end users. Current version: 0.1.0-alpha.
+- Product: `enola-cli`, a single Rust binary for end users. Current version: 0.1.1-alpha.
 - Purpose: privacy-first self-hosting. Every service binds to 127.0.0.1 only and is exposed exclusively through Tor hidden services. Traffic model: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT → App:TARGET_PORT`.
 - Platform: Debian/Linux (x86_64). Requires root (sudo), Docker, Nginx, Tor. `enola-cli setup` installs dependencies.
 - License: source-visible proprietary. Free for personal, non-commercial use. No redistribution, no forks, no commercial use. Copyright (c) 2026 Salvador Palma Rodriguez.

@@ -3,6 +3,27 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.1-alpha] — 2026-08-22
+
+### Changed
+- Version unified to 0.1.0-alpha (fixes inconsistent version references across docs and Cargo.toml)
+- Rust badge updated: 1.75+ → 1.96 (matches rust-toolchain.toml)
+- PQC keypair regenerated — new `pqc_sign.pub` (previous private key was lost; no prior releases to invalidate)
+
+### Added
+- English-first `README.md` with language selector to `README.es.md`
+- `llms.txt` + `llms-full.txt` for AI crawler indexing (llmstxt.org standard)
+- `SECURITY.md`, `CHANGELOG.md`, `CONTRIBUTING.md` at repo root
+- GitHub issue templates (`bug_report.yml` + `config.yml`) with security email redirect
+- English translations of 6 key docs in `docs/en/` (quickstart, commands, concepts, faq, security-model, verify-downloads)
+- GitHub Pages setup (`docs/index.md` + `docs/_config.yml`) with Jekyll theme cayman
+- GitHub repo metadata: description, homepage URL, 18 topics
+- Missing `git status` subcommand documentation in `docs/user/git/commands-git.md`
+
+### Fixed
+- `install.sh`: `BASE_URL` placeholder → GitHub Releases URL (`https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download`)
+- `bump_version.sh`: regex now supports SemVer pre-release suffixes (`-alpha`, `-beta`, etc.)
+
 ## [0.1.0-alpha] — 2026-08
 
 First public alpha release (Phase 1: standalone, no authentication).
@@ -21,4 +42,5 @@ First public alpha release (Phase 1: standalone, no authentication).
 - **UX** — embedded offline docs (`enola-cli docs`), local web dashboard (`enola-cli web`), Docker quick reference, centralized config with `config-show`/`config-validate`, JSON output mode.
 - **Install/uninstall** — verified installer script and clean sectioned uninstaller (dry-run by default).
 
+[0.1.1-alpha]: https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/tag/v0.1.1-alpha
 [0.1.0-alpha]: https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/tag/v0.1.0-alpha
