@@ -2,6 +2,7 @@
 > **Versión:** 2.0 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Preguntas frecuentes**
 > **Referencias:** commands.md, concepts.md
+> **English:** [`docs/en/faq.md`](../../en/faq.md)
 
 # ❓ Preguntas Frecuentes — Enola CLI
 

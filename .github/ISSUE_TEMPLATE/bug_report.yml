@@ -1,0 +1,56 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Enola CLI
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Security issues must NOT be reported here.**
+        Per the [license (§5)](../blob/main/LICENSE) and our [security policy](../blob/main/SECURITY.md), vulnerabilities must be reported **privately** to **salvadorpalmarodriguez@gmail.com** within 72 hours of discovery. Public disclosure before remediation is prohibited.
+  - type: input
+    id: version
+    attributes:
+      label: Enola CLI version
+      description: Output of `enola-cli --version`
+      placeholder: "0.1.0-alpha"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Distribution and version, plus kernel (`uname -r`)
+      placeholder: "Debian 12, kernel 6.1.0-18-amd64"
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command executed
+      description: The exact command that triggered the bug
+      placeholder: "sudo enola-cli tor create -n myapp -s web"
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output / error
+      description: Paste the full output or error message. Remove any .onion addresses or sensitive data you don't want public.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: "Optional: Docker version (`docker --version`), Tor version (`tor --version`), relevant logs (`sudo enola-cli logs view <source> -l 100`)"
+    validations:
+      required: false

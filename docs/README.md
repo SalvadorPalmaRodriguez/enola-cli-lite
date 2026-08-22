@@ -1,5 +1,5 @@
 > **Documento:** `docs/README.md`
-> **Versión:** 3.1 | **Actualizado:** 2026-08-08
+> **Versión:** 3.2 | **Actualizado:** 2026-08-08
 > **Estado:** VIGENTE — Índice de documentación de usuario
 
 # Documentación — Enola CLI
@@ -67,10 +67,22 @@
 | [verify-downloads.md](user/verify/verify-downloads.md) | Verificación de descargas (minisign + ML-DSA) |
 | [uninstall.md](user/uninstall/uninstall.md) | Desinstalación limpia |
 
+## English documentation (`docs/en/`)
+
+| Document | Description |
+|----------|-------------|
+| [quickstart.md](en/quickstart.md) | Quick start guide |
+| [commands.md](en/commands.md) | Command index |
+| [concepts.md](en/concepts.md) | Key concepts (Tor, services, security) |
+| [faq.md](en/faq.md) | Frequently asked questions |
+| [security-model.md](en/security-model.md) | User-oriented security model |
+| [verify-downloads.md](en/verify-downloads.md) | Download verification (minisign + ML-DSA) |
+
 ## Changelog
 
 | Fecha | Cambio |
 |-------|--------|
+| 2026-08-08 | v3.2 — Añadida sección English documentation (docs/en/). |
 | 2026-08-08 | v3.1 — Añadido config-reference.md, sección Web Dashboard. |
 | 2026-07-25 | v3.0 — Simplificado a índice de docs/user/ únicamente. |
 | 2026-06-24 | v2.0 — Reescrito como índice de navegación. |

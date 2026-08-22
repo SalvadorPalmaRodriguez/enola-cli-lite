@@ -2,6 +2,7 @@
 > **Versión:** 2.0 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Guía de conceptos**
 > **Referencias:** commands.md, docs/user/general/commands.md
+> **English:** [`docs/en/concepts.md`](../../en/concepts.md)
 
 # 💡 Conceptos Clave — Enola CLI
 

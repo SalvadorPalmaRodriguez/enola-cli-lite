@@ -1,0 +1,127 @@
+# Enola CLI — Full Context for LLMs
+
+> Enola CLI is a Rust command-line tool for self-hosting Tor hidden services (.onion), Git servers (Forgejo), CMS platforms (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail), anonymous file sharing, WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux — with post-quantum signed releases (ML-DSA-65, FIPS 204).
+
+## What it is
+
+- Product: `enola-cli`, a single Rust binary for end users. Current version: 0.1.0-alpha.
+- Purpose: privacy-first self-hosting. Every service binds to 127.0.0.1 only and is exposed exclusively through Tor hidden services. Traffic model: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT → App:TARGET_PORT`.
+- Platform: Debian/Linux (x86_64). Requires root (sudo), Docker, Nginx, Tor. `enola-cli setup` installs dependencies.
+- License: source-visible proprietary. Free for personal, non-commercial use. No redistribution, no forks, no commercial use. Copyright (c) 2026 Salvador Palma Rodriguez.
+- Security reporting: vulnerabilities must be reported privately to salvadorpalmarodriguez@gmail.com within 72 hours of discovery; public disclosure is prohibited until remediation (license §5).
+- Architecture: hexagonal (ports & adapters). domain (pure logic) / ports (traits) / adapters (Docker, Nginx, Tor) / application (orchestration) / cli (routing) / infrastructure (utilities).
+- Phase 1 repository: standalone, no authentication, no server dependency. Phase 2 (auth + AI) will be released separately as v2.0.0.
+
+## Installation
+
+```
+curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
+```
+
+The installer verifies SHA256 + minisign signature. Downloads can additionally be verified offline with the embedded post-quantum key: `enola-cli verify <file>`.
+
+## Command reference (complete tree)
+
+Global options: `--format text|json`, `--verbose`, `--binary-base-url <URL>`, `--web-url <URL>`, `--docs-url <URL>`, `--tor-socks <URL>`.
+
+### tor — Tor hidden services
+- `tor list` — list services with .onion addresses and ports
+- `tor create -n <name> [-s web|static|files|raw] [-p <virtual-port>] [-t <target-port>] [--ssl]` — create a hidden service
+- `tor start|stop <name>` — lifecycle
+- `tor remove <name> [--force]` — delete
+- `tor edit <name> [-p <port>] [-n <nginx-port>] [-t <target-port>] [--auto-ports]` — change ports
+- `tor rotate <name>` — new .onion identity
+- `tor auth list|enable|disable <service>` — client authorization
+- `tor auth add <service> -c <client> -p <pubkey>` / `tor auth revoke <service> -c <client>`
+- `tor auth generate -c <client>` — generate x25519 keypair (client side)
+- `tor auth rotate <service> -c <client>` — rotate client keys (mitigates harvest-now-decrypt-later)
+
+### git — Forgejo Git servers
+- `git list` / `git create -n <name> [--ssl] [--http-port] [--ssh-port] [--admin-user <u> --admin-password <p>]`
+- `git start|stop|status|delete <name>` — lifecycle
+- `git registration <name> --enable|--disable|--status` — user self-registration
+- `git edit <name> [--http-port] [--https-port] [--ssh-port] [--auto-ports]`
+- `git publish <name> [--ssl]` / `git hide <name>` — Tor exposure
+- `git user list|create|delete <server> [...]` — user management
+- `git watcher` — pipeline watcher (foreground)
+
+### CMS modules — wp, drupal, ghost, magnolia, strapi, wagtail
+All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `start`, `stop`, `status`, `delete [--force]`, `publish` (expose on Tor), `hide`.
+- `wp` — WordPress. Extra: `restart`, `update` (with backup), `config`, `edit [--http-port] [--https-port] [--ssl] [--auto-ports]`. Port range 8080-9000 (auto).
+- `drupal` — drupal:10-apache + mariadb:10.11. Extra: `edit --http-port` (atomic container recreation).
+- `ghost` — ghost:5-alpine + embedded SQLite, container port 2368. Extra: `edit --http-port`.
+- `magnolia` — magnolia-cms:6 (Tomcat, Java). Needs ≥4 GB RAM.
+- `strapi` — Node + postgres:16-alpine. Extra: `build-image [--force]` (build production image once before first create).
+- `wagtail` — Python/Django + postgres:16-alpine, container port 8000.
+
+### files — anonymous file sharing
+- `files list` / `files create -n <name> [--auth] [--ssl]` / `files edit <name> [-p <port>]` / `files delete <name> --force` / `files fix-perms <name>`
+- Files served from `/srv/enola-files/<name>/` via Nginx autoindex over .onion.
+
+### maintenance
+- `maintenance status|smoke-test|enable-checks|disable-checks|timer-status|ssh-config|backup`
+- `maintenance ssh-harden-pqc [--dry-run] [--force]` — post-quantum SSH KEX (sntrup761x25519-sha512)
+- `maintenance cleanup [--target all|logs|docker] [--dry-run] [--force] [--keep-days N]`
+
+### diag — diagnostics
+- `diag summary|nginx|tor|ssh|wordpress|wp-sync|nginx-test|resources`
+
+### test / logs / ports
+- `test run [-f filter]|list|benchmark|results|clean`
+- `logs list` / `logs view <source> [-l N] [-f]` / `logs install` / `logs smoke-test`
+- `ports list [--json]` — every port in the Tor→Nginx→App chain
+
+### firewall — UFW
+- `firewall setup [--ssh-port N] [--force]` — deny incoming, allow outgoing, allow SSH, DOCKER-USER chain
+- `firewall status` / `firewall allow --port N [--proto tcp|udp|both] [--from CIDR]` / `firewall deny --port N [--proto]`
+
+### apparmor — sandboxing
+- `apparmor setup [--mode complain|enforce] [--force]` / `apparmor status`
+- `apparmor mode --enforce|--complain|--disable [--profile <name>]`
+
+### vpn — WireGuard
+- `vpn create <name> [--port 51820] [--subnet 10.8.0.0/24] [--autostart] [--sync-firewall]`
+- `vpn list|start|stop|status|delete <name> [--force] [--sync-firewall]`
+- `vpn peer add <iface> <peer> --endpoint <host> [--dns <ip>] [--psk] [--ip <ip>]`
+- `vpn peer add-pubkey <iface> <peer> <pubkey> <ip>` / `vpn peer remove <iface> <pubkey>`
+
+### setup / doctor
+- `setup` (core) / `setup --all` (core+VPN+security) / `setup --vpn` / `setup --security` / `setup --pqc-tls` (OpenSSL 3.5 + Nginx PQC stack)
+- `doctor` / `doctor --security` (security audit: container hardening, configs, leaked secrets)
+
+### update — advisory feed
+- `update check [--json] [--force]` — exit codes: 0 OK, 11 critical advisory, 12 below min_supported, 20 invalid feed, 21 invalid signature
+- `update schema [--json]` / `update verify-feed <source> [--signature] [--json]`
+- `update download [--yes] [--dry-run] [--json] [--force] [--allow-unsigned]`
+- `update apply [--binary <path>] [--json] [--allow-unsigned]`
+
+### verify — post-quantum release verification
+- `verify <file> [--pqsig <sig>] [--pubkey <key>] [--json]` — verifies ML-DSA-65 (FIPS 204) signature with the embedded public key; also verifies SHA256 if `<file>.sha256` exists. Offline.
+
+### uninstall
+- `uninstall` (dry-run) / `uninstall --yes [--keep-data] [--only binary,config,services,tor,nginx,systemd,apparmor,docker,ufw,data,deps] [--force] [--remove-deps]`
+
+### docs — embedded offline documentation
+- `docs quickstart|commands [group]|concepts [topic]|faq [term]|examples [case]|search <term>`
+- `docs quantum-security|verify-downloads|security|install-from-iso`
+
+### Other
+- `license` — full license text
+- `quickref` — Docker ↔ Enola equivalence table
+- `web [--port 8090]` — local web dashboard, binds to 127.0.0.1, token-protected
+- `config-show [--json]` / `config-validate [--reachable] [--json]` — centralized config (`~/.enola/config.toml`), priority: CLI flag > env var > file > default
+
+## Key concepts
+
+- Hidden service types: `web` (Tor→Nginx→App, recommended), `static` (Tor→Nginx, files from /var/www/<name>), `files` (Nginx autoindex), `raw` (Tor→App direct TCP, for SSH/databases).
+- Everything is localhost-only: internal ports are never exposed to the network; visitors only ever see the .onion address.
+- Tor client authorization uses x25519 keypairs (like SSH keys): client generates, sends public key to operator, operator authorizes.
+- Post-quantum measures: ML-DSA-65 release signatures, optional ML-KEM hybrid TLS stack (`setup --pqc-tls`), WireGuard preshared keys (`--psk`), SSH sntrup761x25519 KEX (`ssh-harden-pqc`), Tor auth key rotation.
+- Update security: advisory feed signed with minisign; binaries verified with SHA256 + minisign before applying; stable exit codes for scripting.
+
+## Links
+
+- Repository: https://github.com/SalvadorPalmaRodriguez/enola-cli-lite
+- Documentation site: https://salvadorpalmarodriguez.github.io/enola-cli-lite/
+- Releases (signed): https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases
+- Security contact: salvadorpalmarodriguez@gmail.com (private disclosure only)
