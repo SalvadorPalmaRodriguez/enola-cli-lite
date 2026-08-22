@@ -2,6 +2,7 @@
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de verificación de descargas**
 > **Referencias:** SIGNING_GUIDE.md, quantum-security.md, SECURITY.md
+> **English:** [`docs/en/verify-downloads.md`](../../en/verify-downloads.md)
 
 # 🔐 Verificar tu Descarga de Enola CLI
 
@@ -135,7 +136,7 @@ Puedes usar este script para automatizar toda la verificación:
 ```bash
 #!/bin/bash
 # verify_enola.sh — Verifica integridad y autoría de Enola CLI
-# Uso: bash verify_enola.sh enola-cli-v1.4.0-x86_64-linux-client.tar.gz
+# Uso: bash verify_enola.sh enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Uso: bash verify_enola.sh <archivo.tar.gz>}"
 PUBKEY="RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
@@ -185,9 +186,9 @@ echo "✅ Verificación completada"
 Cada release de Enola CLI incluye el artefacto client para usuarios:
 
 ```
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz          ← Binario público para usuarios
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz.sha256   ← Hash SHA256 (integridad)
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz.minisig  ← Firma minisign (autoría)
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz          ← Binario público para usuarios
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz.sha256   ← Hash SHA256 (integridad)
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz.minisig  ← Firma minisign (autoría)
 ```
 
 | Archivo | Qué verifica | Herramienta |
@@ -199,7 +200,7 @@ enola-cli-v1.4.0-x86_64-linux-client.tar.gz.minisig  ← Firma minisign (autorí
 
 ## Verificación post-cuántica (firma ML-DSA-65)
 
-Desde la versión 1.4.0, cada release incluye una **segunda firma** basada en el algoritmo
+Cada release incluye una **segunda firma** basada en el algoritmo
 post-cuántico **ML-DSA-65** (FIPS 204, también conocido como Dilithium). Esta firma
 protege contra futuros ataques de computadores cuánticos.
 
@@ -217,10 +218,10 @@ NIST FIPS 204. Con ambas firmas tienes doble garantía:
 ### Archivos de una release (con firma PQC)
 
 ```
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz          ← Binario público para usuarios
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz.sha256   ← Hash SHA256 (integridad)
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz.minisig  ← Firma clásica (Ed25519)
-enola-cli-v1.4.0-x86_64-linux-client.tar.gz.pqsig    ← Firma post-cuántica (ML-DSA-65)
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz          ← Binario público para usuarios
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz.sha256   ← Hash SHA256 (integridad)
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz.minisig  ← Firma clásica (Ed25519)
+enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz.pqsig    ← Firma post-cuántica (ML-DSA-65)
 ```
 
 ### Paso 1: Verificar con el propio `enola-cli` (recomendado)
@@ -279,7 +280,7 @@ Si las tres verificaciones pasan: ✅ el binario es auténtico, íntegro y resis
 ```bash
 #!/bin/bash
 # verify_enola.sh — Verifica integridad, autoría y firma PQC
-# Uso: bash verify_enola.sh enola-cli-v1.4.0-linux-x86_64.tar.gz
+# Uso: bash verify_enola.sh enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Uso: bash verify_enola.sh <archivo.tar.gz>}"
 PUBKEY="RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"

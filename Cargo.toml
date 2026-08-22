@@ -1,6 +1,6 @@
 [package]
 name = "enola-cli"
-version = "0.1.0"
+version = "0.1.0-alpha"
 edition = "2021"
 authors = ["Salvador Palma Rodriguez"]
 description = "Enola CLI — CLI for managing Tor hidden services, CMS, VPN, firewall, and more"

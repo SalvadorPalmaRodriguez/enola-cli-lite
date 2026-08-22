@@ -571,7 +571,7 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 ### `GET /api/status`
 ```json
 {
-  "version": "1.4.0",
+  "version": "0.1.0-alpha",
   "status": "ok"
 }
 ```
