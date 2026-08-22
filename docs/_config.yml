@@ -4,7 +4,7 @@ description: >-
   CMS (WordPress, Drupal, Ghost, Strapi, Wagtail, Magnolia), file sharing,
   WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux —
   with post-quantum signed releases (ML-DSA).
-theme: jekyll-theme-cayman
-show_downloads: true
+theme: null
+show_downloads: false
 plugins:
   - jekyll-sitemap

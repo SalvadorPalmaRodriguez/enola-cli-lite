@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="{{ page.lang | default: site.lang | default: 'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if page.title %}{{ page.title | escape }} · {{ site.title | escape }}{% else %}{{ site.title | escape }}{% endif %}</title>
+    <meta name="description" content="{{ page.description | default: site.description }}">
+    <link rel="stylesheet" href="{{ '/assets/enola-hacker.css' | relative_url }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="wrapper">
+            <a class="site-title" href="{{ '/' | relative_url }}">{{ site.title | escape }}</a>
+        </div>
+    </header>
+    <main class="page-content">
+        <div class="wrapper">
+            {{ content }}
+        </div>
+    </main>
+    <footer class="site-footer">
+        <div class="wrapper">
+            <a href="https://github.com/SalvadorPalmaRodriguez/enola-cli-lite">GitHub</a> ·
+            <a href="https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases">Releases</a> ·
+            <span>{{ site.title | escape }} — Copyright © 2026 Salvador Palma Rodriguez</span>
+        </div>
+    </footer>
+</body>
+</html>

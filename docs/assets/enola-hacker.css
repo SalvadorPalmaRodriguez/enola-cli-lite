@@ -1,0 +1,264 @@
+/* ═══════════════════════════════════════════════════════════════
+   Enola CLI — Hacker theme for GitHub Pages
+   Matches the web GUI aesthetic: black bg, green terminal text,
+   monospace font, subtle borders, glow effects.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+    --bg: #0a0a0a;
+    --bg-card: #0f0f0f;
+    --bg-input: #161616;
+    --border: #1e1e1e;
+    --border-hi: #2a2a2a;
+    --text: #0f0;
+    --text-dim: #5a5;
+    --text-mid: #8a8;
+    --text-body: #c8c8c8;
+    --accent: #0f0;
+    --accent-glow: rgba(0, 255, 0, 0.15);
+    --danger: #f44;
+    --warn: #ee0;
+    --radius: 4px;
+    --mono: 'Courier New', 'Consolas', 'Monaco', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg);
+    color: var(--text-body);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.site-header,
+header {
+    background: var(--bg-card) !important;
+    border-bottom: 1px solid var(--border) !Important;
+    padding: 1rem 2rem !important;
+}
+
+.site-header h1,
+header h1,
+.site-title a {
+    color: var(--accent) !important;
+    font-family: var(--mono) !important;
+    text-shadow: 0 0 8px var(--accent-glow) !important;
+    font-size: 18px !important;
+}
+
+.site-header nav a,
+header nav a {
+    color: var(--text-dim) !important;
+    font-family: var(--mono) !important;
+    transition: all 0.15s;
+}
+
+.site-header nav a:hover,
+header nav a:hover {
+    color: var(--accent) !important;
+    text-shadow: 0 0 4px var(--accent-glow) !important;
+}
+
+/* ── Main content ───────────────────────────────────────────────── */
+main,
+.page-content,
+.content {
+    background: var(--bg) !important;
+    color: var(--text-body) !important;
+    max-width: 960px !important;
+    margin: 0 auto !important;
+    padding: 2rem !important;
+}
+
+/* ── Typography ─────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--accent) !important;
+    font-family: var(--mono) !important;
+    text-shadow: 0 0 6px var(--accent-glow) !important;
+    margin-top: 1.5em !important;
+    margin-bottom: 0.5em !important;
+}
+
+h1 { font-size: 1.6em !important; border-bottom: 1px solid var(--border) !important; padding-bottom: 0.3em !important; }
+h2 { font-size: 1.3em !important; border-bottom: 1px solid var(--border) !important; padding-bottom: 0.2em !important; }
+h3 { font-size: 1.1em !important; color: var(--text-mid) !important; text-shadow: none !important; }
+h4, h5, h6 { font-size: 1em !important; color: var(--text-dim) !important; text-shadow: none !important; }
+
+a {
+    color: var(--accent) !important;
+    text-decoration: none !important;
+    transition: all 0.15s;
+}
+
+a:hover {
+    text-shadow: 0 0 4px var(--accent-glow) !important;
+}
+
+p {
+    color: var(--text-body) !important;
+    line-height: 1.7 !important;
+    margin-bottom: 1em !important;
+}
+
+/* ── Code blocks ────────────────────────────────────────────────── */
+code {
+    background: var(--bg-input) !important;
+    color: var(--accent) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    padding: 2px 6px !important;
+    font-family: var(--mono) !important;
+    font-size: 13px !important;
+}
+
+pre {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    padding: 1rem !important;
+    overflow-x: auto !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+}
+
+pre code {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    color: var(--text-body) !important;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────── */
+table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin: 1em 0 !important;
+}
+
+th {
+    background: var(--bg-card) !important;
+    color: var(--accent) !important;
+    border: 1px solid var(--border) !important;
+    padding: 0.6rem 0.8rem !important;
+    text-align: left !important;
+    font-family: var(--mono) !important;
+}
+
+td {
+    border: 1px solid var(--border) !important;
+    padding: 0.5rem 0.8rem !important;
+    color: var(--text-body) !important;
+}
+
+tr:nth-child(even) {
+    background: var(--bg-card) !important;
+}
+
+/* ── Blockquotes ────────────────────────────────────────────────── */
+blockquote {
+    border-left: 3px solid var(--accent) !important;
+    background: var(--bg-card) !important;
+    padding: 0.8rem 1.2rem !important;
+    margin: 1em 0 !important;
+    color: var(--text-mid) !important;
+    border-radius: 0 var(--radius) var(--radius) 0 !important;
+}
+
+blockquote p {
+    color: var(--text-mid) !important;
+}
+
+/* ── Lists ──────────────────────────────────────────────────────── */
+ul, ol {
+    color: var(--text-body) !important;
+    margin-left: 1.5em !important;
+    margin-bottom: 1em !important;
+}
+
+li {
+    margin-bottom: 0.3em !important;
+}
+
+/* ── Horizontal rule ────────────────────────────────────────────── */
+hr {
+    border: none !important;
+    border-top: 1px solid var(--border) !important;
+    margin: 2em 0 !important;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+.site-footer,
+footer {
+    background: var(--bg-card) !important;
+    border-top: 1px solid var(--border) !important;
+    color: var(--text-dim) !important;
+    padding: 1.5rem 2rem !important;
+    text-align: center !important;
+    font-size: 12px !important;
+}
+
+.site-footer a,
+footer a {
+    color: var(--text-dim) !important;
+}
+
+.site-footer a:hover,
+footer a:hover {
+    color: var(--accent) !important;
+}
+
+/* ── Buttons / badges ───────────────────────────────────────────── */
+.btn,
+button {
+    background: transparent !important;
+    border: 1px solid var(--border-hi) !important;
+    color: var(--accent) !important;
+    padding: 0.4rem 0.8rem !important;
+    border-radius: var(--radius) !important;
+    cursor: pointer !important;
+    font-family: var(--mono) !important;
+    transition: all 0.15s;
+}
+
+.btn:hover,
+button:hover {
+    border-color: var(--accent) !important;
+    text-shadow: 0 0 4px var(--accent-glow) !important;
+}
+
+/* ── Selection ──────────────────────────────────────────────────── */
+::selection {
+    background: var(--accent-glow) !important;
+    color: var(--accent) !important;
+}
+
+/* ── Images ─────────────────────────────────────────────────────── */
+img {
+    border-radius: var(--radius) !important;
+    border: 1px solid var(--border) !important;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    main,
+    .page-content,
+    .content {
+        padding: 1rem !important;
+    }
+
+    h1 { font-size: 1.3em !important; }
+    h2 { font-size: 1.1em !important; }
+
+    table { font-size: 12px !important; }
+    th, td { padding: 0.4rem 0.5rem !important; }
+}
