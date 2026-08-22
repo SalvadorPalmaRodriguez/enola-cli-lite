@@ -10,12 +10,13 @@
 <body>
     {% comment %}── Language mapping ──{% endcomment %}
     {% assign current_lang = 'en' %}
-    {% assign lang_alt = '/user/guia/quickstart.html' %}
+    {% assign lang_alt = '/user/' %}
 
     {% if page.url contains '/user/' %}
         {% assign current_lang = 'es' %}
         {% assign lang_alt = '/' %}
         {% case page.url %}
+        {% when '/user/' %}{% assign lang_alt = '/' %}
         {% when '/user/guia/quickstart.html' %}{% assign lang_alt = '/en/quickstart.html' %}
         {% when '/user/general/commands.html' %}{% assign lang_alt = '/en/commands.html' %}
         {% when '/user/general/concepts.html' %}{% assign lang_alt = '/en/concepts.html' %}
@@ -29,8 +30,9 @@
         {% endcase %}
     {% elsif page.url contains '/en/' %}
         {% assign current_lang = 'en' %}
-        {% assign lang_alt = '/user/guia/quickstart.html' %}
+        {% assign lang_alt = '/user/' %}
         {% case page.url %}
+        {% when '/en/' %}{% assign lang_alt = '/user/' %}
         {% when '/en/quickstart.html' %}{% assign lang_alt = '/user/guia/quickstart.html' %}
         {% when '/en/commands.html' %}{% assign lang_alt = '/user/general/commands.html' %}
         {% when '/en/concepts.html' %}{% assign lang_alt = '/user/general/concepts.html' %}
