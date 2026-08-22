@@ -72,27 +72,26 @@ impl SystemResourceMonitor {
             }
         }
 
-        // 3. Container Metrics
-        // ContainerPort doesn't strictly have "get_metrics".
-        // We might need to extend ContainerPort or use `list_containers` and assume some info?
-        // Or `inspect_container`?
-        // `docker stats` is expensive.
-        // For now, let's list containers and their status. Real-time metrics might require a new method in ContainerPort.
-        // I will add `get_container_stats` to ContainerPort in a moment.
-        // For MVP, just list status.
-
-        // Actually, if I can add get_container_stats to ContainerPort, that would be better.
-        // Let's assume I will.
-
+        // 3. Container Metrics — use get_container_stats for real CPU/memory
         let mut container_infos = Vec::new();
         if let Ok(containers) = self.container_manager.list_containers(false).await {
             for c in containers {
-                // For now, placeholders for metrics
+                let (cpu_percent, memory_usage) = match self
+                    .container_manager
+                    .get_container_stats(&c.id)
+                    .await
+                {
+                    Ok(stats) => (stats.cpu_percent, stats.memory_usage),
+                    Err(_) => {
+                        tracing::warn!("Failed to get stats for container {}, using zeros", c.name);
+                        (0.0, 0)
+                    }
+                };
                 container_infos.push(ContainerResourceInfo {
                     name: c.name,
                     status: c.status,
-                    cpu_percent: 0.0,
-                    memory_usage: 0,
+                    cpu_percent,
+                    memory_usage,
                 });
             }
         }
@@ -110,7 +109,7 @@ impl SystemResourceMonitor {
 mod tests {
     use super::*;
     use crate::application::system_health_check::DiskStatus;
-    use crate::ports::container::{ContainerConfig, ContainerInfo};
+    use crate::ports::container::{ContainerConfig, ContainerInfo, ContainerStats};
     use async_trait::async_trait;
 
     struct MockServiceManager {
@@ -227,6 +226,12 @@ mod tests {
         async fn prune_system(&self) -> Result<()> {
             Ok(())
         }
+        async fn pull_image(&self, _image: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn get_container_stats(&self, _id: &str) -> Result<ContainerStats> {
+            Ok(ContainerStats::default())
+        }
     }
 
     fn make_container(name: &str, status: &str) -> ContainerInfo {
@@ -282,6 +287,104 @@ mod tests {
         assert!(report.services.contains_key("tor"));
         assert!(report.services.contains_key("nginx"));
         assert_eq!(report.services.get("tor").unwrap().cpu_percent, 5.0);
+    }
+
+    struct MockContainerManagerWithStats {
+        containers: Vec<ContainerInfo>,
+        stats: ContainerStats,
+    }
+
+    impl MockContainerManagerWithStats {
+        fn with_stats(containers: Vec<ContainerInfo>, stats: ContainerStats) -> Self {
+            Self { containers, stats }
+        }
+    }
+
+    #[async_trait]
+    impl ContainerPort for MockContainerManagerWithStats {
+        async fn list_containers(&self, _all: bool) -> Result<Vec<ContainerInfo>> {
+            Ok(self.containers.clone())
+        }
+        async fn create_container(&self, _config: ContainerConfig) -> Result<String> {
+            Ok("test".into())
+        }
+        async fn start_container(&self, _id: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn stop_container(&self, _id: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn remove_container(&self, _id: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn restart_container(&self, _id: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn get_logs(&self, _id: &str, _tail: usize) -> Result<String> {
+            Ok("".into())
+        }
+        async fn inspect_container(&self, _id: &str) -> Result<HashMap<String, String>> {
+            Ok(HashMap::new())
+        }
+        async fn execute_command(&self, _id: &str, _cmd: Vec<String>) -> Result<String> {
+            Ok("".into())
+        }
+        async fn create_network(&self, _name: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn remove_network(&self, _name: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn connect_container_to_network(
+            &self,
+            _network: &str,
+            _container: &str,
+        ) -> Result<()> {
+            Ok(())
+        }
+        async fn image_exists(&self, _: &str) -> Result<bool> {
+            Ok(true)
+        }
+        async fn build_image(
+            &self,
+            _: crate::ports::container::ImageBuildConfig,
+        ) -> Result<String> {
+            Ok("mock:latest".into())
+        }
+        async fn run_ephemeral_container(&self, _: ContainerConfig) -> Result<(i64, String)> {
+            Ok((0, "".into()))
+        }
+        async fn prune_system(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn pull_image(&self, _image: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn get_container_stats(&self, _id: &str) -> Result<ContainerStats> {
+            Ok(self.stats.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resource_monitor_has_real_metrics() {
+        let system_check = Arc::new(SystemHealthCheck::new());
+        let service = Arc::new(MockServiceManager::new());
+        let containers = vec![make_container("wordpress", "Up 2 hours")];
+        let stats = ContainerStats {
+            cpu_percent: 42.5,
+            memory_usage: 536_870_912,
+            memory_limit: 1_073_741_824,
+        };
+        let container = Arc::new(MockContainerManagerWithStats::with_stats(containers, stats));
+        let monitor = SystemResourceMonitor::new(system_check, service, container, None);
+
+        let result = monitor.execute().await;
+
+        assert!(result.is_ok());
+        let report = result.unwrap();
+        assert_eq!(report.containers.len(), 1);
+        assert_eq!(report.containers[0].cpu_percent, 42.5);
+        assert_eq!(report.containers[0].memory_usage, 536_870_912);
     }
 
     #[tokio::test]

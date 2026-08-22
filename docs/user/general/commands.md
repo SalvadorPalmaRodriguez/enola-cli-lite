@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/general/commands.md`
 > **Versión:** 3.3 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Índice de comandos**
+> **English:** [`docs/en/commands.md`](../../en/commands.md)
 
 # Enola CLI — Índice de Comandos
 

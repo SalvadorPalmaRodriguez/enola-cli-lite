@@ -167,9 +167,7 @@ impl HardwareProbePort for EnolaHardwareProbe {
             GpuBrand::None
         };
 
-        // Battery state logic placeholder (sysinfo might not give battery nicely on servers)
-        // En servidores, esto suele ser irrelevante, pero para portátiles dev sí.
-        let battery_status = BatteryState::AcConnected; // Default for server
+        let battery_status = probe_battery_state();
 
         Ok(SystemHardwareSpecs {
             cpu_cores,
@@ -182,6 +180,42 @@ impl HardwareProbePort for EnolaHardwareProbe {
             platform,
         })
     }
+}
+
+/// Probe battery state from `/sys/class/power_supply/`.
+/// Iterates BAT* entries and reads capacity + status.
+/// Returns `AcConnected` if no battery is found (desktop/server).
+fn probe_battery_state() -> BatteryState {
+    let power_supply_dir = std::path::Path::new("/sys/class/power_supply");
+
+    if let Ok(entries) = std::fs::read_dir(power_supply_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("BAT") {
+                continue;
+            }
+
+            let base = entry.path();
+            let status = std::fs::read_to_string(base.join("status"))
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+
+            let capacity = std::fs::read_to_string(base.join("capacity"))
+                .ok()
+                .and_then(|s| s.trim().parse::<f32>().ok())
+                .unwrap_or(0.0);
+
+            return match status.as_str() {
+                "Charging" => BatteryState::Charging(capacity),
+                "Discharging" => BatteryState::Discharging(capacity),
+                "Full" => BatteryState::Full,
+                _ => BatteryState::Unknown,
+            };
+        }
+    }
+
+    BatteryState::AcConnected
 }
 
 #[cfg(test)]

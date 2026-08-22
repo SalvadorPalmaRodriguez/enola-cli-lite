@@ -31,18 +31,7 @@ impl TorServiceManager {
         target_port: u16,
         _ssl: bool,
     ) -> Result<String> {
-        // 1. Determine Nginx listen port (Tor -> Nginx -> App)
-        // For simplicity, we might assume Tor talks to Nginx on a specific port.
-        // Or we might dynamically assign one.
-        // For now, let's assume we use a convention or the user provides it.
-        // But the prompt signature implies we figure it out.
-
-        // However, looking at existing DeployTorWebService, it takes `nginx_port`.
-        // Let's assume for now 127.0.0.1:8080 range for internal Nginx binding?
-        // Or we can just bind to the same as target_port if Nginx is main entry?
-        // No, Nginx is proxy.
-        // Let's find an available port for Nginx to listen on.
-
+        // 1. Find an available port for Nginx to listen on (Tor -> Nginx -> App)
         let nginx_listen_port = self.nginx_manager.find_available_port(8000, 9000).await?;
 
         // 2. Deploy Hidden Service pointing to Nginx
@@ -105,11 +94,8 @@ impl TorServiceManager {
         onion_port: u16,
         target_port: u16,
     ) -> Result<()> {
-        // 1. Get current config or infer?
-        // This is tricky without state. But Nginx config exists.
-
-        // For Tor, we redeploy.
-        let nginx_listen_port = self.nginx_manager.find_available_port(8000, 9000).await?; // Or try to keep existing?
+        // 1. Find an available Nginx port (re-allocate since we don't track existing)
+        let nginx_listen_port = self.nginx_manager.find_available_port(8000, 9000).await?;
 
         // Update Tor
         let ports_map = vec![(onion_port, nginx_listen_port)];

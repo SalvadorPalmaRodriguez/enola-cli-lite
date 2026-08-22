@@ -1,0 +1,31 @@
+# Enola CLI
+
+> Enola CLI is a Rust command-line tool for self-hosting Tor hidden services (.onion), Git servers (Forgejo), CMS platforms (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail), anonymous file sharing, WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux. All services bind to 127.0.0.1 and are exposed only through Tor. Releases are signed with minisign (Ed25519) and post-quantum ML-DSA-65 (FIPS 204).
+
+Important notes:
+
+- Source-visible proprietary software: free for personal, non-commercial use. No redistribution, no forks, no commercial use. See LICENSE.
+- Security vulnerabilities must be reported privately to salvadorpalmarodriguez@gmail.com (coordinated disclosure, no public issues).
+- Single binary `enola-cli`, requires root (sudo) for most operations. Runs on Debian/Linux with Docker, Nginx and Tor.
+- This repository is Phase 1 (standalone, no auth). Phase 2 (auth + AI features) will be released separately as v2.0.0.
+
+## Documentation
+
+- [README](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/README.md): Full command reference for all 28 modules
+- [Quickstart (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/quickstart): First steps: install, create your first .onion service
+- [Command reference (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/commands): Index of all commands by module
+- [Key concepts (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/concepts): Tor, ports, VPN, AppArmor, Docker, CMS, post-quantum crypto
+- [FAQ (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/faq): Frequently asked questions and troubleshooting
+- [Security model (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/security-model): User-facing security model
+- [Verify downloads (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/verify-downloads): SHA256 + minisign + ML-DSA-65 verification guide
+
+## Documentation (Spanish)
+
+- [Documentación de usuario](https://salvadorpalmarodriguez.github.io/enola-cli-lite/user/): Complete per-module command docs in Spanish
+- [Seguridad post-cuántica](https://salvadorpalmarodriguez.github.io/enola-cli-lite/user/general/quantum-security): Post-quantum security guide
+
+## Optional
+
+- [Full context for LLMs](https://raw.githubusercontent.com/SalvadorPalmaRodriguez/enola-cli-lite/main/llms-full.txt): Single-file expanded project context
+- [LICENSE](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/LICENSE): Source-visible proprietary license (English + Spanish)
+- [Releases](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases): Signed binaries (SHA256 + minisign + ML-DSA-65)

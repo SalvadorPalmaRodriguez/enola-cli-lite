@@ -374,7 +374,7 @@ fn write_admin_creds_hash(creds_dir: &std::path::Path, user: &str, pass: &str) -
 mod tests {
     use super::*;
     use crate::domain::error::EnolaError;
-    use crate::ports::container::ContainerInfo;
+    use crate::ports::container::{ContainerInfo, ContainerStats};
     use crate::ports::manifest::MockManifestPort;
     use crate::ports::port_checker::{PortCheckResult, PortCheckerPort};
     use crate::ports::tor::TorServiceInfo;
@@ -508,6 +508,12 @@ mod tests {
         }
         async fn prune_system(&self) -> Result<()> {
             Ok(())
+        }
+        async fn pull_image(&self, _image: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn get_container_stats(&self, _id: &str) -> Result<ContainerStats> {
+            Ok(ContainerStats::default())
         }
     }
 

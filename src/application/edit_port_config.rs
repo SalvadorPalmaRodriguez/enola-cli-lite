@@ -83,7 +83,7 @@ impl EditPortConfig {
 mod tests {
     use super::*;
     use crate::domain::error::EnolaError;
-    use crate::ports::container::{ContainerConfig, ContainerInfo};
+    use crate::ports::container::{ContainerConfig, ContainerInfo, ContainerStats};
     use crate::ports::tor::TorServiceInfo;
     use async_trait::async_trait;
     use std::collections::HashMap;
@@ -339,6 +339,12 @@ mod tests {
         }
         async fn prune_system(&self) -> Result<()> {
             Ok(())
+        }
+        async fn pull_image(&self, _image: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn get_container_stats(&self, _id: &str) -> Result<ContainerStats> {
+            Ok(ContainerStats::default())
         }
     }
 

@@ -44,16 +44,15 @@ impl NginxStatusChecker {
             .await
             .unwrap_or_default();
 
-        // 3. HTTP Check (Localhost)
-        // We assume port 80? Or read default config?
-        // Legacy script tries to find port.
-        // Let's assume 80 for basic check or try to connect.
+        // 3. HTTP Check — detect Nginx listen port from config, fallback to 80
+        let listen_port = detect_nginx_listen_port().unwrap_or(80);
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(2))
             .build()
             .unwrap_or_default();
-        let status = match client.get("http://127.0.0.1").send().await {
+        let url = format!("http://127.0.0.1:{}/", listen_port);
+        let status = match client.get(&url).send().await {
             Ok(resp) => resp.status().as_u16(),
             Err(_) => 0,
         };
@@ -68,6 +67,58 @@ impl NginxStatusChecker {
             version,
         })
     }
+}
+
+/// Scan nginx config files for the first active `listen` directive.
+/// Checks: nginx.conf, sites-enabled/*, sites-available/*, conf.d/*
+/// Falls back to None if no listen directive is found.
+fn detect_nginx_listen_port() -> Option<u16> {
+    let config_files = [
+        "/etc/nginx/nginx.conf",
+        "/etc/nginx/sites-enabled",
+        "/etc/nginx/sites-available",
+        "/etc/nginx/conf.d",
+    ];
+
+    for path in &config_files {
+        let p = std::path::Path::new(path);
+        if !p.exists() {
+            continue;
+        }
+
+        let files: Vec<std::path::PathBuf> = if p.is_dir() {
+            std::fs::read_dir(p)
+                .ok()?
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .collect()
+        } else {
+            vec![p.to_path_buf()]
+        };
+
+        for file in files {
+            if let Ok(content) = std::fs::read_to_string(&file) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('#') {
+                        continue;
+                    }
+                    if let Some(rest) = trimmed.strip_prefix("listen") {
+                        let rest = rest.trim_start();
+                        let port_str = rest
+                            .split(|c: char| !c.is_ascii_digit())
+                            .next()
+                            .unwrap_or("");
+                        if let Ok(port) = port_str.parse::<u16>() {
+                            return Some(port);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

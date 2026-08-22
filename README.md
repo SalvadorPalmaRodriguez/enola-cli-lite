@@ -1,693 +1,877 @@
-# 🚀 Enola CLI - Referencia Completa de Comandos
+# 🚀 Enola CLI — Self-Hosted Tor Services, CMS & Privacy Toolkit
 
-[![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue.svg)](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
-[![License](https://img.shields.io/badge/license-Proprietary-orange.svg)](LICENSE)
+**English** · **[Español](README.es.md)**
+
+[![Version](https://img.shields.io/badge/version-0.1.1--alpha-blue.svg)](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
+[![License](https://img.shields.io/badge/license-Proprietary%20(source--visible)-orange.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](https://www.debian.org/)
-[![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.96-orange.svg)](https://www.rust-lang.org/)
 
-> **CLI para gestionar servicios Tor, servidores Git, WordPress, CMS y archivos compartidos.**
+> **Enola CLI** is a Rust command-line tool for self-hosting **Tor hidden services (.onion)**, **Git servers (Forgejo)**, **CMS platforms (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail)**, **anonymous file sharing**, **WireGuard VPN**, **UFW firewall** and **AppArmor sandboxing** on Debian/Linux — with **post-quantum signed releases (ML-DSA-65, FIPS 204)**. Everything binds to `127.0.0.1` and is exposed only through Tor: privacy by design.
+>
+> 📖 **Documentation**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/) · 📄 **[llms.txt](llms.txt)** for AI indexers
 
 ---
 
-## 📋 Tabla de Contenidos
+## ✨ Features
 
-- [Instalación](#-instalación)
-- [Uso Básico](#-uso-básico)
-- [Comandos por Módulo](#-comandos-por-módulo)
-  - [🧅 Tor - Servicios Ocultos](#-tor---servicios-ocultos)
-  - [🐙 Git - Servidores Forgejo](#-git---servidores-forgejo)
-  - [🌐 WordPress - Sitios Web](#-wordpress---sitios-web)
-  - [📁 Files - Compartir Archivos](#-files---compartir-archivos)
-  - [🔧 Maintenance - Mantenimiento](#-maintenance---mantenimiento)
-  - [🩺 Diagnostics - Diagnósticos](#-diagnostics---diagnósticos)
-  - [🧪 Test - Pruebas del Sistema](#-test---pruebas-del-sistema)
-  - [📝 Logs - Gestión de Logs](#-logs---gestión-de-logs)
-  - [🔌 Ports - Gestión de Puertos](#-ports---gestión-de-puertos)
-  - [🛡️ Firewall - UFW](#-firewall---ufw)
-  - [🛡️ AppArmor - Sandboxing](#-apparmor---sandboxing)
-  - [🔒 VPN - WireGuard](#-vpn---wireguard)
-  - [📦 Setup - Dependencias](#-setup---dependencias)
-  - [🩺 Doctor - Diagnóstico](#-doctor---diagnóstico)
-  - [🔄 Update - Advisories](#-update---advisories)
-  - [🔐 Verify - Verificación PQC](#-verify---verificación-pqc)
-  - [🗑️ Uninstall - Desinstalación](#-uninstall---desinstalación)
-  - [📚 Docs - Documentación Offline](#-docs---documentación-offline)
-  - [📄 License - Licencia](#-license---licencia)
-  - [📖 Quickref - Referencia Rápida](#-quickref---referencia-rápida)
-  - [🌐 Web - Dashboard Local](#-web---dashboard-local)
-  - [⚙️ Config - Configuración](#-config---configuración)
-- [Ejemplos Prácticos](#-ejemplos-prácticos)
+- **🧅 Tor hidden services** — create `.onion` services (web, static, file server, raw TCP) with automatic Nginx wiring and client authorization (x25519).
+- **🐙 Git hosting** — Forgejo servers with SSH-over-Tor cloning, user management and a pipeline watcher.
+- **🌐 Six CMS platforms** — WordPress, Drupal, Ghost, Magnolia, Strapi and Wagtail, each Dockerized, localhost-only and publishable to Tor with one command.
+- **📁 Anonymous file sharing** — Nginx autoindex shares over `.onion`, with optional HTTPS (TLSv1.3) and Tor client auth.
+- **🔒 WireGuard VPN** — encrypted tunnels for trusted devices, with optional preshared keys for post-quantum resistance.
+- **🛡️ Hardening built in** — UFW firewall setup (incl. DOCKER-USER chain), AppArmor profiles, SSH post-quantum KEX hardening.
+- **🔐 Post-quantum release signing** — every release is signed with minisign (Ed25519) **and** ML-DSA-65 (FIPS 204); verification is offline via `enola-cli verify`.
+- **📚 Embedded offline docs** — `enola-cli docs` works with no network.
+- **🌐 Local web dashboard** — token-protected GUI bound to `127.0.0.1`.
+
+## 🏗️ Architecture
+
+Hexagonal (ports & adapters) Rust codebase:
+
+```
+src/domain/         → Pure business logic (no external dependencies)
+src/ports/          → Injectable traits (interfaces)
+src/adapters/       → Concrete implementations (Docker, Nginx, Tor, …)
+src/application/    → Orchestration (uses ports only)
+src/cli/            → Command routing and validation
+src/infrastructure/ → Cross-cutting utilities (privileges, locks, …)
+```
+
+Traffic model for every service: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT → App:TARGET_PORT` — all internal ports bind to `127.0.0.1` only.
+
+---
+
+## 📋 Table of Contents
+
+- [Installation](#-installation)
+- [Basic Usage](#-basic-usage)
+- [Commands by Module](#-commands-by-module)
+  - [🧅 Tor — Hidden Services](#-tor--hidden-services)
+  - [🐙 Git — Forgejo Servers](#-git--forgejo-servers)
+  - [🌐 WordPress — Websites](#-wordpress--websites)
+  - [🌐 Drupal — CMS](#-drupal--cms)
+  - [✍️ Ghost — Blogs](#️-ghost--blogs)
+  - [☕ Magnolia — Java CMS](#-magnolia--java-cms)
+  - [🚀 Strapi — Headless CMS](#-strapi--headless-cms)
+  - [🐦 Wagtail — Django CMS](#-wagtail--django-cms)
+  - [📁 Files — File Sharing](#-files--file-sharing)
+  - [🔧 Maintenance](#-maintenance)
+  - [🩺 Diagnostics](#-diagnostics)
+  - [🧪 Test — System Tests](#-test--system-tests)
+  - [📝 Logs](#-logs)
+  - [🔌 Ports](#-ports)
+  - [🛡️ Firewall — UFW](#️-firewall--ufw)
+  - [🛡️ AppArmor — Sandboxing](#️-apparmor--sandboxing)
+  - [🔒 VPN — WireGuard](#-vpn--wireguard)
+  - [📦 Setup — Dependencies](#-setup--dependencies)
+  - [🩺 Doctor — Dependency Check](#-doctor--dependency-check)
+  - [🔄 Update — Advisories](#-update--advisories)
+  - [🔐 Verify — PQC Verification](#-verify--pqc-verification)
+  - [🗑️ Uninstall](#️-uninstall)
+  - [📚 Docs — Offline Documentation](#-docs--offline-documentation)
+  - [📄 License Command](#-license-command)
+  - [📖 Quickref](#-quickref)
+  - [🌐 Web — Local Dashboard](#-web--local-dashboard)
+  - [⚙️ Config](#️-config)
+- [Practical Examples](#-practical-examples)
 - [Troubleshooting](#-troubleshooting)
-- [Licencia](#-licencia)
+- [License](#-license)
 
 ---
 
-## 📦 Instalación
+## 📦 Installation
 
-### Desde GitHub Releases (Producción)
+### From GitHub Releases (production)
 
 ```bash
-# Descargar y verificar (recomendado)
+# Download and verify (recommended)
 curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
 ```
 
-El instalador descarga el binario, verifica SHA256 + firma minisign, e instala todo.
-Ver guía completa: [verify-downloads.md](docs/user/verify/verify-downloads.md)
+The installer downloads the binary, verifies SHA256 + minisign signature, and installs everything.
+Full guide: [verify-downloads.md](docs/user/verify/verify-downloads.md)
 
 ---
 
-## 🎯 Uso Básico
+## 🎯 Basic Usage
 
 ```bash
-# Requiere permisos de root
-sudo enola-cli <comando> [subcomando] [opciones]
+# Root privileges required
+sudo enola-cli <command> [subcommand] [options]
 
-# Ayuda general
+# General help
 sudo enola-cli --help
 
-# Ayuda de un módulo específico
+# Module-specific help
 sudo enola-cli tor --help
 
-# Opciones globales
-sudo enola-cli --format json tor list    # Salida en JSON
+# Global options
+sudo enola-cli --format json tor list    # JSON output
 ```
 
-### Estructura de Comandos
+### Command Tree
 
 ```
 enola-cli
-├── tor         # Servicios Tor ocultos (.onion)
-├── git         # Servidores Git (Forgejo)
-├── wp          # Sitios WordPress
-├── drupal      # Sitios Drupal (CMS)
-├── ghost       # Blogs Ghost (CMS)
-├── magnolia    # CMS Magnolia (Tomcat)
+├── tor         # Tor hidden services (.onion)
+├── git         # Git servers (Forgejo)
+├── wp          # WordPress sites
+├── drupal      # Drupal sites (CMS)
+├── ghost       # Ghost blogs (CMS)
+├── magnolia    # Magnolia CMS (Tomcat)
 ├── strapi      # Headless CMS Strapi
-├── wagtail     # CMS Wagtail (Django)
-├── files       # Compartir archivos seguros
-├── maintenance # Operaciones de mantenimiento
-├── diag        # Diagnósticos del sistema
-├── test        # Ejecutar tests
-├── logs        # Ver logs del sistema
-├── ports       # Gestión de puertos
-├── firewall    # Firewall UFW
-├── apparmor    # Sandboxing con AppArmor
-├── vpn         # Túneles WireGuard VPN
-├── setup       # Instalar dependencias
-├── doctor      # Verificar dependencias
-├── update      # Feed de advisories y actualizaciones
-├── verify      # Verificar autenticidad de descargas (PQC)
-├── uninstall   # Desinstalación del CLI
-├── docs        # Documentación embebida en el binario
-├── license     # Texto de la licencia
-├── quickref    # Referencia rápida Docker ↔ Enola
-├── web         # Dashboard web local (GUI)
-├── config-show    # Mostrar configuración efectiva
-└── config-validate # Validar configuración
+├── wagtail     # Wagtail CMS (Django)
+├── files       # Secure file sharing
+├── maintenance # Maintenance operations
+├── diag        # System diagnostics
+├── test        # Run tests
+├── logs        # View system logs
+├── ports       # Port management
+├── firewall    # UFW firewall
+├── apparmor    # AppArmor sandboxing
+├── vpn         # WireGuard VPN tunnels
+├── setup       # Install dependencies
+├── doctor      # Check dependencies
+├── update      # Advisory feed and updates
+├── verify      # Verify download authenticity (PQC)
+├── uninstall   # CLI uninstallation
+├── docs        # Documentation embedded in the binary
+├── license     # License text
+├── quickref    # Docker ↔ Enola quick reference
+├── web         # Local web dashboard (GUI)
+├── config-show    # Show effective configuration
+└── config-validate # Validate configuration
 ```
 
+---
+
+## 📚 Commands by Module
 
 ---
 
-## 📚 Comandos por Módulo
+## 🧅 Tor — Hidden Services
 
----
+Manage Tor hidden services (.onion) with different architectures.
 
-## 🧅 Tor - Servicios Ocultos
-
-Gestiona servicios ocultos de Tor (.onion) con diferentes arquitecturas.
-
-### Listar Servicios
+### List Services
 
 ```bash
 sudo enola-cli tor list
 ```
 
-Muestra todos los servicios Tor activos con sus direcciones .onion y puertos.
+Shows all active Tor services with their .onion addresses and ports.
 
-### Crear Servicio
+### Create a Service
 
 ```bash
-sudo enola-cli tor create [opciones]
+sudo enola-cli tor create [options]
 ```
 
-| Opción | Descripción | Default |
+| Option | Description | Default |
 |--------|-------------|---------|
-| `-n, --name <NOMBRE>` | Nombre del servicio (requerido) | - |
-| `-s, --service-type <TIPO>` | Tipo: `web`, `static`, `files`, `raw` | `web` |
-| `-p, --virtual-port <PUERTO>` | Puerto público .onion | `80` |
-| `-t, --target-port <PUERTO>` | Puerto de tu aplicación (Default: 8080 para web, igual a virtual para raw) | auto |
-| `--ssl` | Habilitar HTTPS con certificado auto-firmado | `false` |
+| `-n, --name <NAME>` | Service name (required) | - |
+| `-s, --service-type <TYPE>` | Type: `web`, `static`, `files`, `raw` | `web` |
+| `-p, --virtual-port <PORT>` | Public .onion port | `80` |
+| `-t, --target-port <PORT>` | Your application's port | auto |
+| `--ssl` | Enable HTTPS with a self-signed certificate | `false` |
 
-**Tipos de servicio:**
+**Service types:**
 
-| Tipo | Arquitectura | Uso |
-|------|--------------|-----|
-| `web` / `proxy` | Tor → Nginx → App | Apps web (recomendado) |
-| `static` | Tor → Nginx | Sitios estáticos |
-| `files` | Tor → Nginx | Servidor de archivos |
-| `raw` / `tcp` | Tor → App | SSH, bases de datos |
+| Type | Architecture | Use case |
+|------|--------------|----------|
+| `web` / `proxy` | Tor → Nginx → App | Web apps (recommended) |
+| `static` | Tor → Nginx | Static sites |
+| `files` | Tor → Nginx | File server |
+| `raw` / `tcp` | Tor → App | SSH, databases |
 
-**Ejemplos:**
-
-```bash
-# Servicio web básico (HTTP)
-sudo enola-cli tor create -n miapp -s web --target-port 3000
-
-# Servicio web con HTTPS
-sudo enola-cli tor create -n miapp-secure -s web --target-port 8080 --ssl
-
-# Servidor de archivos
-sudo enola-cli tor create -n mis-archivos -s files
-
-# Sitio estático
-sudo enola-cli tor create -n mi-blog -s static
-```
-
-### Iniciar/Detener Servicio
+**Examples:**
 
 ```bash
-# Iniciar
-sudo enola-cli tor start <nombre>
+# Basic web service (HTTP)
+sudo enola-cli tor create -n myapp -s web --target-port 3000
 
-# Detener
-sudo enola-cli tor stop <nombre>
+# Web service with HTTPS
+sudo enola-cli tor create -n myapp-secure -s web --target-port 8080 --ssl
+
+# File server
+sudo enola-cli tor create -n my-files -s files
+
+# Static site
+sudo enola-cli tor create -n my-blog -s static
 ```
 
-### Editar Puertos
+### Start/Stop a Service
 
 ```bash
-sudo enola-cli tor edit <nombre> [opciones]
+# Start
+sudo enola-cli tor start <name>
+
+# Stop
+sudo enola-cli tor stop <name>
 ```
 
-| Opción | Descripción |
+### Edit Ports
+
+```bash
+sudo enola-cli tor edit <name> [options]
+```
+
+| Option | Description |
 |--------|-------------|
-| `-p, --virtual-port <PUERTO>` | Puerto público .onion |
-| `-n, --nginx-port <PUERTO>` | Puerto interno de Nginx |
-| `-t, --target-port <PUERTO>` | Puerto de tu aplicación |
-| `--auto-ports` | Encontrar puertos libres automáticamente |
+| `-p, --virtual-port <PORT>` | Public .onion port |
+| `-n, --nginx-port <PORT>` | Internal Nginx port |
+| `-t, --target-port <PORT>` | Your application's port |
+| `--auto-ports` | Find free ports automatically |
 
-**Flujo de puertos:** `.onion:VIRTUAL → Nginx:NGINX_PORT → App:TARGET_PORT`
+**Port flow:** `.onion:VIRTUAL → Nginx:NGINX_PORT → App:TARGET_PORT`
 
 ```bash
-# Cambiar puerto virtual a 8080
-sudo enola-cli tor edit miapp -p 8080
+# Change virtual port to 8080
+sudo enola-cli tor edit myapp -p 8080
 
-# Auto-asignar puertos libres
-sudo enola-cli tor edit miapp --auto-ports
+# Auto-assign free ports
+sudo enola-cli tor edit myapp --auto-ports
 
-# Cambiar puerto de aplicación
-sudo enola-cli tor edit miapp -t 4000
+# Change application port
+sudo enola-cli tor edit myapp -t 4000
 ```
 
-### Eliminar Servicio
+### Remove a Service
 
 ```bash
-sudo enola-cli tor remove <nombre> [--force]
+sudo enola-cli tor remove <name> [--force]
 ```
 
-### Rotar Identidad (.onion)
+### Rotate Identity (.onion)
 
 ```bash
-sudo enola-cli tor rotate <nombre>
+sudo enola-cli tor rotate <name>
 ```
 
-Genera una nueva dirección .onion para el servicio (útil si la anterior fue comprometida).
+Generates a new .onion address for the service (useful if the previous one was compromised).
 
-### Autenticación de Clientes
+### Client Authorization
 
-Control de acceso a servicios Tor mediante criptografía de clave pública.
+Access control for Tor services using public-key cryptography.
 
 ```bash
-# Listar clientes autorizados
-sudo enola-cli tor auth list <servicio>
+# List authorized clients
+sudo enola-cli tor auth list <service>
 
-# Habilitar autenticación
-sudo enola-cli tor auth enable <servicio>
+# Enable authorization
+sudo enola-cli tor auth enable <service>
 
-# Deshabilitar autenticación
-sudo enola-cli tor auth disable <servicio>
+# Disable authorization
+sudo enola-cli tor auth disable <service>
 
-# Añadir cliente autorizado
-sudo enola-cli tor auth add <servicio> -c <cliente> -p <clave_publica>
+# Add an authorized client
+sudo enola-cli tor auth add <service> -c <client> -p <public_key>
 
-# Revocar acceso a cliente
-sudo enola-cli tor auth revoke <servicio> -c <cliente>
+# Revoke a client's access
+sudo enola-cli tor auth revoke <service> -c <client>
 
-# Generar par de claves para cliente
-sudo enola-cli tor auth generate -c <nombre_cliente>
+# Generate a client keypair
+sudo enola-cli tor auth generate -c <client_name>
+
+# Rotate a client's keys (mitigates harvest-now-decrypt-later)
+sudo enola-cli tor auth rotate <service> -c <client>
 ```
 
 ---
 
+## 🐙 Git — Forgejo Servers
 
-## 🐙 Git - Servidores Forgejo
+Manage Git servers (Forgejo) with Tor integration.
 
-Gestiona servidores Git (Forgejo) con integración Tor.
-
-### Comandos Principales
+### Main Commands
 
 ```bash
-# Listar servidores
+# List servers
 sudo enola-cli git list
 
-# Crear servidor
-sudo enola-cli git create -n mi-git [--ssl]
+# Create a server (web mode: browser install wizard)
+sudo enola-cli git create -n my-git [--ssl] [--http-port <PORT>] [--ssh-port <PORT>]
 
-# Control de ciclo de vida
-sudo enola-cli git start <nombre>
-sudo enola-cli git stop <nombre>
-sudo enola-cli git delete <nombre> [--force]
+# Create a server (CLI mode: admin created automatically)
+sudo enola-cli git create -n my-git --admin-user alice --admin-password MyPass123
 
-# Configurar registro de usuarios del servidor Git (habilitar/deshabilitar)
-sudo enola-cli git registration <nombre> --enable
+# Lifecycle control
+sudo enola-cli git start <name>
+sudo enola-cli git stop <name>
+sudo enola-cli git status <name>
+sudo enola-cli git delete <name> [--force]
+
+# Configure user self-registration (enable/disable)
+sudo enola-cli git registration <name> --enable
 ```
 
-### Editar Puertos
+### Edit Ports
 
 ```bash
-sudo enola-cli git edit <nombre> [opciones]
+sudo enola-cli git edit <name> [options]
 ```
 
-| Opción | Descripción |
+| Option | Description |
 |--------|-------------|
-| `--http-port <PUERTO>` | Puerto HTTP |
-| `--https-port <PUERTO>` | Puerto HTTPS |
-| `--ssh-port <PUERTO>` | Puerto SSH |
-| `--auto-ports` | Auto-detectar puertos |
+| `--http-port <PORT>` | HTTP port |
+| `--https-port <PORT>` | HTTPS port |
+| `--ssh-port <PORT>` | SSH port |
+| `--auto-ports` | Auto-detect free ports |
 
-### Exponer en Tor
+### Expose on Tor
 
 ```bash
-# Publicar en Tor
-sudo enola-cli git publish <nombre> [--ssl]
+# Publish on Tor
+sudo enola-cli git publish <name> [--ssl]
 
-# Ocultar de Tor
-sudo enola-cli git hide <nombre>
+# Hide from Tor
+sudo enola-cli git hide <name>
 ```
 
-### Gestión de Usuarios
+### User Management
 
 ```bash
-# Listar usuarios
-sudo enola-cli git user list <servidor>
+# List users
+sudo enola-cli git user list <server>
 
-# Crear usuario
-sudo enola-cli git user create <servidor> -u usuario -e email@test.com -p password
+# Create a user
+sudo enola-cli git user create <server> -u user -e email@test.com -p password
 
-# Eliminar usuario
-sudo enola-cli git user delete <servidor> -u usuario
+# Delete a user
+sudo enola-cli git user delete <server> -u user
 ```
 
 ### Pipeline Watcher
 
 ```bash
-# Ejecutar watcher de pipelines (foreground)
+# Run the pipeline watcher (foreground)
 sudo enola-cli git watcher
 ```
 
 ---
 
-## 🌐 WordPress - Sitios Web
+## 🌐 WordPress — Websites
 
-Gestiona sitios WordPress con Docker y exposición en Tor.
+Manage WordPress sites with Docker and Tor exposure.
 
-### Comandos Principales
+### Main Commands
 
 ```bash
-# Listar sitios
+# List sites
 sudo enola-cli wp list
 
-# Crear sitio
-sudo enola-cli wp create -n mi-blog
+# Create a site
+sudo enola-cli wp create -n my-blog [--http-port <PORT>]   # auto: range 8080-9000
 
-# Control de ciclo de vida
-sudo enola-cli wp start <nombre>
-sudo enola-cli wp stop <nombre>
-sudo enola-cli wp restart <nombre>
-sudo enola-cli wp delete <nombre> [--force]
+# Lifecycle control
+sudo enola-cli wp start <name>
+sudo enola-cli wp stop <name>
+sudo enola-cli wp restart <name>
+sudo enola-cli wp delete <name> [--force]
 
-# Ver estado
-sudo enola-cli wp status <nombre>
+# Check status
+sudo enola-cli wp status <name>
 
-# Actualizar WordPress (con backup)
-sudo enola-cli wp update <nombre>
+# Update WordPress (with backup)
+sudo enola-cli wp update <name>
 
-# Configuración
-sudo enola-cli wp config <nombre>
+# Configuration
+sudo enola-cli wp config <name>
 ```
 
-### Exposición en Tor
+### Tor Exposure
 
 ```bash
-# Publicar en Tor
-sudo enola-cli wp publish <nombre>
+# Publish on Tor
+sudo enola-cli wp publish <name>
 
-# Ocultar de Tor
-sudo enola-cli wp hide <nombre>
+# Hide from Tor
+sudo enola-cli wp hide <name>
 ```
 
-### Editar Configuración
+### Edit Configuration
 
 ```bash
-sudo enola-cli wp edit <nombre> [opciones]
+sudo enola-cli wp edit <name> [options]
 ```
 
-| Opción | Descripción |
+| Option | Description |
 |--------|-------------|
-| `--http-port <PUERTO>` | Puerto HTTP |
-| `--https-port <PUERTO>` | Puerto HTTPS |
-| `--ssl <true/false>` | Habilitar/deshabilitar SSL |
-| `--auto-ports` | Auto-detectar puertos |
+| `--http-port <PORT>` | HTTP port |
+| `--https-port <PORT>` | HTTPS port |
+| `--ssl <true/false>` | Enable/disable SSL |
+| `--auto-ports` | Auto-detect free ports |
 
 ---
 
-## 📁 Files - Compartir Archivos
+## 🌐 Drupal — CMS
 
-Crea servidores de archivos seguros accesibles vía Tor.
+Manage Drupal sites. Stack: `drupal:10-apache` + `mariadb:10.11`. Data lives in `/srv/enola-drupal/<name>/`.
 
 ```bash
-# Listar shares
+# List sites
+sudo enola-cli drupal list
+
+# Create a site (internal HTTP port required)
+sudo enola-cli drupal create --name my-site --http-port 8090
+
+# Lifecycle
+sudo enola-cli drupal start <name>
+sudo enola-cli drupal stop <name>
+sudo enola-cli drupal status <name>
+sudo enola-cli drupal delete <name> [--force]
+
+# Tor exposure
+sudo enola-cli drupal publish <name>
+sudo enola-cli drupal hide <name>
+
+# Change HTTP port (recreates the web container atomically)
+sudo enola-cli drupal edit <name> --http-port <PORT>
+```
+
+---
+
+## ✍️ Ghost — Blogs
+
+Manage Ghost blogs. Stack: `ghost:5-alpine` + embedded SQLite (single container). Data lives in `/srv/enola-ghost/<name>/content/`.
+
+```bash
+# List blogs
+sudo enola-cli ghost list
+
+# Create a blog (internal HTTP port required; container uses 2368)
+sudo enola-cli ghost create --name my-blog --http-port 8095
+
+# Lifecycle
+sudo enola-cli ghost start <name>
+sudo enola-cli ghost stop <name>
+sudo enola-cli ghost status <name>
+sudo enola-cli ghost delete <name> [--force]
+
+# Tor exposure
+sudo enola-cli ghost publish <name>
+sudo enola-cli ghost hide <name>
+
+# Change HTTP port
+sudo enola-cli ghost edit <name> --http-port <PORT>
+```
+
+---
+
+## ☕ Magnolia — Java CMS
+
+Manage Magnolia CMS instances. Stack: `magnolia-cms:6` (Tomcat, Java). **Requires ≥4 GB of available RAM.**
+
+```bash
+# List instances
+sudo enola-cli magnolia list
+
+# Create an instance (internal HTTP port required; Tomcat uses 8080)
+sudo enola-cli magnolia create --name my-site --http-port 8100
+
+# Lifecycle
+sudo enola-cli magnolia start <name>
+sudo enola-cli magnolia stop <name>
+sudo enola-cli magnolia status <name>
+sudo enola-cli magnolia delete <name> [--force]
+
+# Tor exposure
+sudo enola-cli magnolia publish <name>
+sudo enola-cli magnolia hide <name>
+```
+
+---
+
+## 🚀 Strapi — Headless CMS
+
+Manage Strapi instances. Stack: `enola/strapi:5.49.0` + `postgres:16-alpine`. Generates per-instance secrets with 0600 permissions.
+
+```bash
+# Build the production Docker image (once, before the first create; ~5-10 min)
+sudo enola-cli strapi build-image [--force]
+
+# List instances
+sudo enola-cli strapi list
+
+# Create an instance (internal HTTP port required; Strapi uses 1337)
+sudo enola-cli strapi create --name my-api --http-port 1337
+
+# Lifecycle
+sudo enola-cli strapi start <name>
+sudo enola-cli strapi stop <name>
+sudo enola-cli strapi status <name>
+sudo enola-cli strapi delete <name> [--force]
+
+# Tor exposure
+sudo enola-cli strapi publish <name>
+sudo enola-cli strapi hide <name>
+```
+
+---
+
+## 🐦 Wagtail — Django CMS
+
+Manage Wagtail instances. Stack: Wagtail (Python/Django) + `postgres:16-alpine`.
+
+```bash
+# List instances
+sudo enola-cli wagtail list
+
+# Create an instance (internal HTTP port required; Wagtail uses 8000)
+sudo enola-cli wagtail create --name my-site --http-port 8200
+
+# Lifecycle
+sudo enola-cli wagtail start <name>
+sudo enola-cli wagtail stop <name>
+sudo enola-cli wagtail status <name>
+sudo enola-cli wagtail delete <name> [--force]
+
+# Tor exposure
+sudo enola-cli wagtail publish <name>
+sudo enola-cli wagtail hide <name>
+```
+
+---
+
+## 📁 Files — File Sharing
+
+Create secure file servers accessible via Tor.
+
+```bash
+# List shares
 sudo enola-cli files list
 
-# Crear share
-sudo enola-cli files create -n mis-archivos [-a] [--ssl]
+# Create a share
+sudo enola-cli files create -n my-files [-a] [--ssl]
 
-# Editar puerto
-sudo enola-cli files edit <nombre> -p 8080
+# Edit port
+sudo enola-cli files edit <name> -p 8080
 
-# Corregir permisos
-sudo enola-cli files fix-perms <nombre>
+# Fix permissions
+sudo enola-cli files fix-perms <name>
 
-# Eliminar share
-sudo enola-cli files delete <nombre> [-f]
+# Delete a share
+sudo enola-cli files delete <name> [-f]
 ```
 
-**Directorio de archivos:** `/srv/enola-files/<nombre>/`
+**Files directory:** `/srv/enola-files/<name>/`
 
 ```bash
-# Añadir archivos al share
-sudo cp archivo.pdf /srv/enola-files/mis-archivos/
-sudo cp -r carpeta/ /srv/enola-files/mis-archivos/
+# Add files to the share
+sudo cp file.pdf /srv/enola-files/my-files/
+sudo cp -r folder/ /srv/enola-files/my-files/
 ```
 
 ---
 
+## 🔧 Maintenance
 
-## 🔧 Maintenance - Mantenimiento
-
-Operaciones de mantenimiento del sistema.
+System maintenance operations.
 
 ```bash
-# Ver estado del sistema
+# Show system status
 sudo enola-cli maintenance status
 
-# Ejecutar smoke test
+# Run smoke test
 sudo enola-cli maintenance smoke-test
 
-# Health checks automáticos
+# Automatic health checks
 sudo enola-cli maintenance enable-checks
 sudo enola-cli maintenance disable-checks
 sudo enola-cli maintenance timer-status
 
-# Configurar SSH check
+# Configure SSH check
 sudo enola-cli maintenance ssh-config
 
-# Crear backup del sistema
+# Harden SSH with post-quantum-safe algorithms (OpenSSH 9.0+)
+sudo enola-cli maintenance ssh-harden-pqc [--dry-run] [--force]
+
+# Create a system backup
 sudo enola-cli maintenance backup
+
+# Clean temporary files and residual data
+sudo enola-cli maintenance cleanup [--target all|logs|docker] [--dry-run] [--keep-days 7]
 ```
 
 ---
 
-## 🩺 Diagnostics - Diagnósticos
+## 🩺 Diagnostics
 
-Verifica el estado de los componentes del sistema.
+Check the status of system components.
 
 ```bash
-# Resumen de todos los servicios
+# Summary of all services
 sudo enola-cli diag summary
 
-# Verificar componentes individuales
+# Check individual components
 sudo enola-cli diag nginx
 sudo enola-cli diag tor
 sudo enola-cli diag ssh
 sudo enola-cli diag wordpress
 
-# Sincronización WordPress/Nginx
+# WordPress/Nginx sync
 sudo enola-cli diag wp-sync
 
-# Probar configuración de Nginx
+# Test Nginx configuration
 sudo enola-cli diag nginx-test
 
-# Ver recursos del sistema (RAM, Disco, GPU)
+# Show system resources (RAM, Disk, GPU)
 sudo enola-cli diag resources
 ```
 
 ---
 
-## 🧪 Test - Pruebas del Sistema
+## 🧪 Test — System Tests
 
-Ejecuta tests automatizados del sistema.
+Run automated system tests.
 
 ```bash
-# Ejecutar todos los tests
+# Run all tests
 sudo enola-cli test run
 
-# Ejecutar con filtro
+# Run with a filter
 sudo enola-cli test run -f "tor"
 
-# Listar tests disponibles
+# List available tests
 sudo enola-cli test list
 
-# Ejecutar benchmarks
+# Run benchmarks
 sudo enola-cli test benchmark
 
-# Ver últimos resultados
+# Show last results
 sudo enola-cli test results
 
-# Limpiar artefactos de tests
+# Clean test artifacts
 sudo enola-cli test clean
 ```
 
 ---
 
-## 📝 Logs - Gestión de Logs
+## 📝 Logs
 
-Ver y gestionar logs del sistema.
+View and manage system logs.
 
 ```bash
-# Listar fuentes de logs
+# List log sources
 sudo enola-cli logs list
 
-# Ver logs de una fuente (default: 50 líneas)
-sudo enola-cli logs view <fuente> [-l 50] [-f]
+# View logs from a source (default: 50 lines)
+sudo enola-cli logs view <source> [-l 50] [-f]
 
-# Fuentes disponibles: system, tor, nginx, docker, etc.
+# Available sources: system, tor, nginx, docker, etc.
 
-# Ver logs de instalación
+# View installation logs
 sudo enola-cli logs install
 
-# Ver logs de smoke test
+# View smoke test logs
 sudo enola-cli logs smoke-test
 ```
 
 ---
 
-## 🔌 Ports - Gestión de Puertos
+## 🔌 Ports
 
-Muestra todos los puertos en uso por servicios Enola (Tor, Nginx, Docker).
+Shows every port used by Enola services (Tor, Nginx, Docker).
 
 ```bash
-# Listar todos los puertos
+# List all ports
 sudo enola-cli ports list
 ```
 
-Incluye contenedores detenidos que retienen port bindings de Docker.
+Includes stopped containers that retain Docker port bindings.
 
 ---
 
-## 🛡️ Firewall - UFW
+## 🛡️ Firewall — UFW
 
-Gestiona el firewall UFW del host.
+Manage the host's UFW firewall.
 
 ```bash
-# Configurar política segura por defecto
+# Configure a secure default policy
 sudo enola-cli firewall setup
 
-# Ver estado del firewall
+# Show firewall status
 sudo enola-cli firewall status
 
-# Permitir/denegar puertos
-sudo enola-cli firewall allow --port <puerto>
-sudo enola-cli firewall deny --port <puerto>
+# Allow/deny ports
+sudo enola-cli firewall allow --port <port>
+sudo enola-cli firewall deny --port <port>
 ```
 
 ---
 
-## 🛡️ AppArmor - Sandboxing
+## 🛡️ AppArmor — Sandboxing
 
-Gestiona perfiles AppArmor para aislamiento de procesos.
+Manage AppArmor profiles for process isolation.
 
 ```bash
-# Instalar perfiles base (nginx, tor, docker)
+# Install base profiles (nginx, tor, docker)
 sudo enola-cli apparmor setup
 
-# Ver estado de perfiles
+# Show profile status
 sudo enola-cli apparmor status
 
-# Cambiar modo (enforce/complain/disable)
+# Change mode (enforce/complain/disable)
 sudo enola-cli apparmor mode --enforce
 ```
 
 ---
 
-## 🔒 VPN - WireGuard
+## 🔒 VPN — WireGuard
 
-Gestiona túneles VPN WireGuard para acceso remoto autenticado.
+Manage WireGuard VPN tunnels for authenticated remote access.
 
 ```bash
-# Crear interfaz VPN
-sudo enola-cli vpn create <nombre>
+# Create a VPN interface
+sudo enola-cli vpn create <name> [--port 51820] [--subnet 10.8.0.0/24] [--autostart] [--sync-firewall]
 
-# Gestionar interfaz
-sudo enola-cli vpn start <nombre>
-sudo enola-cli vpn stop <nombre>
-sudo enola-cli vpn status <nombre>
-sudo enola-cli vpn delete <nombre>
+# List interfaces
+sudo enola-cli vpn list
 
-# Gestionar peers
-sudo enola-cli vpn peer add <interfaz> <peer> --endpoint <host:puerto>
-sudo enola-cli vpn peer remove <interfaz> <public_key>
+# Manage an interface
+sudo enola-cli vpn start <name>
+sudo enola-cli vpn stop <name>
+sudo enola-cli vpn status <name>
+sudo enola-cli vpn delete <name> [--force] [--sync-firewall]
+
+# Manage peers
+sudo enola-cli vpn peer add <interface> <peer> --endpoint <host> [--dns <ip>] [--psk] [--ip <ip>]
+sudo enola-cli vpn peer add-pubkey <interface> <peer> <public_key> <ip>
+sudo enola-cli vpn peer remove <interface> <public_key>
 ```
 
 ---
 
-## 📦 Setup - Dependencias
+## 📦 Setup — Dependencies
 
-Instala dependencias del sistema (Docker, Nginx, Tor, WireGuard, UFW, AppArmor).
+Install system dependencies (Docker, Nginx, Tor, WireGuard, UFW, AppArmor).
 
 ```bash
-# Instalar dependencias core
+# Install core dependencies
 sudo enola-cli setup
 
-# Instalar todo (dependencias core + VPN + PQC TLS)
+# Install everything (core + VPN + security)
 sudo enola-cli setup --all
 
-# Instalar solo VPN
+# Install VPN only
 sudo enola-cli setup --vpn
 
-# Instalar solo seguridad (UFW, AppArmor)
+# Install security tools only (UFW, AppArmor)
 sudo enola-cli setup --security
 
-# Instalar stack PQC TLS (OpenSSL 3.5 + Nginx)
+# Install the PQC TLS stack (OpenSSL 3.5 + Nginx)
 sudo enola-cli setup --pqc-tls
 ```
 
 ---
 
-## 🩺 Doctor - Diagnóstico
+## 🩺 Doctor — Dependency Check
 
-Verifica qué dependencias están instaladas y cuáles faltan.
+Check which dependencies are installed and which are missing.
 
 ```bash
-# Verificación básica
+# Basic check
 sudo enola-cli doctor
 
-# Auditoría de seguridad (hardening, configs, secrets)
+# Security audit (hardening, configs, secrets)
 sudo enola-cli doctor --security
 ```
 
 ---
 
-## 🔄 Update - Advisories
+## 🔄 Update — Advisories
 
-Feed de advisories de seguridad y actualizaciones.
+Security advisory feed and updates.
 
 ```bash
-# Comprobar actualizaciones disponibles
+# Check for available updates
 sudo enola-cli update check
 
-# Salida JSON (CI)
+# JSON output (CI)
 sudo enola-cli update check --json
 
-# Ver esquema del feed
+# Show the feed schema
 sudo enola-cli update schema
 
-# Verificar feed manualmente
-sudo enola-cli update verify-feed <url-o-path>
+# Verify a feed manually
+sudo enola-cli update verify-feed <url-or-path>
 
-# Descargar última versión
+# Download the latest version
 sudo enola-cli update download
 
-# Descargar y aplicar
+# Download and apply
 sudo enola-cli update download --yes
+
+# Apply an already-downloaded update
+sudo enola-cli update apply [--binary <path>]
 ```
 
 ---
 
-## 🔐 Verify - Verificación PQC
+## 🔐 Verify — PQC Verification
 
-Verifica autenticidad de descargas con firma post-cuántica ML-DSA-65 (FIPS 204).
+Verify download authenticity with the ML-DSA-65 (FIPS 204) post-quantum signature.
 
 ```bash
-# Verificar un release descargado
-enola-cli verify enola-cli-v1.0.0-x86_64-linux.tar.gz
+# Verify a downloaded release
+enola-cli verify enola-cli-v0.1.0-alpha-x86_64-linux.tar.gz
 
-# Con firma alternativa y salida JSON
-enola-cli verify <archivo> --pqsig <firma.pqsig> --json
+# With an alternative signature and JSON output
+enola-cli verify <file> --pqsig <signature.pqsig> --json
 ```
 
-No requiere red ni herramientas externas — la clave pública está embebida en el binario.
+No network or external tools required — the public key is embedded in the binary.
 
 ---
 
-## 🗑️ Uninstall - Desinstalación
+## 🗑️ Uninstall
 
-Desinstala Enola CLI del sistema de forma limpia.
+Cleanly uninstall Enola CLI from the system.
 
 ```bash
-# Dry-run (no borra, solo lista)
+# Dry-run (deletes nothing, only lists)
 sudo enola-cli uninstall
 
-# Borrar todo
+# Delete everything
 sudo enola-cli uninstall --yes
 
-# Preservar datos
+# Preserve data
 sudo enola-cli uninstall --yes --keep-data
 
-# Solo secciones específicas
+# Only specific sections
 sudo enola-cli uninstall --yes --only tor,nginx
 
-# También borrar dependencias instaladas
+# Also remove dependencies Enola installed
 sudo enola-cli uninstall --yes --remove-deps
 ```
 
 ---
 
-## 📚 Docs - Documentación Offline
+## 📚 Docs — Offline Documentation
 
-Documentación embebida en el binario — funciona sin conexión.
+Documentation embedded in the binary — works offline.
 
 ```bash
-# Guía de inicio rápido
+# Quickstart guide
 enola-cli docs quickstart
 
-# Referencia de comandos
-enola-cli docs commands [GRUPO]
+# Command reference
+enola-cli docs commands [GROUP]
 
-# Conceptos clave
-enola-cli docs concepts [TEMA]
+# Key concepts
+enola-cli docs concepts [TOPIC]
 
-# Preguntas frecuentes
-enola-cli docs faq [TÉRMINO]
+# FAQ
+enola-cli docs faq [TERM]
 
-# Ejemplos de uso
-enola-cli docs examples [CASO]
+# Usage examples
+enola-cli docs examples [CASE]
 
-# Buscar en toda la documentación
-enola-cli docs search TÉRMINO
+# Search all documentation
+enola-cli docs search TERM
 
-# Guías avanzadas
+# Advanced guides
 enola-cli docs quantum-security
 enola-cli docs verify-downloads
 enola-cli docs security
@@ -696,9 +880,9 @@ enola-cli docs install-from-iso
 
 ---
 
-## 📄 License - Licencia
+## 📄 License Command
 
-Muestra el texto completo de la licencia propietaria.
+Shows the full proprietary license text.
 
 ```bash
 enola-cli license
@@ -707,9 +891,9 @@ enola-cli license | less
 
 ---
 
-## 📖 Quickref - Referencia Rápida
+## 📖 Quickref
 
-Tabla de equivalencias entre comandos Docker y Enola CLI.
+Equivalence table between Docker commands and Enola CLI.
 
 ```bash
 enola-cli quickref
@@ -717,79 +901,76 @@ enola-cli quickref
 
 ---
 
-## 🌐 Web - Dashboard Local
+## 🌐 Web — Local Dashboard
 
-Inicia un dashboard web local para gestionar servicios desde el navegador.
+Start a local web dashboard to manage services from the browser.
 
 ```bash
 sudo enola-cli web --port 8090
 ```
 
-El servidor binda solo a `127.0.0.1`. Se genera un token aleatorio que se muestra en el terminal. Abre `http://127.0.0.1:8090` e introduce el token.
+The server binds only to `127.0.0.1`. A random token is generated and shown in the terminal. Open `http://127.0.0.1:8090` and enter the token.
 
-Más detalles: [docs/user/web/README.md](docs/user/web/README.md)
+More details: [docs/user/web/README.md](docs/user/web/README.md)
 
 ---
 
-## ⚙️ Config - Configuración
+## ⚙️ Config
 
-Inspecciona y valida la configuración centralizada (`config.toml`).
+Inspect and validate the centralized configuration (`config.toml`).
 
 ```bash
-# Mostrar configuración efectiva (con fuente de cada valor)
+# Show effective configuration (with the source of each value)
 enola-cli config-show
 
-# Salida JSON (CI, jq)
+# JSON output (CI, jq)
 enola-cli config-show --json
 
-# Validar configuración (offline)
+# Validate configuration (offline)
 enola-cli config-validate
 
-# Validar con ping HTTP a URLs
+# Validate with HTTP reachability ping
 enola-cli config-validate --reachable
 
-# Salida JSON estructurada
+# Structured JSON output
 enola-cli config-validate --json
 ```
 
 ---
 
-## 💡 Ejemplos Prácticos
+## 💡 Practical Examples
 
-
-### Crear un Blog Anónimo con WordPress
+### Create an Anonymous Blog with WordPress
 
 ```bash
-# 1. Crear sitio WordPress
-sudo enola-cli wp create -n mi-blog
+# 1. Create the WordPress site
+sudo enola-cli wp create -n my-blog
 
-# 2. Esperar a que inicie (puede tardar 1-2 minutos)
-sudo enola-cli wp status mi-blog
+# 2. Wait for it to start (may take 1-2 minutes)
+sudo enola-cli wp status my-blog
 
-# 3. Publicar en Tor
-sudo enola-cli wp publish mi-blog
+# 3. Publish on Tor
+sudo enola-cli wp publish my-blog
 
-# 4. Obtener dirección .onion
+# 4. Get the .onion address
 sudo enola-cli tor list
 ```
 
-
-### Servidor Git Seguro
+### Secure Git Server
 
 ```bash
-# 1. Crear servidor con HTTPS
-sudo enola-cli git create -n codigo --ssl
+# 1. Create a server with HTTPS
+sudo enola-cli git create -n code --ssl
 
-# 2. Crear usuario admin
-sudo enola-cli git user create codigo -u admin -e admin@local.onion -p MiPassword123
+# 2. Create an admin user
+sudo enola-cli git user create code -u admin -e admin@local.onion -p MyPassword123
 
-# 3. Exponer en Tor
-sudo enola-cli git publish codigo --ssl
+# 3. Expose on Tor
+sudo enola-cli git publish code --ssl
 
-# 4. Obtener dirección .onion
+# 4. Get the .onion address
 sudo enola-cli tor list
 ```
-
 
 ---
 
@@ -798,34 +979,34 @@ sudo enola-cli tor list
 ### Error: "Root privileges required"
 
 ```bash
-# Solución: Ejecutar con sudo
-sudo enola-cli <comando>
+# Solution: run with sudo
+sudo enola-cli <command>
 ```
 
-### Servicio no accesible vía Tor
+### Service not reachable via Tor
 
 ```bash
-# 1. Verificar que Tor está activo
+# 1. Check that Tor is active
 sudo systemctl status tor
 
-# 2. Verificar servicio
+# 2. Check the service
 sudo enola-cli tor list
 
-# 3. Ver logs de Tor
+# 3. View Tor logs
 sudo enola-cli logs view tor -l 100
 ```
 
-### Puerto en uso
+### Port in use
 
 ```bash
-# Usar auto-ports para encontrar puertos libres
-sudo enola-cli tor edit miservicio --auto-ports
+# Use auto-ports to find free ports
+sudo enola-cli tor edit myservice --auto-ports
 
-# O especificar manualmente
-sudo enola-cli tor edit miservicio -p 8081 -t 9000
+# Or specify manually
+sudo enola-cli tor edit myservice -p 8081 -t 9000
 ```
 
-### Verificar diagnósticos completos
+### Full diagnostics
 
 ```bash
 sudo enola-cli diag summary
@@ -834,7 +1015,7 @@ sudo enola-cli diag resources
 
 ---
 
-### Guías de usuario destacadas
+### Highlighted User Guides
 
 - [docs/user/general/SECURITY.md](docs/user/general/SECURITY.md)
 - [docs/user/general/concepts.md](docs/user/general/concepts.md)
@@ -844,37 +1025,37 @@ sudo enola-cli diag resources
 - [docs/user/verify/verify-downloads.md](docs/user/verify/verify-downloads.md)
 - [docs/user/uninstall/uninstall.md](docs/user/uninstall/uninstall.md)
 
+For AI assistants and LLM crawlers: see [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt).
+
 ---
 
-## 📄 Licencia
+## 📄 License
 
-**Enola CLI es software propietario de código visible.** Copyright © 2026 Salvador Palma Rodriguez. Todos los derechos reservados.
+**Enola CLI is source-visible proprietary software.** Copyright © 2026 Salvador Palma Rodriguez. All rights reserved.
 
-- 📖 **Código visible** — se permite ver, leer y compilar el código fuente para uso personal.
-- ✅ **Uso personal gratuito** — la licencia es gratuita para uso personal no comercial.
-- 🚫 **No redistribución** — no se permite redistribuir, publicar, vender ni poner el software a disposición de terceros.
-- 🚫 **No fork** — no se permite bifurcar el software para crear un producto o servicio competidor.
-- 🚫 **No uso empresarial** — no se permite uso comercial, empresarial o generador de ingresos.
-- ⚠️ **Sin garantía de continuidad** — el software puede discontinuarse en cualquier momento sin aviso.
-- ⚠️ **No responsabilidad del autor** — el autor NO es responsable del uso del software ni de posibles daños.
-- 🛡️ **Divulgación coordinada** — las vulnerabilidades deben reportarse al autor en un máximo de 72 horas. **Prohibida** su divulgación pública hasta que sean remediadas.
-- ⚖️ **Jurisdicción** — España / Unión Europea.
+- 📖 **Source-visible** — you may view, read and compile the source code for personal use.
+- ✅ **Free for personal use** — the license is free for personal, non-commercial use.
+- 🚫 **No redistribution** — redistributing, publishing, selling or making the software available to third parties is not permitted.
+- 🚫 **No forks** — forking the software to create a competing product or service is not permitted.
+- 🚫 **No business use** — commercial, corporate or revenue-generating use is not permitted.
+- ⚠️ **No continuity guarantee** — the software may be discontinued at any time without notice.
+- ⚠️ **No author liability** — the author is NOT responsible for the use of the software or any damages.
+- 🛡️ **Coordinated disclosure** — vulnerabilities must be reported to the author within 72 hours. Public disclosure is **prohibited** until they are remediated.
+- ⚖️ **Jurisdiction** — Spain / European Union.
 
-Licencia completa: [LICENSE](LICENSE) · Contacto: salvadorpalmarodriguez@gmail.com
+Full license: [LICENSE](LICENSE) · Contact: salvadorpalmarodriguez@gmail.com
 
-### Licencias de terceros
+### Third-Party Licenses
 
-Este software utiliza dependencias de terceros (Rust crates) licenciadas
-bajo MIT, Apache-2.0, BSD, ISC, MPL-2.0 y otras licencias permisivas. El listado completo
-de dependencias y sus textos de licencia está disponible en:
+This software uses third-party dependencies (Rust crates) licensed under MIT, Apache-2.0, BSD, ISC, MPL-2.0 and other permissive licenses. The full list of dependencies and their license texts is available at:
 [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)
 
 ---
 
 <div align="center">
 
-**Enola CLI** - Privacidad por diseño 🔐
+**Enola CLI** — Privacy by design 🔐
 
-[Documentación](docs/) · [Issues](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/issues) · [Releases](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
+[Documentation](docs/) · [Issues](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/issues) · [Releases](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
 
 </div>

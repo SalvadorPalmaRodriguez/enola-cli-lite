@@ -90,6 +90,20 @@ sudo enola-cli git stop <NOMBRE>
 
 ---
 
+## `git status`
+
+Muestra el estado de un servidor Git (running/stopped y puertos).
+
+```bash
+sudo enola-cli git status <NOMBRE>
+```
+
+| Argumento | Tipo | Obligatorio | Descripción |
+|-----------|------|-------------|-------------|
+| `<NOMBRE>` | String | Sí | Nombre del servidor |
+
+---
+
 ## `git delete`
 
 Elimina un servidor Git.

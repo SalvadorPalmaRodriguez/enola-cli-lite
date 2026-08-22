@@ -1,5 +1,7 @@
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::container::{ContainerConfig, ContainerInfo, ContainerPort, ImageBuildConfig};
+use crate::ports::container::{
+    ContainerConfig, ContainerInfo, ContainerPort, ContainerStats, ImageBuildConfig,
+};
 use bollard::container::{
     Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogsOptions,
     RemoveContainerOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions,
@@ -810,6 +812,77 @@ impl ContainerPort for BollardDockerAdapter {
             .map_err(|e| EnolaError::InfrastructureError(format!("Image prune failed: {}", e)))?;
 
         Ok(())
+    }
+
+    async fn pull_image(&self, image: &str) -> Result<()> {
+        let options = Some(CreateImageOptions {
+            from_image: image,
+            ..Default::default()
+        });
+
+        let mut stream = self.docker.create_image(options, None, None);
+
+        while let Some(result) = stream.next().await {
+            if let Err(e) = result {
+                return Err(EnolaError::InfrastructureError(format!(
+                    "Failed to pull image {}: {}",
+                    image, e
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_container_stats(&self, id: &str) -> Result<ContainerStats> {
+        use bollard::container::StatsOptions;
+
+        let mut stream = self.docker.stats(
+            id,
+            Some(StatsOptions {
+                stream: false,
+                one_shot: true,
+            }),
+        );
+
+        match stream.next().await {
+            Some(Ok(stats)) => {
+                let cpu_percent = calculate_cpu_percent(&stats);
+                let memory_usage = stats.memory_stats.usage.unwrap_or(0);
+                let memory_limit = stats.memory_stats.limit.unwrap_or(0);
+
+                Ok(ContainerStats {
+                    cpu_percent,
+                    memory_usage,
+                    memory_limit,
+                })
+            }
+            Some(Err(e)) => Err(EnolaError::InfrastructureError(format!(
+                "Failed to get stats for container {}: {}",
+                id, e
+            ))),
+            None => Err(EnolaError::InfrastructureError(format!(
+                "No stats returned for container {}",
+                id
+            ))),
+        }
+    }
+}
+
+fn calculate_cpu_percent(stats: &bollard::container::Stats) -> f32 {
+    let cpu_stats = &stats.cpu_stats;
+    let precpu_stats = &stats.precpu_stats;
+
+    let cpu_delta =
+        cpu_stats.cpu_usage.total_usage as i64 - precpu_stats.cpu_usage.total_usage as i64;
+    let system_delta = cpu_stats.system_cpu_usage.unwrap_or(0) as i64
+        - precpu_stats.system_cpu_usage.unwrap_or(0) as i64;
+    let online_cpus = cpu_stats.online_cpus.unwrap_or(1) as f32;
+
+    if system_delta > 0 && cpu_delta >= 0 {
+        (cpu_delta as f32 / system_delta as f32) * online_cpus * 100.0
+    } else {
+        0.0
     }
 }
 

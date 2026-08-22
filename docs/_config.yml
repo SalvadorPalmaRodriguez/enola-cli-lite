@@ -1,0 +1,10 @@
+title: Enola CLI
+description: >-
+  Rust CLI for self-hosting Tor hidden services (.onion), Git servers (Forgejo),
+  CMS (WordPress, Drupal, Ghost, Strapi, Wagtail, Magnolia), file sharing,
+  WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux —
+  with post-quantum signed releases (ML-DSA).
+theme: jekyll-theme-cayman
+show_downloads: true
+plugins:
+  - jekyll-sitemap

@@ -42,19 +42,11 @@ impl SshStatusCheck {
         // 2. Parse Ports
         let ports = self.get_configured_ports().await?;
 
-        // 3. Confirm listening (Optional, requires reading netstat/ss output which is hard from here without command/adapter)
-        // For MVP, if config and service is active, we assume ok.
-        // Or we could run `ss -ltn` via Command.
-        // Since we are not strictly bound to ports for simple checks, I can add a quick check here using std::net::TcpListener?
-        // No, that checks if I can BIND. I want to check if SOMEONE is bound.
-        // `ss` command is best.
-        // But App layer shouldn't run commands directly if possible.
-        // Let's rely on active status for now, and maybe a simple check if we can connect to localhost:port?
-        // Connecting to localhost:port is a good check.
-
+        // 3. Confirm listening by attempting TCP connection to each configured port.
+        // This verifies that SSH is actually accepting connections, not just that the
+        // service reports as active.
         let mut listening_confirmed = false;
         if active && !ports.is_empty() {
-            // Try connecting to first port
             for port in &ports {
                 if tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
                     .await
@@ -91,9 +83,8 @@ impl SshStatusCheck {
         }
 
         // Also check sshd_config.d/*.conf?
-        // FileManagerPort usually handles single files.
-        // We skip complex include logic for MVP unless critical.
-        // Default to 22 if empty.
+        // FileManagerPort handles single files, so include directives in
+        // /etc/ssh/sshd_config.d/*.conf are not parsed. Default to 22 if empty.
         if ports.is_empty() {
             ports.push(22);
         }

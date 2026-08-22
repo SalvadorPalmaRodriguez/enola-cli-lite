@@ -169,7 +169,7 @@ impl FileManagerPort for EnolaFileAdapter {
     }
 
     async fn create_archive(&self, source_dir: &Path, dest_file: &Path) -> Result<()> {
-        let status = tokio::process::Command::new("tar")
+        let output = tokio::process::Command::new("tar")
             .args([
                 "-czf",
                 &dest_file.to_string_lossy(),
@@ -180,16 +180,18 @@ impl FileManagerPort for EnolaFileAdapter {
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| ".".to_string()),
             ])
-            .status()
+            .output()
             .await
             .map_err(|e| EnolaError::InfrastructureError(format!("tar create failed: {}", e)))?;
 
-        if status.success() {
+        // tar exit code 0 = success, 1 = file changed during archive (warning, not fatal)
+        if output.status.success() || output.status.code() == Some(1) {
             Ok(())
         } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
             Err(EnolaError::InfrastructureError(format!(
-                "tar -czf failed for {:?}",
-                dest_file
+                "tar -czf failed for {:?}: {}",
+                dest_file, stderr
             )))
         }
     }

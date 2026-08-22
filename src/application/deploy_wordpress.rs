@@ -285,7 +285,7 @@ fn write_secret_file(dir: &Path, name: &str, value: &str) -> Result<PathBuf> {
 mod tests {
     use super::*;
     use crate::domain::error::EnolaError;
-    use crate::ports::container::ContainerInfo;
+    use crate::ports::container::{ContainerInfo, ContainerStats};
     use crate::ports::manifest::MockManifestPort;
     use crate::ports::tor::TorServiceInfo;
     use async_trait::async_trait;
@@ -408,6 +408,12 @@ mod tests {
         }
         async fn prune_system(&self) -> Result<()> {
             Ok(())
+        }
+        async fn pull_image(&self, _image: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn get_container_stats(&self, _id: &str) -> Result<ContainerStats> {
+            Ok(ContainerStats::default())
         }
     }
 

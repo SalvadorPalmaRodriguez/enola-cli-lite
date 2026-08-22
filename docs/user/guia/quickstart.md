@@ -2,6 +2,7 @@
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de inicio rápido**
 > **Referencias:** commands.md, concepts.md, examples.md, faq.md
+> **English:** [`docs/en/quickstart.md`](../../en/quickstart.md)
 
 # 🚀 Guía de Inicio Rápido — Enola CLI
 

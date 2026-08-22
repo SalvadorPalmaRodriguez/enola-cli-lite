@@ -95,6 +95,17 @@ impl Default for ContainerConfig {
     }
 }
 
+/// Real-time resource usage statistics for a container
+#[derive(Debug, Clone, Default)]
+pub struct ContainerStats {
+    /// CPU usage percentage (0.0 - 100.0+)
+    pub cpu_percent: f32,
+    /// Memory usage in bytes
+    pub memory_usage: u64,
+    /// Memory limit in bytes
+    pub memory_limit: u64,
+}
+
 /// Configuration for building a Docker image
 #[derive(Debug, Clone)]
 pub struct ImageBuildConfig {
@@ -134,6 +145,12 @@ pub trait ContainerPort {
 
     /// Prune stopped containers, dangling images, and unused volumes
     async fn prune_system(&self) -> Result<()>;
+
+    /// Pull (or refresh) a Docker image from registry
+    async fn pull_image(&self, image: &str) -> Result<()>;
+
+    /// Get real-time resource usage statistics for a container
+    async fn get_container_stats(&self, id: &str) -> Result<ContainerStats>;
 }
 // But `impl Trait` in traits is tricky for dynamic dispatch (dyn ContainerPort).
 // We likely want `dyn ContainerPort` for mocking.

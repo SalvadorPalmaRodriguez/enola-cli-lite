@@ -2,6 +2,7 @@
 
 > **Versión**: 3.1 (2026-08-04)
 > **Audiencia**: usuarios finales, investigadores de seguridad, periodistas.
+> **English:** [`docs/en/security-model.md`](../../en/security-model.md)
 
 ---
 
