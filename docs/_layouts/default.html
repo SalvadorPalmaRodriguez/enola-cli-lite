@@ -16,9 +16,12 @@
                 {% if url_parts[1] == 'en' %}
                     <a href="{{ '/' | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>
                     <span class="lang-flag active" title="English">🇺🇸</span>
-                {% else %}
+                {% elsif url_parts[1] == 'user' %}
                     <span class="lang-flag active" title="Español">🇪🇸</span>
                     <a href="{{ '/en/' | relative_url }}" class="lang-flag" title="English">🇺🇸</a>
+                {% else %}
+                    <a href="{{ '/user/guia/quickstart.html' | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>
+                    <span class="lang-flag active" title="English">🇺🇸</span>
                 {% endif %}
             </div>
         </div>
