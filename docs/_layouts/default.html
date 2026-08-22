@@ -44,7 +44,10 @@
 
     <header class="site-header">
         <div class="wrapper site-header-inner">
-            <a class="site-title" href="{{ '/' | relative_url }}">{{ site.title | escape }}</a>
+            <a class="site-title" href="{{ '/' | relative_url }}">
+                <img src="{{ '/assets/logo.svg' | relative_url }}" alt="Enola CLI" class="site-logo" width="24" height="24">
+                {{ site.title | escape }}
+            </a>
             <div class="lang-switcher">
                 {% if current_lang == 'en' %}
                     <a href="{{ lang_alt | relative_url }}" class="lang-flag" title="Español">🇪🇸</a>

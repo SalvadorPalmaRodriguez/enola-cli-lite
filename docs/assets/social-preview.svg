@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#050505"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Terminal window frame -->
+  <rect x="240" y="120" width="800" height="400" rx="8" fill="#0f0f0f" stroke="#1e1e1e" stroke-width="1"/>
+
+  <!-- Terminal title bar -->
+  <rect x="240" y="120" width="800" height="36" rx="8" fill="#161616"/>
+  <rect x="240" y="148" width="800" height="8" fill="#161616"/>
+  <circle cx="262" cy="138" r="6" fill="#f44"/>
+  <circle cx="282" cy="138" r="6" fill="#ee0"/>
+  <circle cx="302" cy="138" r="6" fill="#0f0"/>
+
+  <!-- Terminal content -->
+  <g font-family="'Courier New', 'Consolas', monospace" font-size="22" fill="#0f0" filter="url(#glow)">
+    <text x="280" y="200">$ enola-cli --version</text>
+    <text x="280" y="240" fill="#5a5">enola 0.1.1-alpha</text>
+    <text x="280" y="290">$ enola-cli tor create --name my-onion</text>
+    <text x="280" y="330" fill="#c8c8c8">[+] Generating Tor hidden service...</text>
+    <text x="280" y="365" fill="#c8c8c8">[+] Nginx configured on 127.0.0.1:8080</text>
+    <text x="280" y="400" fill="#c8c8c8">[+] .onion address: </text>
+    <text x="520" y="400" fill="#0f0">abcdef1234...xyz.onion</text>
+    <text x="280" y="445" fill="#0f0">✅ Service deployed</text>
+    <text x="280" y="490">$ <tspan fill="#0f0">▊</tspan></text>
+  </g>
+
+  <!-- Title -->
+  <text x="640" y="580" text-anchor="middle" font-family="'Courier New', 'Consolas', monospace" font-size="42" font-weight="bold" fill="#0f0" filter="url(#glow)">Enola CLI</text>
+  <text x="640" y="615" text-anchor="middle" font-family="'Courier New', 'Consolas', monospace" font-size="18" fill="#5a5">Self-Hosted Tor Services · Post-Quantum Signed · Rust</text>
+</svg>
