@@ -3,6 +3,19 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2-alpha] — 2026-08-29
+
+### Changed
+- License: removed fork prohibition clause (§2.3) to align with GitHub Terms of Service. GitHub TOS grants fork rights for public repos; the clause was unenforceable on this platform. Competing use remains prohibited by §2.4 (was §2.5). Renumbered §2.4→2.3, §2.5→2.4, §2.6→2.5 in both English and Spanish.
+- License version bump triggers re-acceptance for existing users (build-time hash verification).
+
+### Added
+- AI Usage policy block in `llms.txt` and `llms-full.txt`: indexing permitted but does not constitute a license grant; AI training for competing products subject to LICENSE §2.4; attribution requested.
+- `README.md` and `README.es.md`: explicit AI readability clarification with bilingual parity.
+
+### Removed
+- `MEGAPLAN.md` (internal planning document, not intended for public repo).
+
 ## [0.1.1-alpha] — 2026-08-22
 
 ### Changed
@@ -42,5 +55,6 @@ First public alpha release (Phase 1: standalone, no authentication).
 - **UX** — embedded offline docs (`enola-cli docs`), local web dashboard (`enola-cli web`), Docker quick reference, centralized config with `config-show`/`config-validate`, JSON output mode.
 - **Install/uninstall** — verified installer script and clean sectioned uninstaller (dry-run by default).
 
+[0.1.2-alpha]: https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/tag/v0.1.2-alpha
 [0.1.1-alpha]: https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/tag/v0.1.1-alpha
 [0.1.0-alpha]: https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/tag/v0.1.0-alpha
