@@ -7,7 +7,7 @@
 - Product: `enola-cli`, a single Rust binary for end users. Current version: 0.1.1-alpha.
 - Purpose: privacy-first self-hosting. Every service binds to 127.0.0.1 only and is exposed exclusively through Tor hidden services. Traffic model: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT → App:TARGET_PORT`.
 - Platform: Debian/Linux (x86_64). Requires root (sudo), Docker, Nginx, Tor. `enola-cli setup` installs dependencies.
-- License: source-visible proprietary. Free for personal, non-commercial use. No redistribution, no forks, no commercial use. Copyright (c) 2026 Salvador Palma Rodriguez.
+- License: source-visible proprietary. Free for personal, non-commercial use. No redistribution, no commercial use. Copyright (c) 2026 Salvador Palma Rodriguez.
 - Security reporting: vulnerabilities must be reported privately to salvadorpalmarodriguez@gmail.com within 72 hours of discovery; public disclosure is prohibited until remediation (license §5).
 - Architecture: hexagonal (ports & adapters). domain (pure logic) / ports (traits) / adapters (Docker, Nginx, Tor) / application (orchestration) / cli (routing) / infrastructure (utilities).
 - Phase 1 repository: standalone, no authentication, no server dependency. Phase 2 (auth + AI) will be released separately as v2.0.0.
@@ -20,7 +20,7 @@
   proprietary: personal, non-commercial use only; no redistribution, no
   derivatives, no competing products).
 - Using this repository to train AI models for creating competing products
-  or services is subject to LICENSE Section 2.5.
+  or services is subject to LICENSE Section 2.4.
 - Attribution to SalvadorPalmaRodriguez/enola-cli-lite (with a link to the
   repository where technically possible) is requested when AI systems
   reference or reproduce material from this project.

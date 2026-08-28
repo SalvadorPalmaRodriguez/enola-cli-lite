@@ -1013,7 +1013,6 @@ Para asistentes de IA y crawlers LLM: ver [llms.txt](llms.txt) y [llms-full.txt]
 - 📖 **Código visible** — se permite ver, leer y compilar el código fuente para uso personal.
 - ✅ **Uso personal gratuito** — la licencia es gratuita para uso personal no comercial.
 - 🚫 **No redistribución** — no se permite redistribuir, publicar, vender ni poner el software a disposición de terceros.
-- 🚫 **No fork** — no se permite bifurcar el software para crear un producto o servicio competidor.
 - 🚫 **No uso empresarial** — no se permite uso comercial, empresarial o generador de ingresos.
 - ⚠️ **Sin garantía de continuidad** — el software puede discontinuarse en cualquier momento sin aviso.
 - ⚠️ **No responsabilidad del autor** — el autor NO es responsable del uso del software ni de posibles daños.

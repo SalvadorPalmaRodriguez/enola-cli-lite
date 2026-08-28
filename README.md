@@ -1036,7 +1036,6 @@ For AI assistants and LLM crawlers: see [llms.txt](llms.txt) and [llms-full.txt]
 - 📖 **Source-visible** — you may view, read and compile the source code for personal use.
 - ✅ **Free for personal use** — the license is free for personal, non-commercial use.
 - 🚫 **No redistribution** — redistributing, publishing, selling or making the software available to third parties is not permitted.
-- 🚫 **No forks** — forking the software to create a competing product or service is not permitted.
 - 🚫 **No business use** — commercial, corporate or revenue-generating use is not permitted.
 - ⚠️ **No continuity guarantee** — the software may be discontinued at any time without notice.
 - ⚠️ **No author liability** — the author is NOT responsible for the use of the software or any damages.
