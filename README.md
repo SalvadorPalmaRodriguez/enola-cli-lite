@@ -9,7 +9,7 @@
 
 > **Enola CLI** is a Rust command-line tool for self-hosting **Tor hidden services (.onion)**, **Git servers (Forgejo)**, **CMS platforms (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail)**, **anonymous file sharing**, **WireGuard VPN**, **UFW firewall** and **AppArmor sandboxing** on Debian/Linux — with **post-quantum signed releases (ML-DSA-65, FIPS 204)**. Everything binds to `127.0.0.1` and is exposed only through Tor: privacy by design.
 >
-> 📖 **Documentation**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/) · 📄 **[llms.txt](llms.txt)** for AI indexers
+> 📖 **Documentation**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/) · 📄 **[llms.txt](llms.txt)** for AI indexers — AI readability does not constitute a license grant; see [LICENSE](LICENSE)
 
 ---
 
@@ -1025,7 +1025,7 @@ sudo enola-cli diag resources
 - [docs/user/verify/verify-downloads.md](docs/user/verify/verify-downloads.md)
 - [docs/user/uninstall/uninstall.md](docs/user/uninstall/uninstall.md)
 
-For AI assistants and LLM crawlers: see [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt).
+For AI assistants and LLM crawlers: see [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt) — AI readability does not constitute a license grant; see [LICENSE](LICENSE).
 
 ---
 

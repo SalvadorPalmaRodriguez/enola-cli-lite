@@ -9,7 +9,7 @@
 
 > **CLI para gestionar servicios Tor, servidores Git, WordPress, CMS y archivos compartidos.**
 >
-> 📖 **Documentación**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/)
+> 📖 **Documentación**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/) · 📄 **[llms.txt](llms.txt)** para indexadores de IA — la legibilidad por IA no constituye concesión de licencia; ver [LICENSE](LICENSE)
 
 ---
 
@@ -1001,6 +1001,8 @@ sudo enola-cli diag resources
 - [docs/user/guia/install-from-iso.md](docs/user/guia/install-from-iso.md)
 - [docs/user/verify/verify-downloads.md](docs/user/verify/verify-downloads.md)
 - [docs/user/uninstall/uninstall.md](docs/user/uninstall/uninstall.md)
+
+Para asistentes de IA y crawlers LLM: ver [llms.txt](llms.txt) y [llms-full.txt](llms-full.txt) — la legibilidad por IA no constituye concesión de licencia; ver [LICENSE](LICENSE).
 
 ---
 

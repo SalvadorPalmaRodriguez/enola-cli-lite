@@ -9,6 +9,19 @@ Important notes:
 - Single binary `enola-cli`, requires root (sudo) for most operations. Runs on Debian/Linux with Docker, Nginx and Tor.
 - This repository is Phase 1 (standalone, no auth). Phase 2 (auth + AI features) will be released separately as v2.0.0.
 
+## AI Usage
+
+- Indexing and reading this repository by AI systems is permitted.
+- AI-readable documentation (llms.txt, llms-full.txt) does NOT constitute
+  a license grant. All usage is governed by the LICENSE (source-visible
+  proprietary: personal, non-commercial use only; no redistribution, no
+  derivatives, no competing products).
+- Using this repository to train AI models for creating competing products
+  or services is subject to LICENSE Section 2.5.
+- Attribution to SalvadorPalmaRodriguez/enola-cli-lite (with a link to the
+  repository where technically possible) is requested when AI systems
+  reference or reproduce material from this project.
+
 ## Documentation
 
 - [README](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/README.md): Full command reference for all 28 modules

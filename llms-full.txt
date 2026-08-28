@@ -12,6 +12,19 @@
 - Architecture: hexagonal (ports & adapters). domain (pure logic) / ports (traits) / adapters (Docker, Nginx, Tor) / application (orchestration) / cli (routing) / infrastructure (utilities).
 - Phase 1 repository: standalone, no authentication, no server dependency. Phase 2 (auth + AI) will be released separately as v2.0.0.
 
+## AI Usage
+
+- Indexing and reading this repository by AI systems is permitted.
+- AI-readable documentation (llms.txt, llms-full.txt) does NOT constitute
+  a license grant. All usage is governed by the LICENSE (source-visible
+  proprietary: personal, non-commercial use only; no redistribution, no
+  derivatives, no competing products).
+- Using this repository to train AI models for creating competing products
+  or services is subject to LICENSE Section 2.5.
+- Attribution to SalvadorPalmaRodriguez/enola-cli-lite (with a link to the
+  repository where technically possible) is requested when AI systems
+  reference or reproduce material from this project.
+
 ## Installation
 
 ```
