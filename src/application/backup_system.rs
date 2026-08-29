@@ -430,7 +430,7 @@ mod tests {
         // Should NOT find .txt
         assert!(!result
             .iter()
-            .any(|p| p.extension().map_or(false, |e| e == "txt")));
+            .any(|p| p.extension().is_some_and(|e| e == "txt")));
     }
 
     #[test]

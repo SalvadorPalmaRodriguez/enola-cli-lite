@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_security_adapter_default() {
-        let adapter = SecurityAdapter::default();
+        let adapter = SecurityAdapter;
         let _ = adapter;
     }
 

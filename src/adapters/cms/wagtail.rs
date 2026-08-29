@@ -513,6 +513,7 @@ fn write_secret_file(dir: &Path, name: &str, value: &str) -> Result<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::ports::container::{ContainerInfo, MockContainerPort};

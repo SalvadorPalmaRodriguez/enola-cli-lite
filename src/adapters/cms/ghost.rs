@@ -318,6 +318,7 @@ impl CmsLifecycle for GhostCmsAdapter {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::ports::container::{ContainerInfo, MockContainerPort};

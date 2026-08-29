@@ -202,7 +202,7 @@ mod tests {
         let ini = "[service]\nDISABLE_REGISTRATION = true\n";
         write_app_ini(tmp.path(), "myrepo", ini).await;
         let svc = make_toggle_with_base(tmp.path());
-        assert_eq!(svc.is_registration_enabled("myrepo").await.unwrap(), false);
+        assert!(!svc.is_registration_enabled("myrepo").await.unwrap());
         // unwrap: test-only
     }
 
@@ -212,7 +212,7 @@ mod tests {
         let ini = "[service]\nDISABLE_REGISTRATION = false\n";
         write_app_ini(tmp.path(), "myrepo", ini).await;
         let svc = make_toggle_with_base(tmp.path());
-        assert_eq!(svc.is_registration_enabled("myrepo").await.unwrap(), true); // unwrap: test-only
+        assert!(svc.is_registration_enabled("myrepo").await.unwrap()); // unwrap: test-only
     }
 
     #[tokio::test]
@@ -221,7 +221,7 @@ mod tests {
         let ini = "[service]\nSOME_KEY = value\n";
         write_app_ini(tmp.path(), "myrepo", ini).await;
         let svc = make_toggle_with_base(tmp.path());
-        assert_eq!(svc.is_registration_enabled("myrepo").await.unwrap(), true); // unwrap: test-only
+        assert!(svc.is_registration_enabled("myrepo").await.unwrap()); // unwrap: test-only
     }
 
     #[tokio::test]
@@ -230,7 +230,7 @@ mod tests {
         let ini = "[server]\nHTTP_PORT = 3000\n";
         write_app_ini(tmp.path(), "myrepo", ini).await;
         let svc = make_toggle_with_base(tmp.path());
-        assert_eq!(svc.is_registration_enabled("myrepo").await.unwrap(), true); // unwrap: test-only
+        assert!(svc.is_registration_enabled("myrepo").await.unwrap()); // unwrap: test-only
     }
 
     #[tokio::test]
@@ -240,7 +240,7 @@ mod tests {
         let ini = "[service]\nDISABLE_REGISTRATION  =  true\n";
         write_app_ini(tmp.path(), "myrepo", ini).await;
         let svc = make_toggle_with_base(tmp.path());
-        assert_eq!(svc.is_registration_enabled("myrepo").await.unwrap(), false);
+        assert!(!svc.is_registration_enabled("myrepo").await.unwrap());
         // unwrap: test-only
     }
 }

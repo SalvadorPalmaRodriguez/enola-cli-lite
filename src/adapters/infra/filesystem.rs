@@ -362,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_default_constructor() {
-        let adapter = EnolaFileAdapter::default();
+        let adapter = EnolaFileAdapter;
         let _ = adapter;
     }
 }

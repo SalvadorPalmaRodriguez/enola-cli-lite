@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_default_constructor() {
-        let adapter = OpenSslCertAdapter::default();
+        let adapter = OpenSslCertAdapter;
         let _ = adapter;
     }
 }

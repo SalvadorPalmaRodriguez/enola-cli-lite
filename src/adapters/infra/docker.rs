@@ -956,7 +956,7 @@ mod tests {
         // A very common image — if not present, it's fine to be false
         let exists = adapter.image_exists("hello-world:latest").await.unwrap();
         // Just verify the call works, result depends on local cache
-        assert!(exists == true || exists == false);
+        let _ = exists;
     }
 
     #[tokio::test]

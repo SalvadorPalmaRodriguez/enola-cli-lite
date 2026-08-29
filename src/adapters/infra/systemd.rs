@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_default_constructor() {
-        let adapter = SystemdAdapter::default();
+        let adapter = SystemdAdapter;
         let _ = adapter;
     }
 

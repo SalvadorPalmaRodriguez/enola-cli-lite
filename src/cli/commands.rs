@@ -6181,7 +6181,7 @@ mod cli_error_tests {
 
     #[test]
     fn from_io_error() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other("test");
         let cli: CliError = io_err.into();
         assert!(matches!(cli, CliError::Io(_)));
     }
@@ -6204,7 +6204,7 @@ mod cli_error_tests {
             content
                 .lines()
                 .find(|l| l.starts_with("PORT="))
-                .and_then(|l| l.splitn(2, '=').nth(1))
+                .and_then(|l| l.split_once('=').map(|x| x.1))
                 .and_then(|v| v.trim().parse::<u16>().ok()),
             Some(8080)
         );
@@ -6217,7 +6217,7 @@ mod cli_error_tests {
             content
                 .lines()
                 .find(|l| l.starts_with("PORT"))
-                .and_then(|l| l.splitn(2, '=').nth(1))
+                .and_then(|l| l.split_once('=').map(|x| x.1))
                 .and_then(|v| v.trim().parse::<u16>().ok()),
             None
         );
@@ -6226,6 +6226,7 @@ mod cli_error_tests {
     // ── CliResult type alias ─────────────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::unnecessary_literal_unwrap)]
     fn cli_result_ok_is_ok() {
         let r: CliResult<u32> = Ok(42);
         assert!(r.is_ok());
@@ -6255,7 +6256,7 @@ mod tor_edit_tests {
         let content = tokio::fs::read_to_string(&tmp).await.unwrap();
 
         // Simulate the logic of update_tor_config_ports
-        let ports = vec![(443u16, 12000u16)];
+        let ports = [(443u16, 12000u16)];
         let mut new_lines: Vec<String> = Vec::new();
         let mut port_index = 0;
         for line in content.lines() {
@@ -6287,7 +6288,7 @@ mod tor_edit_tests {
             HiddenServiceDir /var/lib/tor/enola_test\n\
             HiddenServicePort 80 127.0.0.1:11738\n";
 
-        let ports = vec![(80u16, 9999u16)];
+        let ports = [(80u16, 9999u16)];
         let mut new_lines: Vec<String> = Vec::new();
         let mut port_index = 0;
         for line in content.lines() {
@@ -6315,7 +6316,7 @@ mod tor_edit_tests {
         let content = "# Enola Service: test\n\
             HiddenServiceDir /var/lib/tor/enola_test\n";
 
-        let ports = vec![(80u16, 8080u16)];
+        let ports = [(80u16, 8080u16)];
         let mut new_lines: Vec<String> = Vec::new();
         let mut port_index = 0;
         for line in content.lines() {

@@ -153,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_check_default_constructor() {
-        let health_check = SystemHealthCheck::default();
+        let health_check = SystemHealthCheck;
 
         let result = health_check.execute().await;
 

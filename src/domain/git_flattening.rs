@@ -120,7 +120,7 @@ mod tests {
         // Crear archivo binario (no UTF-8, se ignora)
         fs::write(
             root.join("image.png"),
-            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A],
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A],
         )
         .unwrap();
 

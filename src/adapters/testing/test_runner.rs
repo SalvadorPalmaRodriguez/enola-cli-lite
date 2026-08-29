@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_default_constructor() {
-        let adapter = CargoTestRunnerAdapter::default();
+        let adapter = CargoTestRunnerAdapter;
         let _ = adapter;
     }
 

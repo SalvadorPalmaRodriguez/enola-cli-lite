@@ -1484,7 +1484,7 @@ pub async fn dry_run_update(force_feed: bool) -> std::result::Result<DownloadRes
 }
 // ══════════════════ Tests ══════════════════
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use std::sync::Mutex;

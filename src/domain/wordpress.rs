@@ -116,11 +116,10 @@ mod tests {
         assert!(result.is_ok());
         let (http, db) = result.unwrap();
         assert!(
-            http >= WordPressPortManager::HTTP_PORT_START
-                && http <= WordPressPortManager::HTTP_PORT_END
+            (WordPressPortManager::HTTP_PORT_START..=WordPressPortManager::HTTP_PORT_END).contains(&http)
         );
         assert!(
-            db >= WordPressPortManager::DB_PORT_START && db <= WordPressPortManager::DB_PORT_END
+            (WordPressPortManager::DB_PORT_START..=WordPressPortManager::DB_PORT_END).contains(&db)
         );
     }
 

@@ -69,7 +69,7 @@ mod tests {
 
     #[test]
     fn test_default_constructor() {
-        let adapter = GitClientAdapter::default();
+        let adapter = GitClientAdapter;
         let _ = adapter;
     }
 
