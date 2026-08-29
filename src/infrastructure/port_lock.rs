@@ -199,8 +199,7 @@ mod tests {
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         std::env::remove_var("ENOLA_PORT_LOCK_DIR");
         let d = lock_dir();
-        let is_expected =
-            d == *"/var/lock/enola" || d == *"/tmp/enola-locks";
+        let is_expected = d == *"/var/lock/enola" || d == *"/tmp/enola-locks";
         assert!(is_expected);
         if let Some(v) = prev {
             std::env::set_var("ENOLA_PORT_LOCK_DIR", v);
@@ -228,11 +227,7 @@ mod tests {
         std::env::set_var("ENOLA_PORT_LOCK_DIR", ""); // vacío → ignorado
         let d = lock_dir();
         // Debe caer al default, no a ""
-        assert!(
-            d != *"",
-            "lock_dir vacío debe rechazarse: {:?}",
-            d
-        );
+        assert!(d != *"", "lock_dir vacío debe rechazarse: {:?}", d);
         std::env::remove_var("ENOLA_PORT_LOCK_DIR");
         if let Some(v) = prev {
             std::env::set_var("ENOLA_PORT_LOCK_DIR", v);

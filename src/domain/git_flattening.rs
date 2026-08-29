@@ -118,11 +118,7 @@ mod tests {
         fs::write(root.join(".env"), "SECRET=123").unwrap();
 
         // Crear archivo binario (no UTF-8, se ignora)
-        fs::write(
-            root.join("image.png"),
-            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A],
-        )
-        .unwrap();
+        fs::write(root.join("image.png"), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]).unwrap();
 
         dir
     }
