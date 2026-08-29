@@ -2,7 +2,8 @@
 # pre-commit — Verificaciones locales antes de cada commit.
 #
 #   1. Sincronización de versión (sync_version.sh --check)
-#   2. Anti-leak operator→docs/user (DOC-SEC-005)
+#   2. cargo fmt --check
+#   3. Anti-leak operator→docs/user (DOC-SEC-005)
 #
 # Instalar:
 #   bash scripts/git/install-hooks.sh
@@ -21,7 +22,18 @@ if ! bash scripts/dev/sync_version.sh --check; then
     exit 1
 fi
 
-# ─── 2. Anti-leak operator→docs/user (DOC-SEC-005) ─────────────────────
+# ─── 2. cargo fmt --check ─────────────────────────────────────────────
+echo "🔍 Verificando formato (cargo fmt --check)..."
+if ! cargo fmt --check 2>&1; then
+    echo "" >&2
+    echo "  ❌ cargo fmt encontró diferencias. Ejecuta 'cargo fmt' y re-commitea." >&2
+    echo "  Para saltarte esta comprobación (NO recomendado):" >&2
+    echo "    git commit --no-verify" >&2
+    exit 1
+fi
+echo "  ✅ Formato correcto"
+
+# ─── 3. Anti-leak operator→docs/user (DOC-SEC-005) ─────────────────────
 # Detecta términos operator-only en archivos staged de docs/user/.
 OPERATOR_TERMS=(
     "appliance deploy"
