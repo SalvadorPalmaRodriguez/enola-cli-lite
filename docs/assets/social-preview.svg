@@ -29,7 +29,7 @@
   <!-- Terminal content -->
   <g font-family="'Courier New', 'Consolas', monospace" font-size="22" fill="#0f0" filter="url(#glow)">
     <text x="280" y="200">$ enola-cli --version</text>
-    <text x="280" y="240" fill="#5a5">enola 0.1.1-alpha</text>
+    <text x="280" y="240" fill="#5a5">enola 0.1.2-alpha</text>
     <text x="280" y="290">$ enola-cli tor create --name my-onion</text>
     <text x="280" y="330" fill="#c8c8c8">[+] Generating Tor hidden service...</text>
     <text x="280" y="365" fill="#c8c8c8">[+] Nginx configured on 127.0.0.1:8080</text>

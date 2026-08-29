@@ -35,7 +35,7 @@ minisign -Vm enola-cli-*.iso -p minisign.pub
 ### Linux (`dd`)
 ```bash
 lsblk
-sudo dd if=enola-cli-0.1.0-alpha-amd64.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=enola-cli-0.1.2-alpha-amd64.iso of=/dev/sdX bs=4M status=progress oflag=sync
 sync
 ```
 > Sustituye `/dev/sdX` por el dispositivo USB completo, no por una partición.
@@ -53,7 +53,7 @@ sudo enola-cli doctor
 ## Importar QCOW2 en Proxmox/KVM
 ```bash
 qm create 9000 --name enola-cli --memory 4096 --cores 2 --net0 virtio,bridge=vmbr0
-qm importdisk 9000 enola-cli-0.1.0-alpha.qcow2 local-lvm
+qm importdisk 9000 enola-cli-0.1.2-alpha.qcow2 local-lvm
 qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-lvm:vm-9000-disk-0
 qm set 9000 --boot c --bootdisk scsi0
 qm start 9000

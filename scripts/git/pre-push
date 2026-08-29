@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# pre-push — Verificaciones locales antes de git push.
+#
+#   1. Sincronización de versión (sync_version.sh --check)
+#   2. cargo fmt --check
+#   3. cargo clippy -- -D warnings
+#   4. cargo test --lib
+#
+# Instalar:
+#   bash scripts/git/install-hooks.sh
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+echo "🔍 Pre-push checks — Enola CLI"
+echo "================================"
+echo ""
+
+# ─── 1. Sincronización de versión ──────────────────────────────────────
+echo "1/4  🔢 sync_version.sh --check"
+if ! bash scripts/dev/sync_version.sh --check; then
+    echo ""
+    echo "❌ Deriva de versión. Ejecuta 'bash scripts/dev/sync_version.sh'."
+    exit 1
+fi
+echo "  ✅ Versión sincronizada"
+echo ""
+
+# ─── 2. cargo fmt --check ──────────────────────────────────────────────
+echo "2/4  📐 cargo fmt --check"
+if ! cargo fmt --check 2>&1; then
+    echo ""
+    echo "❌ cargo fmt encontró diferencias. Ejecuta 'cargo fmt' para corregir."
+    exit 1
+fi
+echo "  ✅ Formato correcto"
+echo ""
+
+# ─── 3. cargo clippy -- -D warnings ────────────────────────────────────
+echo "3/4  🧹 cargo clippy -- -D warnings"
+if ! cargo clippy -- -D warnings 2>&1; then
+    echo ""
+    echo "❌ clippy encontró warnings. Corrige antes de pushar."
+    exit 1
+fi
+echo "  ✅ Sin warnings"
+echo ""
+
+# ─── 4. cargo test --lib ───────────────────────────────────────────────
+echo "4/4  🧪 cargo test --lib"
+if ! cargo test --lib 2>&1; then
+    echo ""
+    echo "❌ Tests fallaron. Revisa los errores arriba."
+    exit 1
+fi
+echo "  ✅ Tests pasaron"
+echo ""
+
+echo "================================"
+echo "✅ Todas las verificaciones pasaron. Listo para push."

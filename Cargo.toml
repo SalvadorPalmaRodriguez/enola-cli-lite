@@ -25,6 +25,10 @@ path = "src/main.rs"
 name = "enola-sign-pqc"
 path = "src/bin/enola-sign-pqc.rs"
 
+[[bin]]
+name = "enola-context-gen"
+path = "src/bin/enola-context-gen.rs"
+
 [dependencies]
 # CLI Parser
 clap = { version = "4.4", features = ["derive", "env"] }

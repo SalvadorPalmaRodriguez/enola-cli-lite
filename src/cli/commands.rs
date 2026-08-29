@@ -6241,8 +6241,6 @@ mod cli_error_tests {
 
 #[cfg(test)]
 mod tor_edit_tests {
-    use super::update_tor_config_ports;
-
     #[tokio::test]
     async fn test_update_tor_config_ports_replaces_port() {
         let tmp = std::env::temp_dir().join("enola_test_tor_edit.conf");

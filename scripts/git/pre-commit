@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# pre-commit — Verificaciones locales antes de cada commit.
+#
+#   1. Sincronización de versión (sync_version.sh --check)
+#   2. Anti-leak operator→docs/user (DOC-SEC-005)
+#
+# Instalar:
+#   bash scripts/git/install-hooks.sh
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# ─── 1. Sincronización de versión ──────────────────────────────────────
+echo "🔍 Verificando sincronización de versión..."
+if ! bash scripts/dev/sync_version.sh --check; then
+    echo "" >&2
+    echo "  Para saltarte esta comprobación (NO recomendado):" >&2
+    echo "    git commit --no-verify" >&2
+    exit 1
+fi
+
+# ─── 2. Anti-leak operator→docs/user (DOC-SEC-005) ─────────────────────
+# Detecta términos operator-only en archivos staged de docs/user/.
+OPERATOR_TERMS=(
+    "appliance deploy"
+    "enola-signup"
+    "enola-billing"
+    "btcpay"
+    "invoiceninja"
+    "invoice.ninja"
+    "KEYCLOAK_ADMIN"
+    "KC_DB_PASSWORD"
+    "SMTP_PASSWORD"
+    "SMTP_USERNAME"
+    "renewals.timer"
+    "renewal-reminder"
+    "billing-webhook"
+    "appliance email"
+    "appliance renewals"
+    "argon2"
+    "rusqlite"
+)
+
+STAGED_USER_DOCS=$(git diff --cached --name-only --diff-filter=ACM \
+    | grep -E "^docs/user/" || true)
+
+if [[ -z "$STAGED_USER_DOCS" ]]; then
+    exit 0
+fi
+
+FOUND_LEAKS=0
+
+while IFS= read -r file; do
+    [[ -f "$file" ]] || continue
+    for term in "${OPERATOR_TERMS[@]}"; do
+        if grep -qi "$term" "$file" 2>/dev/null; then
+            echo "❌ LEAK DETECTADO en docs/user: '$term' encontrado en $file" >&2
+            FOUND_LEAKS=1
+        fi
+    done
+done <<< "$STAGED_USER_DOCS"
+
+# DOC-SEC-003: el binario no debe embeber docs internas
+STAGED_DOCS_RS=$(git diff --cached --name-only --diff-filter=ACM \
+    | grep -E "src/cli/docs\.rs" || true)
+
+if [[ -n "$STAGED_DOCS_RS" ]]; then
+    if git show ":src/cli/docs.rs" 2>/dev/null | grep -q "docs/internal"; then
+        echo "❌ LEAK DETECTADO: src/cli/docs.rs embebe contenido de docs/internal/" >&2
+        FOUND_LEAKS=1
+    fi
+fi
+
+if [[ "$FOUND_LEAKS" -ne 0 ]]; then
+    echo "" >&2
+    echo "  Referencia: docs/internal/DOC_PUBLICATION_POLICY.md" >&2
+    echo "  Para saltarte esta comprobación (NO recomendado):" >&2
+    echo "    git commit --no-verify" >&2
+    exit 1
+fi
+
+exit 0

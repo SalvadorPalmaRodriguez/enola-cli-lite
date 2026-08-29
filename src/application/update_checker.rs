@@ -2134,12 +2134,6 @@ mod tests {
         teardown_test_home(tmp, guard);
     }
 
-    // TEST-COV-XCUT-008: rotación de claves operativas
-    static KEY_ROT_LOCK: Mutex<()> = Mutex::new(());
-    fn key_rot_lock() -> std::sync::MutexGuard<'static, ()> {
-        KEY_ROT_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
     #[test]
     fn verify_minisign_empty_pubkey_returns_error() {
         // Rotación: clave vacía (antes de cargar la nueva) → error controlado
