@@ -63,7 +63,7 @@ minisign_pubkey_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/
 # Clave pública minisign para verificar el feed. Si se omite, el CLI usa la
 # clave pública embebida del proyecto (`minisign.pub`). Úsala en forks o en
 # despliegues white-label del operador.
-# minisign_pubkey = "RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
+# minisign_pubkey = "RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
 
 
 # ── 4. HTTP / Tor (QUAL-003) ───────────────────────────────────────────────

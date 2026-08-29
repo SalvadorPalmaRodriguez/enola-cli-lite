@@ -87,8 +87,8 @@ que un atacante las modifique todas):
 | Inline (copiar y pegar) | Ver abajo |
 
 ```
-untrusted comment: minisign public key 45E47537137B222A
-RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP
+untrusted comment: minisign public key 34B4F35407C4C064
+RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e
 ```
 
 Guarda este contenido en un archivo llamado `enola.pub`.
@@ -124,7 +124,7 @@ Si no quieres guardar un archivo `.pub`, puedes pasar la clave directamente:
 
 ```bash
 minisign -Vm enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz \
-  -P RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP
+  -P RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e
 ```
 
 ---
@@ -139,7 +139,7 @@ Puedes usar este script para automatizar toda la verificación:
 # Uso: bash verify_enola.sh enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Uso: bash verify_enola.sh <archivo.tar.gz>}"
-PUBKEY="RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
+PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
 
 echo "🔍 Verificando: $FILE"
 echo ""
@@ -283,7 +283,7 @@ Si las tres verificaciones pasan: ✅ el binario es auténtico, íntegro y resis
 # Uso: bash verify_enola.sh enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Uso: bash verify_enola.sh <archivo.tar.gz>}"
-PUBKEY="RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
+PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
 
 echo "🔍 Verificando: $FILE"
 echo ""
@@ -389,7 +389,7 @@ Ver `docs/user/update/commands-update.md` § Rotación de clave minisign.
 
 ---
 
-*Documento creado: 2026-04-11 | Clave pública: `RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP`*
+*Documento creado: 2026-04-11 | Clave pública: `RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e`*
 
 
 

@@ -49,9 +49,10 @@ PREFIX="${ENOLA_INSTALL_PREFIX:-/usr/local}"
 NO_VERIFY="${ENOLA_INSTALL_NO_VERIFY:-0}"
 
 
-# Clave pblica minisign del proyecto (publicada tambin en /minisign.pub
-# de la web). El operador puede sustituirla en su fork.
-DEFAULT_PUBKEY="RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
+# Clave pblica minisign del proyecto (la misma publicada en /minisign.pub
+# del repo y en el feed: id 34B4F35407C4C064). El operador puede
+# sustituirla en su fork.
+DEFAULT_PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
 PUBKEY="${ENOLA_INSTALL_PUBKEY:-$DEFAULT_PUBKEY}"
 STRICT_PUBKEY="${ENOLA_INSTALL_STRICT_PUBKEY:-0}"
 

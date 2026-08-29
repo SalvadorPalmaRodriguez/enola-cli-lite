@@ -3,9 +3,13 @@
 # Fuente canónica: Cargo.toml → version
 #
 # Uso:
-#   bash scripts/dev/sync_version.sh               # propaga la versión actual
-#   bash scripts/dev/sync_version.sh --check       # verifica (exit 1 si hay deriva)
-#   bash scripts/dev/sync_version.sh --bump X.Y.Z  # cambia versión y propaga
+#   bash scripts/dev/sync_version.sh                 # propaga la versión actual
+#   bash scripts/dev/sync_version.sh --check         # verifica (exit 1 si hay deriva)
+#   bash scripts/dev/sync_version.sh --bump X.Y.Z    # cambia versión y propaga
+#   bash scripts/dev/sync_version.sh --release-feed  # actualiza feed (latest +
+#                                                    #   published_at). SOLO desde
+#                                                    #   release.sh: rompe la firma
+#                                                    #   minisign y exige re-firmar.
 #
 # Nota: el regex asume el esquema de versión actual "0.1.x-alpha".
 # Si el esquema cambia (major/minor o prerelease distinto), actualizar
@@ -23,6 +27,7 @@ for arg in "$@"; do
     case "$arg" in
         --check) MODE="check" ;;
         --bump) MODE="bump" ;;
+        --release-feed) MODE="release-feed" ;;
         *) NEW_VERSION="$arg" ;;
     esac
 done
@@ -57,7 +62,8 @@ VERSION_RE='0\.1\.[0-9]+-alpha'
 BADGE_RE='0\.1\.[0-9]+--alpha'
 
 # ── Archivos con referencias de versión (allowlist) ────────────────────
-# feed/advisories.json se trata aparte: solo el campo "latest".
+# feed/advisories.json NO se toca aquí: está firmado con minisign y solo
+# debe actualizarse (y re-firmarse) durante el release → ver release.sh.
 FILES=(
     "llms-full.txt"
     "docs/index.md"
@@ -101,31 +107,37 @@ check_file() {
     return 0
 }
 
-# ── advisories.json: solo campo "latest" ───────────────────────────────
-sync_advisories() {
-    sed -i -E "s/\"latest\": \"0\.1\.[0-9]+-alpha\"/\"latest\": \"${VERSION}\"/" feed/advisories.json
+# ── advisories.json: SOLO en modo --release-feed ───────────────────────
+# Actualiza "latest" y "published_at" y copia a docs/feed/. Deja la firma
+# minisign INVÁLIDA a propósito: release.sh la regenera inmediatamente.
+release_feed() {
+    sed -i -E "s/\"latest\": \"[^\"]+\"/\"latest\": \"${VERSION}\"/" feed/advisories.json
+    sed -i -E "s/\"published_at\": \"[^\"]+\"/\"published_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"/" feed/advisories.json
     cp feed/advisories.json docs/feed/advisories.json
+    echo "  ✅ feed/advisories.json → latest=${VERSION} (⚠️  firma pendiente de regenerar)"
 }
 
+# El check rutinario NO verifica "latest" (puede quedarse en la versión del
+# último release mientras HEAD avanza). Solo verifica que docs/feed/ sea
+# copia idéntica de feed/ (ambos se publican).
 check_advisories() {
-    local tmp
-    tmp=$(mktemp)
-    cp feed/advisories.json "$tmp"
-    sed -i -E "s/\"latest\": \"0\.1\.[0-9]+-alpha\"/\"latest\": \"${VERSION}\"/" "$tmp"
-    if ! diff -q feed/advisories.json "$tmp" > /dev/null 2>&1; then
-        echo "  ❌ feed/advisories.json (latest)"
-        rm -f "$tmp"
-        return 1
-    fi
-    rm -f "$tmp"
     if ! diff -q feed/advisories.json docs/feed/advisories.json > /dev/null 2>&1; then
         echo "  ❌ docs/feed/advisories.json (no es copia idéntica de feed/)"
+        return 1
+    fi
+    if ! diff -q feed/advisories.json.minisig docs/feed/advisories.json.minisig > /dev/null 2>&1; then
+        echo "  ❌ docs/feed/advisories.json.minisig (no es copia idéntica de feed/)"
         return 1
     fi
     return 0
 }
 
 # ── Ejecutar según modo ────────────────────────────────────────────────
+if [ "$MODE" = "release-feed" ]; then
+    release_feed
+    exit 0
+fi
+
 if [ "$MODE" = "check" ]; then
     DRIFT=0
     for f in "${FILES[@]}"; do
@@ -151,7 +163,5 @@ for f in "${FILES[@]}"; do
         echo "  ✅ $f"
     fi
 done
-sync_advisories
-echo "  ✅ feed/advisories.json → docs/feed/advisories.json"
 echo ""
-echo "✅ Versión $VERSION propagada."
+echo "✅ Versión $VERSION propagada (feed/advisories.json intacto — se actualiza en release.sh)."

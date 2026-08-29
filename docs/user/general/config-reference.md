@@ -75,7 +75,7 @@ Feed de advisories y actualizaciones de seguridad.
 [update]
 feed_url = "https://example.com/releases/advisories.json"
 # signature_url = "https://example.com/releases/advisories.json.minisig"
-# minisign_pubkey = "RWQqInsTN3XkRQKbGZ7pTsGnumqh5uLbZLYOFTQ7ku3SmgiDgOgxnNPP"
+# minisign_pubkey = "RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
 ```
 
 > El feed puede vivir en clearweb o en `.onion`. Si usas `.onion`, el CLI
