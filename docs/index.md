@@ -4,6 +4,8 @@
 
 [Repository](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite) · [Releases](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases) · [Security Policy](en/security-model.md) · [Verify Downloads](en/verify-downloads.md)
 
+![Enola CLI — Tor Hidden Services Demo](demo_tor.gif)
+
 ---
 
 ## Quick start
