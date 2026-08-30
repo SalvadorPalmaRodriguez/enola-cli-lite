@@ -49,6 +49,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // TOR SERVICES (🧅 Tor & Hidden Services)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/tor/commands-tor.md
     /// Manage Tor hidden services
     #[command(subcommand)]
     Tor(TorCommands),
@@ -56,6 +57,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // GIT SERVICES (🐙 Git Services)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/git/commands-git.md
     /// Manage Git servers (Forgejo)
     #[command(subcommand)]
     Git(GitCommands),
@@ -63,6 +65,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // WORDPRESS (🌐 WordPress & Web)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/wp/commands-wp.md
     /// Manage WordPress sites
     #[command(subcommand)]
     Wp(WordPressCommands),
@@ -70,6 +73,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // DRUPAL (🌐 Drupal CMS — DRUPAL-003)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/drupal/commands-drupal.md
     /// Manage Drupal sites (CMS)
     ///
     /// Stack: drupal:10-apache + mariadb:10.11.
@@ -84,6 +88,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // GHOST CMS (✍️ Ghost — Node.js + SQLite)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/ghost/commands-ghost.md
     /// Manage Ghost blogs (CMS) — CMS-GHOST-002
     ///
     /// Stack: ghost:5-alpine + SQLite embedded (no separate DB container).
@@ -99,6 +104,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // MAGNOLIA CMS (CMS-MAGNOLIA-CLI — Tomcat + H2/Postgres)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/magnolia/commands-magnolia.md
     /// Manage Magnolia CMS instances (CMS-MAGNOLIA-CLI)
     ///
     /// Stack: magnolia-cms:6 (Tomcat-based, Java).
@@ -114,6 +120,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // STRAPI CMS (CMS-STRAPI-CLI — Node + Postgres 16)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/strapi/commands-strapi.md
     /// Manage Strapi headless CMS instances (CMS-STRAPI-CLI)
     ///
     /// Stack: enola/strapi:5.49.0 + postgres:16-alpine.
@@ -130,6 +137,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // WAGTAIL CMS (CMS-WAGTAIL-CLI — Python/Django + Postgres)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/wagtail/commands-wagtail.md
     /// Manage Wagtail CMS instances (CMS-WAGTAIL-CLI)
     ///
     /// Stack: wagtail (Python/Django) + postgres:16-alpine.
@@ -144,6 +152,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // FILE SERVICES (📂 File Shares)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/files/commands-files.md
     /// Manage file sharing services
     #[command(subcommand)]
     Files(FileCommands),
@@ -151,6 +160,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // MAINTENANCE (🔧 Maintenance)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/maintenance/commands-maintenance.md
     /// System maintenance operations
     #[command(subcommand)]
     Maintenance(MaintenanceCommands),
@@ -158,6 +168,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // DIAGNOSTICS (🩺 Diagnostics)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/diag/commands-diag.md
     /// System diagnostics and health checks
     #[command(subcommand)]
     Diag(DiagnosticsCommands),
@@ -165,6 +176,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // TESTS (🧪 System Tests)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/test/commands-test.md
     /// Run system tests
     #[command(subcommand)]
     Test(TestCommands),
@@ -172,6 +184,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // LOGS (📝 Logs)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/logs/commands-logs.md
     /// View and manage logs
     #[command(subcommand)]
     Logs(LogCommands),
@@ -179,6 +192,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // PORTS (🔌 Port Management)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/ports/commands-ports.md
     /// Show all ports used by Enola services
     ///
     /// Displays a table of every port in use: service name, type, port number,
@@ -193,6 +207,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // FIREWALL (🛡 UFW Firewall)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/firewall/commands-firewall.md
     /// Manage the UFW firewall (setup, status, allow, deny)
     ///
     /// Enola services bind to 127.0.0.1 and are protected by Tor.
@@ -206,6 +221,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // APPARMOR (🛡️ Sandboxing)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/apparmor/commands-apparmor.md
     /// Manage AppArmor sandboxing profiles (setup, status, mode)
     ///
     /// AppArmor restricts what each container/service can access.
@@ -220,6 +236,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // VPN (🔒 WireGuard VPN — Tarea 162)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/vpn/commands-vpn.md
     /// Manage WireGuard VPN tunnels for secure remote access.
     ///
     /// Creates encrypted tunnels so trusted devices can reach
@@ -236,6 +253,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // SETUP & DOCTOR (🩺 System Dependencies — DEP-001..003)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/setup/commands-setup.md
     /// Install system dependencies (Docker, Nginx, Tor, WireGuard, UFW, AppArmor)
     ///
     /// Examples:
@@ -259,6 +277,7 @@ pub enum Commands {
         pqc_tls: bool,
     },
 
+    /// DOC-SYNC: docs/user/general/commands.md
     /// Check system dependencies — shows what's installed and what's missing
     ///
     /// Examples:
@@ -274,9 +293,11 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // QUICKREF (📖 Quick Reference)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/general/commands.md
     /// Show quick reference: Docker commands vs Enola CLI equivalents
     Quickref,
 
+    /// DOC-SYNC: docs/user/general/commands.md
     /// Show the full proprietary software license text
     ///
     /// Displays the complete Enola CLI license agreement embedded in the binary.
@@ -290,6 +311,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // VERIFY (🔐 Release authenticity — PQC-030)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/verify/verify-downloads.md
     /// Verify that a downloaded Enola release is legitimate (PQC-030).
     ///
     /// Comprueba que el archivo descargado está firmado con la clave
@@ -317,6 +339,7 @@ pub enum Commands {
         json: bool,
     },
 
+    /// DOC-SYNC: docs/user/uninstall/uninstall.md
     /// Desinstalar Enola CLI del sistema (UNINSTALL-003)
     ///
     /// Borra de forma limpia binario, servicios, contenedores, configs de
@@ -347,6 +370,7 @@ pub enum Commands {
         remove_deps: bool,
     },
 
+    /// DOC-SYNC: docs/user/general/config-reference.md
     /// Inspeccionar la configuracin centralizada (CFG-NEW-001)
     ///
     /// Muestra el valor efectivo resuelto para cada clave junto con su fuente
@@ -364,6 +388,7 @@ pub enum Commands {
         json: bool,
     },
 
+    /// DOC-SYNC: docs/user/general/config-reference.md
     /// Validar la configuracin centralizada (CFG-NEW-002)
     ///
     /// Ejecuta comprobaciones: TOML parseable, permisos 0600, sintaxis de URLs,
@@ -388,6 +413,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // DOCS (📚 User Documentation)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/docs/commands-docs.md
     /// Consultar la documentación de uso directamente en el terminal
     ///
     /// La documentación está embebida en el binario — funciona offline.
@@ -409,6 +435,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // UPDATE (🔄 update checker + advisory feed — UPD-CLI-001/002)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/update/commands-update.md
     /// Check for available updates and security advisories.
     ///
     /// Examples:
@@ -420,6 +447,7 @@ pub enum Commands {
     // ═══════════════════════════════════════════════════════════════════
     // WEB GUI (🌐 Embedded web dashboard)
     // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/web/README.md
     /// Start a local web dashboard (GUI) for managing Enola services.
     ///
     /// The server binds to 127.0.0.1 only and requires a token shown in the terminal.
