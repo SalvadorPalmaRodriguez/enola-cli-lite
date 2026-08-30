@@ -13,6 +13,7 @@ scripts/
 │   └── uninstall.sh        — Desinstalación de Enola CLI
 ├── dev/                ← Desarrollo y pruebas
 │   ├── release.sh                 — Release completo: build → firmas → feed → tag → GitHub
+│   ├── release_check.sh           — Analiza commits sin releasear y recomienda bump (semver)
 │   ├── sync_version.sh            — Propaga la versión de Cargo.toml a docs/README (NO toca el feed)
 │   ├── test_web_dashboard.sh      — Test del web dashboard
 │   └── generate_third_party_licenses.sh — Genera THIRD_PARTY_LICENSES.txt
@@ -32,6 +33,22 @@ curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/lat
 # Desinstalación
 bash scripts/ops/uninstall.sh --yes
 ```
+
+## Análisis de release (release_check.sh)
+
+`release_check.sh` analiza los commits desde el último tag y recomienda si
+es necesario un bump de versión (semver estricto):
+
+```bash
+bash scripts/dev/release_check.sh
+```
+
+Qué hace:
+1. Detecta commits sin releasear (`git log v{VERSION}..HEAD`).
+2. Categoriza por prefijo conventional-commit (`feat:`→minor, `fix:`→patch,
+   `docs:`/`chore:`/`style:`→sin bump, `BREAKING CHANGE`→major).
+3. Verifica completitud del release actual (tag + GitHub release + feed).
+4. Emite recomendación con la próxima versión sugerida.
 
 ## Proceso de release
 
