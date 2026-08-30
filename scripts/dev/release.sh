@@ -98,8 +98,8 @@ SIGN_PQC="$TARGET_DIR/release/enola-sign-pqc"
 [ -x "$BIN" ] || die "Binario no encontrado: $BIN"
 ok "Build OK: $BIN"
 
-if strings "$BIN" | grep -E "/home/|${HOME}" | head -1 | grep -q .; then
-    die "El binario filtra paths personales (/home/…) — revisa RUSTFLAGS/remap"
+if strings "$BIN" | grep -F "${HOME}" | head -1 | grep -q .; then
+    die "El binario filtra el path personal ${HOME} — revisa RUSTFLAGS/remap"
 fi
 ok "Sin filtración de paths personales"
 

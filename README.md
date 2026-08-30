@@ -2,7 +2,7 @@
 
 **English** · **[Español](README.es.md)**
 
-[![Version](https://img.shields.io/badge/version-0.1.2--alpha-blue.svg)](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
+[![Version](https://img.shields.io/badge/version-0.2.0--alpha-blue.svg)](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases)
 [![License](https://img.shields.io/badge/license-Proprietary%20(source--visible)-orange.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](https://www.debian.org/)
 [![Rust](https://img.shields.io/badge/rust-1.96-orange.svg)](https://www.rust-lang.org/)
@@ -817,7 +817,7 @@ Verify download authenticity with the ML-DSA-65 (FIPS 204) post-quantum signatur
 
 ```bash
 # Verify a downloaded release
-enola-cli verify enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
+enola-cli verify enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 
 # With an alternative signature and JSON output
 enola-cli verify <file> --pqsig <signature.pqsig> --json

@@ -13,7 +13,7 @@ body:
     attributes:
       label: Enola CLI version
       description: Output of `enola-cli --version`
-      placeholder: "0.1.2-alpha"
+      placeholder: "0.2.0-alpha"
     validations:
       required: true
   - type: input

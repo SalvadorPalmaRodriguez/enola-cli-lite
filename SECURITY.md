@@ -16,7 +16,7 @@ If you discover a security vulnerability, bug, misconfiguration or weakness affe
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.2-alpha (latest release) | ✅ |
+| 0.2.0-alpha (latest release) | ✅ |
 | Older builds | ❌ |
 
 Only the latest release published at [GitHub Releases](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases) receives security fixes. Check for updates with `sudo enola-cli update check`.
@@ -29,7 +29,7 @@ Every release is signed twice:
 - **ML-DSA-65 (FIPS 204)** — post-quantum signature, verified offline with the key embedded in the binary:
 
 ```bash
-enola-cli verify enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
+enola-cli verify enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 ```
 
 Full guide: [docs/user/verify/verify-downloads.md](docs/user/verify/verify-downloads.md)

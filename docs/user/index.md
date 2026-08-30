@@ -10,8 +10,8 @@
 
 ```bash
 # Instalar
-wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.1.2-alpha-x86_64-linux-client.tar.gz
-tar xf enola-cli-v0.1.2-alpha-x86_64-linux-client.tar.gz
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
+tar xf enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
 sudo cp enola-cli /usr/local/bin/
 
 # Desplegar tu primer servicio .onion

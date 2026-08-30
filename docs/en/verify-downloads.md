@@ -136,7 +136,7 @@ You can use this script to automate the entire verification:
 ```bash
 #!/bin/bash
 # verify_enola.sh — Verify integrity and authorship of Enola CLI
-# Usage: bash verify_enola.sh enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
+# Usage: bash verify_enola.sh enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Usage: bash verify_enola.sh <file.tar.gz>}"
 PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
@@ -186,9 +186,9 @@ echo "✅ Verification complete"
 Each Enola CLI release includes the client artifact for users:
 
 ```
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz          ← Public binary for users
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.sha256   ← SHA256 hash (integrity)
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.minisig  ← Minisign signature (authorship)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz          ← Public binary for users
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.sha256   ← SHA256 hash (integrity)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.minisig  ← Minisign signature (authorship)
 ```
 
 | File | What it verifies | Tool |
@@ -218,10 +218,10 @@ NIST FIPS 204 standard. With both signatures you have dual guarantees:
 ### Release files (with PQC signature)
 
 ```
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz          ← Public binary for users
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.sha256   ← SHA256 hash (integrity)
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.minisig  ← Classic signature (Ed25519)
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.pqsig    ← Post-quantum signature (ML-DSA-65)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz          ← Public binary for users
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.sha256   ← SHA256 hash (integrity)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.minisig  ← Classic signature (Ed25519)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.pqsig    ← Post-quantum signature (ML-DSA-65)
 ```
 
 ### Step 1: Verify with `enola-cli` itself (recommended)
@@ -280,7 +280,7 @@ If all three verifications pass: ✅ the binary is authentic, intact, and resist
 ```bash
 #!/bin/bash
 # verify_enola.sh — Verify integrity, authorship, and PQC signature
-# Usage: bash verify_enola.sh enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
+# Usage: bash verify_enola.sh enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Usage: bash verify_enola.sh <file.tar.gz>}"
 PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"

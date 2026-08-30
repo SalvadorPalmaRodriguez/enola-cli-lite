@@ -136,7 +136,7 @@ Puedes usar este script para automatizar toda la verificación:
 ```bash
 #!/bin/bash
 # verify_enola.sh — Verifica integridad y autoría de Enola CLI
-# Uso: bash verify_enola.sh enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
+# Uso: bash verify_enola.sh enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Uso: bash verify_enola.sh <archivo.tar.gz>}"
 PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
@@ -186,9 +186,9 @@ echo "✅ Verificación completada"
 Cada release de Enola CLI incluye el artefacto client para usuarios:
 
 ```
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz          ← Binario público para usuarios
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.sha256   ← Hash SHA256 (integridad)
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.minisig  ← Firma minisign (autoría)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz          ← Binario público para usuarios
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.sha256   ← Hash SHA256 (integridad)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.minisig  ← Firma minisign (autoría)
 ```
 
 | Archivo | Qué verifica | Herramienta |
@@ -218,10 +218,10 @@ NIST FIPS 204. Con ambas firmas tienes doble garantía:
 ### Archivos de una release (con firma PQC)
 
 ```
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz          ← Binario público para usuarios
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.sha256   ← Hash SHA256 (integridad)
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.minisig  ← Firma clásica (Ed25519)
-enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz.pqsig    ← Firma post-cuántica (ML-DSA-65)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz          ← Binario público para usuarios
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.sha256   ← Hash SHA256 (integridad)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.minisig  ← Firma clásica (Ed25519)
+enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz.pqsig    ← Firma post-cuántica (ML-DSA-65)
 ```
 
 ### Paso 1: Verificar con el propio `enola-cli` (recomendado)
@@ -280,7 +280,7 @@ Si las tres verificaciones pasan: ✅ el binario es auténtico, íntegro y resis
 ```bash
 #!/bin/bash
 # verify_enola.sh — Verifica integridad, autoría y firma PQC
-# Uso: bash verify_enola.sh enola-cli-v0.1.2-alpha-x86_64-linux.tar.gz
+# Uso: bash verify_enola.sh enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 
 FILE="${1:?Uso: bash verify_enola.sh <archivo.tar.gz>}"
 PUBKEY="RWRkwMQHVPO0NGUahoNT1sLqJKM8QzlkfOOmSM0P+80x80GIw9P7BB8e"
