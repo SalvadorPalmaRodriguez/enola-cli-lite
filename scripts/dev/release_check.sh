@@ -174,16 +174,47 @@ fi
 if [ "$BUMP" = "NONE" ]; then
     echo -e "${GREEN}  No es necesario un nuevo release.${RESET}"
     echo -e "  Los ${COMMIT_COUNT} commits son docs/chore/style/test (sin impacto funcional)."
-else
-    echo -e "${YELLOW}  Bump ${BOLD}${BUMP}${RESET}${YELLOW} → ${BOLD}${NEXT_VERSION}${RESET}"
     echo ""
-    echo -e "  Motivo:"
-    [ "$MAJOR" -gt 0 ] && echo -e "    - ${MAJOR} breaking change(s) detectado(s)"
-    [ "$MINOR" -gt 0 ] && echo -e "    - ${MINOR} feat(s) sin publicar"
-    [ "$PATCH" -gt 0 ] && echo -e "    - ${PATCH} fix/refactor/perf sin publicar"
-    echo ""
-    echo -e "  Ejecuta: ${BOLD}bash scripts/dev/release.sh --bump ${NEXT_VERSION}${RESET}"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${RESET}"
+    exit 0
 fi
 
+echo -e "${YELLOW}  Bump ${BOLD}${BUMP}${RESET}${YELLOW} → ${BOLD}${NEXT_VERSION}${RESET}"
+echo ""
+echo -e "  Motivo:"
+[ "$MAJOR" -gt 0 ] && echo -e "    - ${MAJOR} breaking change(s) detectado(s)"
+[ "$MINOR" -gt 0 ] && echo -e "    - ${MINOR} feat(s) sin publicar"
+[ "$PATCH" -gt 0 ] && echo -e "    - ${PATCH} fix/refactor/perf sin publicar"
 echo ""
 echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${RESET}"
+echo ""
+
+# ── 5. Confirmación interactiva ────────────────────────────────────────
+echo -e "${BOLD}¿Qué quieres hacer?${RESET}"
+echo -e "  ${GREEN}[y]${RESET} Aceptar → ejecutar release.sh --bump ${NEXT_VERSION}"
+echo -e "  ${CYAN}[d]${RESET} Dry-run → preparar y firmar SIN publicar"
+echo -e "  ${RED}[n]${RESET} Ignorar → salir sin hacer nada"
+echo ""
+read -r -p "  Opción [y/d/n]: " CHOICE || CHOICE="n"
+
+case "$CHOICE" in
+    y|Y)
+        echo ""
+        echo -e "${GREEN}▶ Ejecutando release.sh --bump ${NEXT_VERSION}...${RESET}"
+        bash scripts/dev/release.sh --bump "$NEXT_VERSION"
+        ;;
+    d|D)
+        echo ""
+        echo -e "${CYAN}▶ Ejecutando release.sh --bump ${NEXT_VERSION} --dry-run...${RESET}"
+        bash scripts/dev/release.sh --bump "$NEXT_VERSION" --dry-run
+        ;;
+    n|N|"")
+        echo ""
+        echo -e "${YELLOW}▶ Recomendación ignorada. No se ejecutó nada.${RESET}"
+        ;;
+    *)
+        echo ""
+        echo -e "${RED}❌ Opción inválida: '$CHOICE'. No se ejecutó nada.${RESET}" >&2
+        exit 1
+        ;;
+esac

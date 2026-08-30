@@ -49,6 +49,8 @@ Qué hace:
    `docs:`/`chore:`/`style:`→sin bump, `BREAKING CHANGE`→major).
 3. Verifica completitud del release actual (tag + GitHub release + feed).
 4. Emite recomendación con la próxima versión sugerida.
+5. Pregunta interactivamente: `[y]` aceptar (ejecuta release.sh), `[d]`
+   dry-run (prepara sin publicar), `[n]` ignorar.
 
 ## Proceso de release
 
