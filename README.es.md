@@ -7,6 +7,8 @@
 [![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](https://www.debian.org/)
 [![Rust](https://img.shields.io/badge/rust-1.96-orange.svg)](https://www.rust-lang.org/)
 
+![Enola CLI — Tor Hidden Services Demo](docs/demo_tor.gif)
+
 > **CLI para gestionar servicios Tor, servidores Git, WordPress, CMS y archivos compartidos.**
 >
 > 📖 **Documentación**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/) · 📄 **[llms.txt](llms.txt)** para indexadores de IA — la legibilidad por IA no constituye concesión de licencia; ver [LICENSE](LICENSE)
