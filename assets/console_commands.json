@@ -187,7 +187,8 @@
       "--port",
       "--subnet",
       "--autostart",
-      "--sync-firewall"
+      "--sync-firewall",
+      "--tor"
     ],
     "vpn.delete": [
       "--force",

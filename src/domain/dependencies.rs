@@ -144,6 +144,20 @@ pub const ALL_DEPENDENCIES: &[Dependency] = &[
         category: DepCategory::Vpn,
         needed_by: "vpn create, vpn peer",
     },
+    Dependency {
+        package: "qrencode",
+        binary: "qrencode",
+        description: "QR code generator for VPN peer configs (mobile scanning)",
+        category: DepCategory::Vpn,
+        needed_by: "vpn peer add (QR display)",
+    },
+    Dependency {
+        package: "socat",
+        binary: "socat",
+        description: "UDP-over-TCP bridge for WireGuard over Tor",
+        category: DepCategory::Vpn,
+        needed_by: "vpn create --tor",
+    },
     // ── Security ─────────────────────────────────────────────────────────
     Dependency {
         package: "ufw",
@@ -225,8 +239,10 @@ mod tests {
     #[test]
     fn test_deps_for_scope_vpn() {
         let vpn = deps_for_scope(SetupScope::Vpn);
-        assert_eq!(vpn.len(), 1);
+        assert_eq!(vpn.len(), 3);
         assert_eq!(vpn[0].binary, "wg");
+        assert_eq!(vpn[1].binary, "qrencode");
+        assert_eq!(vpn[2].binary, "socat");
     }
     #[test]
     fn test_deps_for_scope_security() {

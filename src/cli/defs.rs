@@ -1877,6 +1877,12 @@ pub enum VpnCommands {
         /// When not set (default), you must manage the firewall rule manually.
         #[arg(long)]
         sync_firewall: bool,
+
+        /// Also expose this VPN through a Tor hidden service (UDP-over-TCP bridge).
+        /// Creates a socat bridge (systemd unit) and a Tor hidden service so
+        /// clients can connect via a stable .onion address without a public IP.
+        #[arg(long)]
+        tor: bool,
     },
 
     /// Start a stopped WireGuard interface (wg-quick up).
@@ -1974,6 +1980,11 @@ pub enum VpnPeerCommands {
         /// Optional: assign specific IP (auto-assigned if omitted)
         #[arg(long)]
         ip: Option<String>,
+
+        /// Generate a Tor client config (Endpoint = 127.0.0.1) in addition to
+        /// the direct config. Requires the VPN to be created with --tor.
+        #[arg(long)]
+        tor: bool,
     },
 
     /// Add a peer using their existing public key (client manages own keys).

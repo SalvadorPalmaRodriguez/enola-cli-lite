@@ -13,3 +13,4 @@ pub mod ufw; // UFW firewall adapter (UFW-003)
 
 pub mod dependencies;
 pub mod vpn; // Tarea 162 — WireGuard VPN adapter (wg/wg-quick) // DEP-001..003 — System dependency adapter (apt/dnf/pacman)
+pub mod vpn_bridge; // VPN over Tor — socat UDP→TCP bridge adapter (systemd unit)

@@ -163,6 +163,8 @@ mod tests {
                 "curl".into(),
                 "openssl".into(),
                 "wg".into(),
+                "qrencode".into(),
+                "socat".into(),
                 "ufw".into(),
                 "apparmor_parser".into(),
                 "aa-status".into(),
@@ -216,7 +218,7 @@ mod tests {
         };
         let mgr = DependencyManager::new(Arc::new(mock));
         let result = mgr.setup(SetupScope::Vpn).unwrap();
-        assert_eq!(result.installed, 1); // wg
+        assert_eq!(result.installed, 3); // wg, qrencode, socat
     }
     #[test]
     fn test_format_setup_result() {

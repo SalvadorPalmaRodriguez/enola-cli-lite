@@ -14,7 +14,7 @@ Gestión de túneles WireGuard para acceso remoto seguro. Genera keypairs, escri
 Crea una nueva interfaz WireGuard y la arranca.
 
 ```bash
-sudo enola-cli vpn create <NOMBRE> [--port <PUERTO>] [--subnet <CIDR>] [--autostart] [--sync-firewall]
+sudo enola-cli vpn create <NOMBRE> [--port <PUERTO>] [--subnet <CIDR>] [--autostart] [--sync-firewall] [--tor]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -27,6 +27,7 @@ sudo enola-cli vpn create <NOMBRE> [--port <PUERTO>] [--subnet <CIDR>] [--autost
 | `--subnet` / `-n` | String | `10.8.0.0/24` | Subred VPN en notación CIDR |
 | `--autostart` / `-a` | Bool | `false` | Habilita autostart en boot (systemd `wg-quick@{name}`) |
 | `--sync-firewall` | Bool | `false` | Añade automáticamente regla UFW para el puerto UDP |
+| `--tor` | Bool | `false` | Expone la VPN vía Tor (bridge `socat` UDP→TCP + hidden service) |
 
 **Ejemplos:**
 ```bash
@@ -34,6 +35,7 @@ sudo enola-cli vpn create wg0
 sudo enola-cli vpn create myvpn --port 51821 --subnet 10.9.0.0/24
 sudo enola-cli vpn create myvpn --autostart
 sudo enola-cli vpn create myvpn --port 51821 --sync-firewall
+sudo enola-cli vpn create wg0 --tor
 ```
 
 ---
@@ -124,7 +126,7 @@ sudo enola-cli vpn delete wg0 --force --sync-firewall
 Añade un nuevo peer a una interfaz VPN. Genera keypair e imprime el `.conf` del cliente.
 
 ```bash
-sudo enola-cli vpn peer add <INTERFAZ> <NOMBRE_PEER> --endpoint <HOST> [--dns <DNS>] [--psk] [--ip <IP>]
+sudo enola-cli vpn peer add <INTERFAZ> <NOMBRE_PEER> --endpoint <HOST> [--dns <DNS>] [--psk] [--ip <IP>] [--tor]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -138,12 +140,14 @@ sudo enola-cli vpn peer add <INTERFAZ> <NOMBRE_PEER> --endpoint <HOST> [--dns <D
 | `--dns` | String | No | Servidores DNS para el peer (ej: `1.1.1.1`) |
 | `--psk` | Bool | No | Añade preshared key extra (capa adicional de seguridad) |
 | `--ip` | String | No | IP específica en la subred VPN (auto-asignada si se omite) |
+| `--tor` | Bool | No | Genera además un config Tor (`Endpoint = 127.0.0.1`) con instrucciones |
 
 **Ejemplos:**
 ```bash
 sudo enola-cli vpn peer add wg0 laptop --endpoint myhostname.com
 sudo enola-cli vpn peer add wg0 phone --endpoint 1.2.3.4 --dns 1.1.1.1
 sudo enola-cli vpn peer add wg0 server --endpoint myhostname.com --psk
+sudo enola-cli vpn peer add wg0 laptop --endpoint myhostname.com --tor
 ```
 
 ---
@@ -182,6 +186,51 @@ sudo enola-cli vpn peer remove <INTERFAZ> <PUBLIC_KEY>
 |-----------|------|-------------|-------------|
 | `<INTERFAZ>` | String | Sí | Nombre de la interfaz |
 | `<PUBLIC_KEY>` | String | Sí | Clave pública del peer a eliminar |
+
+---
+
+## Conexión vía Tor (UDP-over-TCP)
+
+WireGuard usa UDP, pero Tor solo transporta TCP. Para exponer una VPN a través
+de Tor, `enola-cli` crea un bridge `socat` que convierte el UDP de WireGuard en
+TCP y lo publica como hidden service Tor.
+
+**Flujo:** cliente WireGuard → `socat` local (UDP) → Tor SOCKS → `.onion` → Tor → `socat` servidor (TCP) → WireGuard (UDP).
+
+### Servidor
+
+```bash
+sudo enola-cli vpn create wg0 --tor
+```
+
+Esto crea la interfaz WireGuard, una unidad systemd `enola-vpn-bridge-wg0.service`
+(bridge `socat`) y un hidden service Tor (`vpn-wg0`). La dirección `.onion` se
+imprime al final.
+
+### Cliente
+
+El cliente necesita Tor y `socat` localmente (Linux/macOS):
+
+```bash
+sudo apt install tor socat
+sudo systemctl start tor
+socat UDP-LISTEN:51820,fork SOCKS4A:127.0.0.1:<ONION>:51820,socksport=9050
+```
+
+Después, importa el config Tor generado por:
+
+```bash
+sudo enola-cli vpn peer add wg0 laptop --endpoint <IP> --tor
+```
+
+El config Tor usa `Endpoint = 127.0.0.1:51820` (el bridge local), no la IP pública.
+
+### Limitaciones
+
+- **Solo clientes desktop** (Linux/macOS). La app WireGuard de móvil no soporta
+  SOCKS ni resolución de `.onion`.
+- **Latencia**: Tor añade latencia significativa; es esperado.
+- El modo directo (`--endpoint <IP>`) sigue disponible y no se ve afectado.
 
 ---
 

@@ -40,6 +40,7 @@ pub mod tor_service_manager;
 pub mod update_checker; // UPD-CLI-001/002: verificador de actualizaciones y feed advisories
 pub mod update_wordpress;
 pub mod vpn_manager; // Tarea 162 — WireGuard VPN orchestration
+pub mod vpn_tor_manager; // VPN over Tor — socat bridge + hidden service orchestration
 pub mod web_api; // WEB-GUI: REST API handlers
 pub mod web_errors;
 pub mod web_server; // WEB-GUI: embedded web dashboard server

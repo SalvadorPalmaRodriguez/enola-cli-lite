@@ -5,6 +5,24 @@
 use std::fmt;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tor bridge constants (VPN over Tor — UDP-over-TCP)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Offset added to the WireGuard UDP port to derive the socat TCP bridge port.
+pub const DEFAULT_BRIDGE_PORT_OFFSET: u16 = 1;
+
+/// Default onion virtual port exposed to Tor clients (matches WireGuard default).
+pub const DEFAULT_ONION_PORT: u16 = 51820;
+
+/// Derive the socat TCP bridge port from the WireGuard UDP listen port.
+///
+/// The bridge listens on `wg_port + 1` and forwards TCP → UDP to `wg_port`.
+/// Uses saturating add to avoid panicking on `u16` overflow.
+pub fn bridge_tcp_port(wg_port: u16) -> u16 {
+    wg_port.saturating_add(DEFAULT_BRIDGE_PORT_OFFSET)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // VPN Peer — represents a WireGuard peer (client)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -229,6 +247,21 @@ pub enum VpnError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_bridge_tcp_port_default() {
+        assert_eq!(bridge_tcp_port(51820), 51821);
+    }
+
+    #[test]
+    fn test_bridge_tcp_port_zero() {
+        assert_eq!(bridge_tcp_port(0), 1);
+    }
+
+    #[test]
+    fn test_bridge_tcp_port_overflow_saturates() {
+        assert_eq!(bridge_tcp_port(u16::MAX), u16::MAX);
+    }
 
     #[test]
     fn test_vpn_server_new_derives_server_ip() {

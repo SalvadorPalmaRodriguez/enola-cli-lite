@@ -20,4 +20,5 @@ pub mod service;
 pub mod test_runner;
 pub mod tor;
 pub mod vpn; // Tarea 162 — WireGuard VPN port trait
+pub mod vpn_bridge; // VPN over Tor — socat UDP→TCP bridge port
 pub mod web; // DRUPAL-001 — CmsAdapter + CmsLifecycle traits

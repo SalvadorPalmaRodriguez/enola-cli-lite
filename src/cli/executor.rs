@@ -2826,6 +2826,7 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
             subnet,
             autostart,
             sync_firewall,
+            tor,
         } => {
             crate::domain::vpn::validate_vpn_name(&name)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?;
@@ -2843,6 +2844,27 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
 
             if sync_firewall {
                 sync_vpn_firewall_allow(vpn_port);
+            }
+
+            let mut onion: Option<String> = None;
+            if tor {
+                use crate::adapters::infra::vpn_bridge::SocatBridgeAdapter;
+                use crate::adapters::tor::TorConfigAdapter;
+                use crate::application::vpn_tor_manager::VpnTorManager;
+
+                println!("🧅 Exposing VPN '{}' through Tor...", name);
+                let tor_mgr = VpnTorManager::new(
+                    Arc::new(WireGuardAdapter::new()),
+                    Arc::new(SocatBridgeAdapter::new()),
+                    Arc::new(TorConfigAdapter::new()),
+                );
+                let addr = tor_mgr
+                    .enable_tor(&name)
+                    .await
+                    .map_err(|e| CliError::Generic(e.to_string()))?;
+                let _ = manifest.append("vpn_bridge", &name);
+                let _ = manifest.append("tor_service", &format!("vpn-{}", name));
+                onion = Some(addr);
             }
 
             let mut out = format!(
@@ -2870,6 +2892,13 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
                     vpn_port
                 ));
             }
+            if let Some(addr) = onion {
+                out.push_str(&format!(
+                    "🧅 Tor:           {}\n\
+                     \x20                 Add a Tor peer: sudo enola-cli vpn peer add {} <peer-name> --endpoint <ip> --tor\n",
+                    addr, name
+                ));
+            }
             Ok(out)
         }
         VpnCommands::Start { name } => {
@@ -2886,7 +2915,24 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
             let status = mgr
                 .get_status(&name)
                 .map_err(|e| CliError::Generic(e.to_string()))?;
-            Ok(mgr.format_status(&status))
+            let mut out = mgr.format_status(&status);
+
+            use crate::adapters::infra::vpn_bridge::SocatBridgeAdapter;
+            use crate::adapters::tor::TorConfigAdapter;
+            use crate::application::vpn_tor_manager::VpnTorManager;
+            use crate::ports::vpn_bridge::VpnBridgePort;
+
+            if SocatBridgeAdapter::new().is_bridge_active(&name) {
+                let tor_mgr = VpnTorManager::new(
+                    Arc::new(WireGuardAdapter::new()),
+                    Arc::new(SocatBridgeAdapter::new()),
+                    Arc::new(TorConfigAdapter::new()),
+                );
+                if let Ok(onion) = tor_mgr.get_onion(&name).await {
+                    out.push_str(&format!("\n🧅 Tor onion:    {}\n", onion));
+                }
+            }
+            Ok(out)
         }
         VpnCommands::Delete {
             name,
@@ -2908,6 +2954,22 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
             let manifest = crate::adapters::infra::manifest::FileManifestAdapter::new();
             let _ = manifest.remove("vpn_config", &name);
             let _ = manifest.remove("vpn_service", &format!("wg-quick@{}", name));
+
+            // Remove Tor exposure (hidden service + socat bridge) if present.
+            {
+                use crate::adapters::infra::vpn_bridge::SocatBridgeAdapter;
+                use crate::adapters::tor::TorConfigAdapter;
+                use crate::application::vpn_tor_manager::VpnTorManager;
+                let tor_mgr = VpnTorManager::new(
+                    Arc::new(WireGuardAdapter::new()),
+                    Arc::new(SocatBridgeAdapter::new()),
+                    Arc::new(TorConfigAdapter::new()),
+                );
+                let _ = tor_mgr.disable_tor(&name).await;
+            }
+            let _ = manifest.remove("vpn_bridge", &name);
+            let _ = manifest.remove("tor_service", &format!("vpn-{}", name));
+
             if let Some(port) = vpn_port {
                 sync_vpn_firewall_remove(port);
             }
@@ -2928,6 +2990,7 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
                 dns,
                 psk,
                 ip,
+                tor,
             } => {
                 crate::domain::vpn::validate_vpn_name(&interface)
                     .map_err(|e| CliError::InvalidInput(e.to_string()))?;
@@ -2959,6 +3022,28 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
                         .ok_or_else(|| CliError::Generic("VPN subnet is full".to_string()))?
                 };
 
+                // Resolve the onion before adding the peer so the command is
+                // atomic: if the VPN has no Tor exposure, fail without adding.
+                let onion = if tor {
+                    use crate::adapters::infra::vpn_bridge::SocatBridgeAdapter;
+                    use crate::adapters::tor::TorConfigAdapter;
+                    use crate::application::vpn_tor_manager::VpnTorManager;
+
+                    let tor_mgr = VpnTorManager::new(
+                        Arc::new(WireGuardAdapter::new()),
+                        Arc::new(SocatBridgeAdapter::new()),
+                        Arc::new(TorConfigAdapter::new()),
+                    );
+                    Some(tor_mgr.get_onion(&interface).await.map_err(|e| {
+                        CliError::Generic(format!(
+                            "Cannot get Tor onion for VPN '{}'. Create it with --tor first: {}",
+                            interface, e
+                        ))
+                    })?)
+                } else {
+                    None
+                };
+
                 println!("🔑 Generating key pair for peer '{}'...", peer_name);
                 let client_config = mgr
                     .add_peer(
@@ -2973,16 +3058,50 @@ async fn execute_vpn(cmd: VpnCommands) -> CliResult<String> {
                     )
                     .map_err(|e| CliError::Generic(e.to_string()))?;
 
-                Ok(format!(
+                let mut out = format!(
                     "✅ Peer '{}' added to VPN '{}' (IP: {})\n\
                      \n\
-                     ─── Client Configuration ───────────────────────────\n\
+                     ─── Client Configuration (direct) ──────────────────\n\
                      {}\n\
                      ────────────────────────────────────────────────────\n\
                      💡 Save this config to /etc/wireguard/{}-client.conf on the remote device\n\
                      💡 Or use 'qrencode -t ansiutf8' to display as QR code for mobile\n",
                     peer_name, interface, peer_ip, client_config, peer_name,
-                ))
+                );
+
+                if let Some(onion) = onion {
+                    // Tor config: same as direct but Endpoint points to the local
+                    // socat bridge (127.0.0.1) instead of the public endpoint.
+                    let tor_config = client_config
+                        .lines()
+                        .map(|line| {
+                            if line.trim_start().starts_with("Endpoint = ") {
+                                format!("Endpoint = 127.0.0.1:{}", server_port)
+                            } else {
+                                line.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    out.push_str(&format!(
+                        "\n\n\
+                         ─── Client Configuration (Tor) ─────────────────────\n\
+                         {}\n\
+                         ────────────────────────────────────────────────────\n\
+                         🧅 Onion: {}\n\
+                         \n\
+                         📋 Client-side setup (Linux/macOS):\n\
+                         \x20  sudo apt install tor socat\n\
+                         \x20  sudo systemctl start tor\n\
+                         \x20  socat UDP-LISTEN:{},fork SOCKS4A:127.0.0.1:{}:{},socksport=9050\n\
+                         \n\
+                         💡 Then import the Tor config above into WireGuard.\n",
+                        tor_config, onion, server_port, onion, server_port,
+                    ));
+                }
+
+                Ok(out)
             }
             VpnPeerCommands::AddPubkey {
                 interface,
