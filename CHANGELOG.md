@@ -39,7 +39,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.1.0-alpha] — 2026-08
 
-First public alpha release (Phase 1: standalone, no authentication).
+First public alpha release.
 
 ### Added
 

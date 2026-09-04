@@ -10,7 +10,6 @@
 - License: source-visible proprietary. Free for personal, non-commercial use. No redistribution, no commercial use. Copyright (c) 2026 Salvador Palma Rodriguez.
 - Security reporting: vulnerabilities must be reported privately to salvadorpalmarodriguez@gmail.com within 72 hours of discovery; public disclosure is prohibited until remediation (license §5).
 - Architecture: hexagonal (ports & adapters). domain (pure logic) / ports (traits) / adapters (Docker, Nginx, Tor) / application (orchestration) / cli (routing) / infrastructure (utilities).
-- Phase 1 repository: standalone, no authentication, no server dependency. Phase 2 (auth + AI) will be released separately as v2.0.0.
 
 ## AI Usage
 

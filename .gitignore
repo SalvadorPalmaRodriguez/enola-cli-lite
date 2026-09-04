@@ -50,9 +50,12 @@ __pycache__/
 # Contexto IA y herramientas de desarrollo privado del propietario.
 # El repo es público pero estas herramientas son solo para desarrollo local.
 
-# Archivos de contexto IA
-AGENTS.md
+# Archivos de contexto IA (raíz + anidados por directorio)
+**/AGENTS.md
 .github/copilot-instructions.md
+
+# Project Brain (privado — roles, skills, memoria, workflows)
+.agents/
 
 # Herramientas de desarrollo (audit, build, test, session_start)
 docs/dev/
