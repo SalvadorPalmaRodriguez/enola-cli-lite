@@ -1,9 +1,9 @@
 {
   "schema_version": "1",
-  "latest": "0.2.0-alpha",
+  "latest": "0.3.0-alpha",
   "min_supported": "0.1.0-alpha",
   "download_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli",
-  "published_at": "2026-08-30T12:11:27Z",
+  "published_at": "2026-09-05T14:28:05Z",
   "docs_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite#readme",
   "severity_summary": {
     "critical": 0,
