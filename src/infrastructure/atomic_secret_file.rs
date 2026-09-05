@@ -118,12 +118,19 @@ fn forced_rename_failure(_tmp: &Path, _final_path: &Path) -> std::io::Result<()>
 /// - El temporal no se puede crear (espacio, permisos, FS read-only).
 /// - El `rename` falla (cross-FS, EACCES).
 pub fn write_secret_atomically(final_path: &Path, content: &[u8]) -> std::io::Result<()> {
+    write_atomic(final_path, content, 0o600)
+}
+
+/// Escritura atómica para archivos con modo configurable (configs, systemd units, secrets).
+/// Igual que `write_secret_atomically` pero permite especificar permisos (ej: 0o644, 0o600).
+pub fn write_atomic(final_path: &Path, content: &[u8], mode: u32) -> std::io::Result<()> {
     #[cfg(feature = "testing")]
     {
         if std::env::var("ENOLA_TEST_FORCE_SECRET_WRITE_FAIL").as_deref() == Ok("1") {
             return write_secret_atomically_with(
                 final_path,
                 content,
+                0o600,
                 forced_write_sync_failure,
                 default_rename,
             );
@@ -132,17 +139,35 @@ pub fn write_secret_atomically(final_path: &Path, content: &[u8]) -> std::io::Re
             return write_secret_atomically_with(
                 final_path,
                 content,
+                0o600,
                 default_write_sync,
                 forced_rename_failure,
             );
         }
     }
-    write_secret_atomically_with(final_path, content, default_write_sync, default_rename)
+    write_secret_atomically_with(
+        final_path,
+        content,
+        mode,
+        default_write_sync,
+        default_rename,
+    )
+}
+
+/// Borrado seguro sin TOCTOU: usa `unlink(2)` directamente, sin pre-check `exists()`.
+/// Retorna `Ok(())` si el archivo no existía (`NotFound` es success).
+pub fn delete_safe(path: &Path) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 fn write_secret_atomically_with(
     final_path: &Path,
     content: &[u8],
+    mode: u32,
     write_sync: fn(&mut std::fs::File, &[u8]) -> std::io::Result<()>,
     rename_fn: fn(&Path, &Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
@@ -164,14 +189,14 @@ fn write_secret_atomically_with(
     let tmp_name = format!(".{}.tmp.{}.{}", file_name, pid, nonce);
     let tmp_path = parent.join(&tmp_name);
 
-    // 1. Crear con O_CREAT | O_EXCL | mode 0600 en una sola syscall.
+    // 1. Crear con O_CREAT | O_EXCL | mode en una sola syscall.
     //    Si el temporal ya existiera (improbable, pero posible si quedó
     //    huérfano de un crash), `create_new(true)` falla — reintentamos
     //    con otro nonce.
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o600)
+        .mode(mode)
         .open(&tmp_path)?;
 
     // 2. Escribir contenido + flush + fsync.
@@ -182,8 +207,8 @@ fn write_secret_atomically_with(
     }
 
     // 3. Rename atómico. POSIX: si `final_path` existe con permisos
-    //    distintos a 0600 (legacy de la versión anterior con TOCTOU),
-    //    es reemplazado por el nuevo (que sí es 0600) sin ventana intermedia.
+    //    distintos a los nuevos (legacy de la versión anterior con TOCTOU),
+    //    es reemplazado por el nuevo sin ventana intermedia.
     if let Err(e) = rename_fn(&tmp_path, final_path) {
         let _ = fs::remove_file(&tmp_path);
         return Err(e);
@@ -309,9 +334,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("secret.json");
 
-        let err =
-            write_secret_atomically_with(&path, b"x", forced_write_failure, passthrough_rename)
-                .expect_err("write failure should propagate");
+        let err = write_secret_atomically_with(
+            &path,
+            b"x",
+            0o600,
+            forced_write_failure,
+            passthrough_rename,
+        )
+        .expect_err("write failure should propagate");
         assert_eq!(err.kind(), std::io::ErrorKind::Other);
 
         let mut entries = Vec::new();
@@ -333,9 +363,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("secret.json");
 
-        let err =
-            write_secret_atomically_with(&path, b"x", default_write_sync, forced_rename_failure)
-                .expect_err("rename failure should propagate");
+        let err = write_secret_atomically_with(
+            &path,
+            b"x",
+            0o600,
+            default_write_sync,
+            forced_rename_failure,
+        )
+        .expect_err("rename failure should propagate");
         assert_eq!(err.kind(), std::io::ErrorKind::Other);
 
         let mut entries = Vec::new();
@@ -393,6 +428,80 @@ mod tests {
         assert!(
             content.starts_with("writer-"),
             "content must be one complete writer payload, got {:?}",
+            content
+        );
+    }
+
+    #[test]
+    fn write_atomic_with_0644_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.conf");
+        write_atomic(&path, b"config-content", 0o644).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "file must be 0644, got {:o}", mode);
+        assert_eq!(fs::read(&path).unwrap(), b"config-content");
+    }
+
+    #[test]
+    fn write_atomic_with_0600_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secret.key");
+        write_atomic(&path, b"secret", 0o600).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "file must be 0600, got {:o}", mode);
+    }
+
+    #[test]
+    fn delete_safe_on_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("to_delete.txt");
+        fs::write(&path, b"x").unwrap();
+        assert!(path.exists());
+
+        delete_safe(&path).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn delete_safe_on_nonexistent_file_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does_not_exist.txt");
+        assert!(!path.exists());
+
+        delete_safe(&path).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_concurrent_writers_0644() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let dir = Arc::new(tempfile::tempdir().unwrap());
+        let path = Arc::new(dir.path().join("shared.conf"));
+
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let path = Arc::clone(&path);
+            let handle = thread::spawn(move || {
+                let payload = format!("config-{}", i);
+                write_atomic(&path, payload.as_bytes(), 0o644)
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap().expect("each writer must succeed");
+        }
+
+        let mode = fs::metadata(&*path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "final file must remain 0644 under concurrency");
+
+        let content = fs::read_to_string(&*path).unwrap();
+        assert!(
+            content.starts_with("config-"),
+            "content must be one complete config payload, got {:?}",
             content
         );
     }

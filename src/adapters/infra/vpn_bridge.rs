@@ -65,8 +65,12 @@ impl SocatBridgeAdapter {
 impl VpnBridgePort for SocatBridgeAdapter {
     fn start_bridge(&self, interface: &str, tcp_port: u16, udp_port: u16) -> Result<(), VpnError> {
         let path = Self::unit_path(interface);
-        std::fs::write(&path, Self::unit_content(interface, tcp_port, udp_port))
-            .map_err(|e| VpnError::SystemError(format!("Cannot write {}: {}", path, e)))?;
+        crate::infrastructure::atomic_secret_file::write_atomic(
+            std::path::Path::new(&path),
+            Self::unit_content(interface, tcp_port, udp_port).as_bytes(),
+            0o644,
+        )
+        .map_err(|e| VpnError::SystemError(format!("Cannot write {}: {}", path, e)))?;
 
         Self::run_cmd(&["systemctl", "daemon-reload"])?;
         Self::run_cmd(&["systemctl", "enable", "--now", &Self::unit_name(interface)])?;
@@ -78,10 +82,8 @@ impl VpnBridgePort for SocatBridgeAdapter {
         let _ = Self::run_cmd(&["systemctl", "disable", "--now", &Self::unit_name(interface)]);
 
         let path = Self::unit_path(interface);
-        if std::path::Path::new(&path).exists() {
-            std::fs::remove_file(&path)
-                .map_err(|e| VpnError::SystemError(format!("Cannot delete {}: {}", path, e)))?;
-        }
+        crate::infrastructure::atomic_secret_file::delete_safe(std::path::Path::new(&path))
+            .map_err(|e| VpnError::SystemError(format!("Cannot delete {}: {}", path, e)))?;
         let _ = Self::run_cmd(&["systemctl", "daemon-reload"]);
         Ok(())
     }

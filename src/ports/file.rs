@@ -38,6 +38,30 @@ pub trait FileManagerPort {
     async fn extract_archive(&self, archive: &Path, dest_dir: &Path) -> Result<()>;
 }
 
+/// Port para operaciones de archivo atómicas (sin TOCTOU).
+/// Segregado de FileManagerPort siguiendo ISP (Interface Segregation Principle).
+/// Los clientes que necesitan atomicidad dependen solo de este port.
+#[async_trait::async_trait]
+pub trait AtomicFilePort {
+    /// Escribe archivo atómicamente con permisos `mode` (ej: 0o600, 0o644).
+    /// Usa tempfile + rename. El archivo nunca existe en estado intermedio.
+    async fn write_atomic(&self, path: &Path, content: &[u8], mode: u32) -> Result<()>;
+
+    /// Borra archivo sin TOCTOU. No usa `exists()` previo.
+    /// Retorna `Ok(())` si el archivo no existía.
+    async fn delete_safe(&self, path: &Path) -> Result<()>;
+}
+
+#[cfg(test)]
+mockall::mock! {
+    pub AtomicFilePort {}
+    #[async_trait::async_trait]
+    impl AtomicFilePort for AtomicFilePort {
+        async fn write_atomic(&self, path: &Path, content: &[u8], mode: u32) -> Result<()>;
+        async fn delete_safe(&self, path: &Path) -> Result<()>;
+    }
+}
+
 #[cfg(test)]
 mockall::mock! {
     pub FileManagerPort {}

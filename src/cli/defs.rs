@@ -1931,7 +1931,7 @@ pub enum VpnCommands {
         /// Interface name
         name: String,
 
-        /// Skip confirmation
+        /// Required — confirms deletion (command aborts without this flag)
         #[arg(long, short)]
         force: bool,
 

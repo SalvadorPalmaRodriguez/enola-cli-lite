@@ -215,7 +215,20 @@ server {{
 
         let file_path = self.sites_available.join(&config.domain);
 
-        fs::write(&file_path, content).await.map_err(|e| {
+        let content_owned = content.to_string();
+        tokio::task::spawn_blocking({
+            let path = file_path.clone();
+            move || {
+                crate::infrastructure::atomic_secret_file::write_atomic(
+                    &path,
+                    content_owned.as_bytes(),
+                    0o644,
+                )
+            }
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!("Failed to write nginx config: {}", e))
         })?;
 
@@ -300,7 +313,20 @@ server {{
             .sites_available
             .join(format!("fileserver_{}", config.service_name));
 
-        fs::write(&file_path, content).await.map_err(|e| {
+        let content_owned = content.to_string();
+        tokio::task::spawn_blocking({
+            let path = file_path.clone();
+            move || {
+                crate::infrastructure::atomic_secret_file::write_atomic(
+                    &path,
+                    content_owned.as_bytes(),
+                    0o644,
+                )
+            }
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!(
                 "Failed to write nginx fileserver config: {}",
                 e
@@ -396,7 +422,20 @@ server {{
         eprintln!("   [NGINX] Writing config to: {:?}", file_path);
         let _ = std::io::Write::flush(&mut std::io::stderr());
 
-        fs::write(&file_path, &content).await.map_err(|e| {
+        let content_owned = content.to_string();
+        tokio::task::spawn_blocking({
+            let path = file_path.clone();
+            move || {
+                crate::infrastructure::atomic_secret_file::write_atomic(
+                    &path,
+                    content_owned.as_bytes(),
+                    0o644,
+                )
+            }
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| {
             eprintln!("   [NGINX] ERROR writing file: {}", e);
             EnolaError::InfrastructureError(format!("Failed to write nginx proxy config: {}", e))
         })?;
@@ -626,7 +665,20 @@ server {{
         eprintln!("   [NGINX] Writing SSL config to: {:?}", file_path);
         let _ = std::io::Write::flush(&mut std::io::stderr());
 
-        fs::write(&file_path, &content).await.map_err(|e| {
+        let content_owned = content.to_string();
+        tokio::task::spawn_blocking({
+            let path = file_path.clone();
+            move || {
+                crate::infrastructure::atomic_secret_file::write_atomic(
+                    &path,
+                    content_owned.as_bytes(),
+                    0o644,
+                )
+            }
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!(
                 "Failed to write nginx SSL proxy config: {}",
                 e
@@ -852,15 +904,43 @@ server {{
 
         if changed {
             let new_content = new_lines.join("\n");
-            fs::write(&config_path, new_content).await.map_err(|e| {
+            let path = config_path.clone();
+            tokio::task::spawn_blocking({
+                let path = path.clone();
+                move || {
+                    crate::infrastructure::atomic_secret_file::write_atomic(
+                        &path,
+                        new_content.as_bytes(),
+                        0o644,
+                    )
+                }
+            })
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+            .map_err(|e| {
                 EnolaError::InfrastructureError(format!("Failed to write config: {}", e))
             })?;
 
             if self.validate_config().await? {
                 self.reload().await?;
             } else {
-                // Rollback?
-                fs::write(&config_path, content).await.ok();
+                // Rollback — also atomic
+                let rollback_content = content;
+                tokio::task::spawn_blocking({
+                    let path = path.clone();
+                    move || {
+                        crate::infrastructure::atomic_secret_file::write_atomic(
+                            &path,
+                            rollback_content.as_bytes(),
+                            0o644,
+                        )
+                    }
+                })
+                .await
+                .map_err(|e| {
+                    EnolaError::InfrastructureError(format!("spawn_blocking rollback: {}", e))
+                })?
+                .ok();
                 return Err(EnolaError::ValidationError(
                     "New config invalid, rolled back".to_string(),
                 ));
@@ -936,7 +1016,19 @@ server {{
 
         if changed {
             let new_content = new_lines.join("\n");
-            fs::write(&config_path, new_content).await.map_err(|e| {
+            tokio::task::spawn_blocking({
+                let path = config_path.clone();
+                move || {
+                    crate::infrastructure::atomic_secret_file::write_atomic(
+                        &path,
+                        new_content.as_bytes(),
+                        0o644,
+                    )
+                }
+            })
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+            .map_err(|e| {
                 EnolaError::InfrastructureError(format!("Failed to write config: {}", e))
             })?;
         }

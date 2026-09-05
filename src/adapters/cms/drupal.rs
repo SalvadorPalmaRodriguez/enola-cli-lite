@@ -476,20 +476,14 @@ fn write_secret_file(dir: &Path, name: &str, value: &str) -> Result<PathBuf> {
         })?;
     }
     let path = dir.join(name);
-    std::fs::write(&path, value).map_err(|e| {
-        EnolaError::InfrastructureError(format!(
-            "Failed to write Drupal secret {}: {}",
-            path.display(),
-            e
-        ))
-    })?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
-        EnolaError::InfrastructureError(format!(
-            "Failed to chmod Drupal secret {}: {}",
-            path.display(),
-            e
-        ))
-    })?;
+    crate::infrastructure::atomic_secret_file::write_secret_atomically(&path, value.as_bytes())
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Failed to write Drupal secret {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
     Ok(path)
 }
 

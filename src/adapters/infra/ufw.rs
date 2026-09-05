@@ -301,8 +301,13 @@ impl FirewallPort for UfwAdapter {
             )));
         }
 
-        // Escribir de vuelta (requiere root)
-        std::fs::write(AFTER_RULES_PATH, &new_content).map_err(|e| {
+        // Escribir de vuelta (requiere root) — escritura atómica anti-TOCTOU
+        crate::infrastructure::atomic_secret_file::write_atomic(
+            std::path::Path::new(AFTER_RULES_PATH),
+            new_content.as_bytes(),
+            0o644,
+        )
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!(
                 "Cannot write {}: {}. Are you root?",
                 AFTER_RULES_PATH, e

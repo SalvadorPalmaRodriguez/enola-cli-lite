@@ -263,20 +263,16 @@ fn write_secret_file(dir: &Path, name: &str, value: &str) -> Result<PathBuf> {
     }
 
     let file_path = dir.join(name);
-    std::fs::write(&file_path, value).map_err(|e| {
-        EnolaError::InfrastructureError(format!(
-            "Failed to write secret file {}: {}",
-            file_path.display(),
-            e
-        ))
-    })?;
-    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o644)).map_err(|e| {
-        EnolaError::InfrastructureError(format!(
-            "Failed to set permissions on {}: {}",
-            file_path.display(),
-            e
-        ))
-    })?;
+    // Escritura atómica con 0o644 desde el primer instante.
+    // 0o644 es intencional: el contenedor Docker lee via bind-mount como www-data.
+    crate::infrastructure::atomic_secret_file::write_atomic(&file_path, value.as_bytes(), 0o644)
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Failed to write secret file {}: {}",
+                file_path.display(),
+                e
+            ))
+        })?;
 
     Ok(file_path)
 }

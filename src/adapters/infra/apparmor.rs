@@ -31,7 +31,12 @@ impl AppArmorAdapter {
     /// Write profile content to /etc/apparmor.d/{profile_name}
     fn write_profile_file(&self, profile_name: &str, content: &str) -> Result<()> {
         let path = format!("{}/{}", APPARMOR_PROFILE_DIR, profile_name);
-        std::fs::write(&path, content).map_err(|e| {
+        crate::infrastructure::atomic_secret_file::write_atomic(
+            std::path::Path::new(&path),
+            content.as_bytes(),
+            0o644,
+        )
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!(
                 "Failed to write AppArmor profile to {}: {}. Run with sudo.",
                 path, e
@@ -42,15 +47,14 @@ impl AppArmorAdapter {
     /// Remove profile file from /etc/apparmor.d/
     fn remove_profile_file(&self, profile_name: &str) -> Result<()> {
         let path = format!("{}/{}", APPARMOR_PROFILE_DIR, profile_name);
-        if std::path::Path::new(&path).exists() {
-            std::fs::remove_file(&path).map_err(|e| {
+        crate::infrastructure::atomic_secret_file::delete_safe(std::path::Path::new(&path)).map_err(
+            |e| {
                 EnolaError::InfrastructureError(format!(
                     "Failed to remove AppArmor profile {}: {}",
                     path, e
                 ))
-            })?;
-        }
-        Ok(())
+            },
+        )
     }
 
     /// Parse `aa-status` output to extract Enola profiles

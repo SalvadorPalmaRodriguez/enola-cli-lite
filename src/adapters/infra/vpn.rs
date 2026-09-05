@@ -115,11 +115,11 @@ impl VpnPort for WireGuardAdapter {
         }
 
         let path = Self::conf_path(&server.interface);
-        std::fs::write(&path, &config)
-            .map_err(|e| VpnError::SystemError(format!("Cannot write {}: {}", path, e)))?;
-
-        // Secure permissions: 0600
-        Self::run_cmd(&["chmod", "600", &path])?;
+        crate::infrastructure::atomic_secret_file::write_secret_atomically(
+            std::path::Path::new(&path),
+            config.as_bytes(),
+        )
+        .map_err(|e| VpnError::SystemError(format!("Cannot write {}: {}", path, e)))?;
 
         Ok(())
     }
@@ -176,14 +176,16 @@ impl VpnPort for WireGuardAdapter {
         let psk_arg;
         if let Some(psk) = preshared_key {
             psk_arg = format!("preshared-key /dev/stdin <<< {}", psk);
-            // Use wg set with preshared-key via temp file approach
-            let tmp = format!("/tmp/wg_psk_{}", std::process::id());
-            std::fs::write(&tmp, psk)
+            // Use tempfile with 0600 permissions and random name (anti-TOCTOU)
+            let mut tmp = tempfile::NamedTempFile::new()
                 .map_err(|e| VpnError::SystemError(format!("psk tmp file: {}", e)))?;
+            std::io::Write::write_all(&mut tmp, psk.as_bytes())
+                .map_err(|e| VpnError::SystemError(format!("psk write: {}", e)))?;
+            let tmp_path = tmp.path().to_path_buf();
             args.push("preshared-key");
-            args.push(&tmp);
+            args.push(tmp_path.to_str().unwrap());
             let result = Self::run_cmd(&args);
-            let _ = std::fs::remove_file(&tmp);
+            drop(tmp);
             result?;
             let _ = psk_arg; // suppress unused warning
         } else {

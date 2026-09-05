@@ -2,7 +2,7 @@
 // with privileges can leave files/dirs in inconsistent state.
 #![warn(clippy::unwrap_used, clippy::expect_used)]
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::file::FileManagerPort;
+use crate::ports::file::{AtomicFilePort, FileManagerPort};
 use std::collections::HashMap;
 use std::path::Path;
 use tokio::fs;
@@ -106,12 +106,7 @@ impl FileManagerPort for EnolaFileAdapter {
     }
 
     async fn delete_file(&self, path: &Path) -> Result<()> {
-        if path.exists() {
-            fs::remove_file(path).await.map_err(|e| {
-                EnolaError::InfrastructureError(format!("Failed to delete file {:?}: {}", path, e))
-            })?;
-        }
-        Ok(())
+        self.delete_safe(path).await
     }
 
     async fn copy_file(&self, from: &Path, to: &Path) -> Result<()> {
@@ -219,6 +214,66 @@ impl FileManagerPort for EnolaFileAdapter {
                 "tar -xzf failed for {:?}",
                 archive
             )))
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AtomicFilePort for EnolaFileAdapter {
+    async fn write_atomic(&self, path: &Path, content: &[u8], mode: u32) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent).await.map_err(|e| {
+                    EnolaError::InfrastructureError(format!(
+                        "Failed to create dir {:?}: {}",
+                        parent, e
+                    ))
+                })?;
+            }
+        }
+        #[cfg(unix)]
+        {
+            let content = content.to_vec();
+            tokio::task::spawn_blocking({
+                let path = path.to_path_buf();
+                move || {
+                    crate::infrastructure::atomic_secret_file::write_atomic(&path, &content, mode)
+                }
+            })
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking failed: {}", e)))?
+            .map_err(|e| EnolaError::InfrastructureError(format!("atomic write failed: {}", e)))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = mode;
+            fs::write(path, content)
+                .await
+                .map_err(|e| EnolaError::InfrastructureError(format!("write failed: {}", e)))
+        }
+    }
+
+    async fn delete_safe(&self, path: &Path) -> Result<()> {
+        #[cfg(unix)]
+        {
+            let path = path.to_path_buf();
+            tokio::task::spawn_blocking(move || {
+                crate::infrastructure::atomic_secret_file::delete_safe(&path)
+            })
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking failed: {}", e)))?
+            .map_err(|e| EnolaError::InfrastructureError(format!("safe delete failed: {}", e)))
+        }
+        #[cfg(not(unix))]
+        {
+            match fs::remove_file(path).await {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(EnolaError::InfrastructureError(format!(
+                    "delete failed: {}",
+                    e
+                ))),
+            }
         }
     }
 }
@@ -364,5 +419,66 @@ mod tests {
     async fn test_default_constructor() {
         let adapter = EnolaFileAdapter;
         let _ = adapter;
+    }
+
+    #[tokio::test]
+    async fn test_atomic_write_0600() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let path = dir.path().join("secret.key");
+        adapter.write_atomic(&path, b"secret", 0o600).await.unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let content = adapter.read_file(&path).await.unwrap();
+        assert_eq!(content, "secret");
+    }
+
+    #[tokio::test]
+    async fn test_atomic_write_0644() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let path = dir.path().join("config.conf");
+        adapter.write_atomic(&path, b"config", 0o644).await.unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o644);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_atomic_write_creates_parent_dirs() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let path = dir.path().join("a/b/c/secret.key");
+        adapter.write_atomic(&path, b"nested", 0o600).await.unwrap();
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_safe_nonexistent_is_ok() {
+        let adapter = EnolaFileAdapter::new();
+        let result = adapter
+            .delete_safe(std::path::Path::new("/tmp/enola_test_nonexist_safe_42"))
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_delete_safe_existing() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let path = dir.path().join("deleteme.txt");
+        adapter.write_atomic(&path, b"x", 0o600).await.unwrap();
+        assert!(path.exists());
+        adapter.delete_safe(&path).await.unwrap();
+        assert!(!path.exists());
     }
 }
