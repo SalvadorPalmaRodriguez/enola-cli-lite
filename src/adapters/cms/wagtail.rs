@@ -49,22 +49,19 @@ const WAGTAIL_INTERNAL_PORT: u16 = 8000;
 /// Directorio base por defecto para datos persistentes de Wagtail.
 const DEFAULT_WAGTAIL_BASE_DIR: &str = "/srv/enola-wagtail";
 
-/// Resuelve el directorio base. Tests pueden sobreescribir con
-/// `ENOLA_WAGTAIL_BASE_DIR` (mismo patrón que Drupal/Ghost).
-fn wagtail_base_dir() -> PathBuf {
-    #[cfg(test)]
-    {
-        if let Ok(dir) = std::env::var("ENOLA_WAGTAIL_BASE_DIR") {
-            return PathBuf::from(dir);
-        }
+/// Resuelve el directorio base. En tests, se inyecta via `new_with_base`.
+fn wagtail_base_dir(override_dir: Option<&Path>) -> PathBuf {
+    match override_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => PathBuf::from(DEFAULT_WAGTAIL_BASE_DIR),
     }
-    PathBuf::from(DEFAULT_WAGTAIL_BASE_DIR)
 }
 
 /// Adapter Wagtail. Igual que Drupal, solo necesita `ContainerPort`.
 pub struct WagtailCmsAdapter {
     container_manager: Arc<dyn ContainerPort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    base_dir: Option<PathBuf>,
 }
 
 impl WagtailCmsAdapter {
@@ -75,6 +72,21 @@ impl WagtailCmsAdapter {
         Self {
             container_manager,
             manifest,
+            base_dir: None,
+        }
+    }
+
+    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe).
+    #[cfg(test)]
+    pub fn new_with_base(
+        container_manager: Arc<dyn ContainerPort + Send + Sync>,
+        manifest: Arc<dyn ManifestPort + Send + Sync>,
+        base_dir: PathBuf,
+    ) -> Self {
+        Self {
+            container_manager,
+            manifest,
+            base_dir: Some(base_dir),
         }
     }
 
@@ -177,7 +189,7 @@ impl CmsLifecycle for WagtailCmsAdapter {
         let _ = self.manifest.append("docker_network", &net_name);
 
         // 2. Secrets (mismo patrón SEC-005 que WP/Drupal).
-        let base = wagtail_base_dir();
+        let base = wagtail_base_dir(self.base_dir.as_deref());
         let inst_dir = base.join(&request.name);
         let secrets_dir = inst_dir.join("secrets");
         let db_pass = request
@@ -424,7 +436,7 @@ exec "$@"
         let _ = self.container_manager.remove_network(&net_name).await;
         let _ = self.manifest.remove("docker_network", &net_name);
         // Clean up /srv data directory.
-        let base = wagtail_base_dir();
+        let base = wagtail_base_dir(self.base_dir.as_deref());
         let inst_dir = base.join(name);
         let _ = std::fs::remove_dir_all(&inst_dir);
         Ok(())
@@ -507,27 +519,12 @@ mod tests {
     use crate::ports::container::{ContainerInfo, MockContainerPort};
     use crate::ports::manifest::MockManifestPort;
     use std::sync::Mutex;
-    use tempfile::TempDir;
 
     fn mock_manifest() -> MockManifestPort {
         let mut m = MockManifestPort::new();
         m.expect_append().returning(|_, _| Ok(())).times(0..);
         m.expect_remove().returning(|_, _| Ok(())).times(0..);
         m
-    }
-
-    /// Mutex global para serializar mutaciones de ENOLA_WAGTAIL_BASE_DIR (§13.33).
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn setup_test_base() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("ENOLA_WAGTAIL_BASE_DIR", tmp.path());
-        (tmp, guard)
-    }
-
-    fn teardown_test_base(_tmp: TempDir, _guard: std::sync::MutexGuard<'static, ()>) {
-        std::env::remove_var("ENOLA_WAGTAIL_BASE_DIR");
     }
 
     #[test]
@@ -631,7 +628,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_provisions_two_containers_postgres_and_returns_initializing() {
-        let (tmp, guard) = setup_test_base();
+        let tmp = tempfile::tempdir().unwrap();
         let mut mock = MockContainerPort::new();
         mock.expect_create_network().returning(|_| Ok(()));
         // Postgres ⇒ DOS create_container (vs Ghost que llama 1 vez).
@@ -640,7 +637,11 @@ mod tests {
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(2).returning(|_| Ok(()));
 
-        let adapter = WagtailCmsAdapter::new(Arc::new(mock), Arc::new(mock_manifest()));
+        let adapter = WagtailCmsAdapter::new_with_base(
+            Arc::new(mock),
+            Arc::new(mock_manifest()),
+            tmp.path().to_path_buf(),
+        );
         let req = CmsCreateRequest {
             name: "myblog".to_string(),
             http_port: Some(8085),
@@ -653,7 +654,6 @@ mod tests {
         assert_eq!(inst.http_port, Some(8085));
         assert_eq!(inst.db_port, None);
         assert!(inst.onion_address.is_none());
-        teardown_test_base(tmp, guard);
     }
 
     #[tokio::test]

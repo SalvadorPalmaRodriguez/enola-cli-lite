@@ -56,22 +56,19 @@ const MAGNOLIA_MIN_RAM_MB: u64 = 1536;
 /// Directorio base por defecto para datos persistentes de Magnolia.
 const DEFAULT_MAGNOLIA_BASE_DIR: &str = "/srv/enola-magnolia";
 
-/// Resuelve el directorio base. Tests pueden sobreescribir con
-/// `ENOLA_MAGNOLIA_BASE_DIR` (mismo patrón que Drupal/Ghost/Wagtail/Strapi).
-fn magnolia_base_dir() -> PathBuf {
-    #[cfg(test)]
-    {
-        if let Ok(dir) = std::env::var("ENOLA_MAGNOLIA_BASE_DIR") {
-            return PathBuf::from(dir);
-        }
+/// Resuelve el directorio base. En tests, se inyecta via `new_with_base`.
+fn magnolia_base_dir(override_dir: Option<&Path>) -> PathBuf {
+    match override_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => PathBuf::from(DEFAULT_MAGNOLIA_BASE_DIR),
     }
-    PathBuf::from(DEFAULT_MAGNOLIA_BASE_DIR)
 }
 
 /// Adapter Magnolia Community. Solo necesita `ContainerPort` — sin BD externa.
 pub struct MagnoliaCmsAdapter {
     container_manager: Arc<dyn ContainerPort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    base_dir: Option<PathBuf>,
 }
 
 impl MagnoliaCmsAdapter {
@@ -82,6 +79,21 @@ impl MagnoliaCmsAdapter {
         Self {
             container_manager,
             manifest,
+            base_dir: None,
+        }
+    }
+
+    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe).
+    #[cfg(test)]
+    pub fn new_with_base(
+        container_manager: Arc<dyn ContainerPort + Send + Sync>,
+        manifest: Arc<dyn ManifestPort + Send + Sync>,
+        base_dir: PathBuf,
+    ) -> Self {
+        Self {
+            container_manager,
+            manifest,
+            base_dir: Some(base_dir),
         }
     }
 
@@ -215,7 +227,7 @@ impl CmsLifecycle for MagnoliaCmsAdapter {
         let _ = self.manifest.append("docker_network", &net_name);
 
         // 2. Secreto de admin (mismo patrón SEC-005).
-        let base = magnolia_base_dir();
+        let base = magnolia_base_dir(self.base_dir.as_deref());
         let inst_dir = base.join(&request.name);
         let secrets_dir = inst_dir.join("secrets");
         let admin_pass = request
@@ -340,7 +352,7 @@ impl CmsLifecycle for MagnoliaCmsAdapter {
         let _ = self.container_manager.remove_network(&net_name).await;
         let _ = self.manifest.remove("docker_network", &net_name);
         // Clean up /srv data directory.
-        let base = magnolia_base_dir();
+        let base = magnolia_base_dir(self.base_dir.as_deref());
         let inst_dir = base.join(name);
         let _ = std::fs::remove_dir_all(&inst_dir);
         Ok(())
@@ -412,27 +424,12 @@ mod tests {
     use crate::ports::container::{ContainerInfo, MockContainerPort};
     use crate::ports::manifest::MockManifestPort;
     use std::sync::Mutex;
-    use tempfile::TempDir;
 
     fn mock_manifest() -> MockManifestPort {
         let mut m = MockManifestPort::new();
         m.expect_append().returning(|_, _| Ok(())).times(0..);
         m.expect_remove().returning(|_, _| Ok(())).times(0..);
         m
-    }
-
-    /// Mutex global para serializar mutaciones de ENOLA_MAGNOLIA_BASE_DIR (13.33).
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn setup_test_base() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("ENOLA_MAGNOLIA_BASE_DIR", tmp.path());
-        (tmp, guard)
-    }
-
-    fn teardown_test_base(_tmp: TempDir, _guard: std::sync::MutexGuard<'static, ()>) {
-        std::env::remove_var("ENOLA_MAGNOLIA_BASE_DIR");
     }
 
     #[test]
@@ -541,7 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_provisions_single_container_no_db_and_returns_initializing() {
-        let (tmp, guard) = setup_test_base();
+        let tmp = tempfile::tempdir().unwrap();
         let mut mock = MockContainerPort::new();
         mock.expect_create_network().returning(|_| Ok(()));
         // Contenedor único (sin BD externa) — 1 create + 1 start.
@@ -550,7 +547,11 @@ mod tests {
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(1).returning(|_| Ok(()));
 
-        let adapter = MagnoliaCmsAdapter::new(Arc::new(mock), Arc::new(mock_manifest()));
+        let adapter = MagnoliaCmsAdapter::new_with_base(
+            Arc::new(mock),
+            Arc::new(mock_manifest()),
+            tmp.path().to_path_buf(),
+        );
         let req = CmsCreateRequest {
             name: "mycms".to_string(),
             http_port: Some(8085),
@@ -564,12 +565,11 @@ mod tests {
         assert_eq!(inst.http_port, Some(8085));
         assert_eq!(inst.db_port, None);
         assert!(inst.onion_address.is_none());
-        teardown_test_base(tmp, guard);
     }
 
     #[tokio::test]
     async fn create_generates_admin_password_secret_file() {
-        let (tmp, guard) = setup_test_base();
+        let tmp = tempfile::tempdir().unwrap();
         let mut mock = MockContainerPort::new();
         mock.expect_create_network().returning(|_| Ok(()));
         mock.expect_create_container()
@@ -577,7 +577,11 @@ mod tests {
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(1).returning(|_| Ok(()));
 
-        let adapter = MagnoliaCmsAdapter::new(Arc::new(mock), Arc::new(mock_manifest()));
+        let adapter = MagnoliaCmsAdapter::new_with_base(
+            Arc::new(mock),
+            Arc::new(mock_manifest()),
+            tmp.path().to_path_buf(),
+        );
         let req = CmsCreateRequest {
             name: "sectest".to_string(),
             http_port: Some(8086),
@@ -592,8 +596,6 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(!content.is_empty(), "admin_password must not be empty");
         assert_eq!(content.len(), 16, "generated password should be 16 chars");
-
-        teardown_test_base(tmp, guard);
     }
 
     #[tokio::test]

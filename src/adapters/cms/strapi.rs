@@ -55,22 +55,19 @@ const STRAPI_INTERNAL_PORT: u16 = 1337;
 /// Directorio base por defecto para datos persistentes de Strapi.
 const DEFAULT_STRAPI_BASE_DIR: &str = "/srv/enola-strapi";
 
-/// Resuelve el directorio base. Tests pueden sobreescribir con
-/// `ENOLA_STRAPI_BASE_DIR` (mismo patrón que Drupal/Ghost/Wagtail).
-fn strapi_base_dir() -> PathBuf {
-    #[cfg(test)]
-    {
-        if let Ok(dir) = std::env::var("ENOLA_STRAPI_BASE_DIR") {
-            return PathBuf::from(dir);
-        }
+/// Resuelve el directorio base. En tests, se inyecta via `new_with_base`.
+fn strapi_base_dir(override_dir: Option<&Path>) -> PathBuf {
+    match override_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => PathBuf::from(DEFAULT_STRAPI_BASE_DIR),
     }
-    PathBuf::from(DEFAULT_STRAPI_BASE_DIR)
 }
 
 /// Adapter Strapi v4. Igual que Wagtail, solo necesita `ContainerPort`.
 pub struct StrapiCmsAdapter {
     container_manager: Arc<dyn ContainerPort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    base_dir: Option<PathBuf>,
 }
 
 impl StrapiCmsAdapter {
@@ -81,6 +78,21 @@ impl StrapiCmsAdapter {
         Self {
             container_manager,
             manifest,
+            base_dir: None,
+        }
+    }
+
+    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe).
+    #[cfg(test)]
+    pub fn new_with_base(
+        container_manager: Arc<dyn ContainerPort + Send + Sync>,
+        manifest: Arc<dyn ManifestPort + Send + Sync>,
+        base_dir: PathBuf,
+    ) -> Self {
+        Self {
+            container_manager,
+            manifest,
+            base_dir: Some(base_dir),
         }
     }
 
@@ -201,7 +213,7 @@ impl CmsLifecycle for StrapiCmsAdapter {
         let _ = self.manifest.append("docker_network", &net_name);
 
         // 2. Secretos (mismo patrón SEC-005 que WP/Drupal/Wagtail).
-        let base = strapi_base_dir();
+        let base = strapi_base_dir(self.base_dir.as_deref());
         let inst_dir = base.join(&request.name);
         let secrets_dir = inst_dir.join("secrets");
 
@@ -479,7 +491,7 @@ exec "$@"
         let _ = self.container_manager.remove_network(&net_name).await;
         let _ = self.manifest.remove("docker_network", &net_name);
         // Clean up /srv data directory.
-        let base = strapi_base_dir();
+        let base = strapi_base_dir(self.base_dir.as_deref());
         let inst_dir = base.join(name);
         let _ = std::fs::remove_dir_all(&inst_dir);
         Ok(())
@@ -562,27 +574,12 @@ mod tests {
     use crate::ports::container::{ContainerInfo, MockContainerPort};
     use crate::ports::manifest::MockManifestPort;
     use std::sync::Mutex;
-    use tempfile::TempDir;
 
     fn mock_manifest() -> MockManifestPort {
         let mut m = MockManifestPort::new();
         m.expect_append().returning(|_, _| Ok(())).times(0..);
         m.expect_remove().returning(|_, _| Ok(())).times(0..);
         m
-    }
-
-    /// Mutex global para serializar mutaciones de ENOLA_STRAPI_BASE_DIR (13.33).
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn setup_test_base() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("ENOLA_STRAPI_BASE_DIR", tmp.path());
-        (tmp, guard)
-    }
-
-    fn teardown_test_base(_tmp: TempDir, _guard: std::sync::MutexGuard<'static, ()>) {
-        std::env::remove_var("ENOLA_STRAPI_BASE_DIR");
     }
 
     #[test]
@@ -716,7 +713,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_provisions_two_containers_postgres_and_returns_initializing() {
-        let (tmp, guard) = setup_test_base();
+        let tmp = tempfile::tempdir().unwrap();
         let mut mock = MockContainerPort::new();
         mock.expect_create_network().returning(|_| Ok(()));
         // Postgres ⇒ DOS create_container (web + db).
@@ -725,7 +722,11 @@ mod tests {
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(2).returning(|_| Ok(()));
 
-        let adapter = StrapiCmsAdapter::new(Arc::new(mock), Arc::new(mock_manifest()));
+        let adapter = StrapiCmsAdapter::new_with_base(
+            Arc::new(mock),
+            Arc::new(mock_manifest()),
+            tmp.path().to_path_buf(),
+        );
         let req = CmsCreateRequest {
             name: "myapi".to_string(),
             http_port: Some(8085),
@@ -738,12 +739,11 @@ mod tests {
         assert_eq!(inst.http_port, Some(8085));
         assert_eq!(inst.db_port, None);
         assert!(inst.onion_address.is_none());
-        teardown_test_base(tmp, guard);
     }
 
     #[tokio::test]
     async fn create_generates_all_six_secret_files_and_entrypoint() {
-        let (tmp, guard) = setup_test_base();
+        let tmp = tempfile::tempdir().unwrap();
         let mut mock = MockContainerPort::new();
         mock.expect_create_network().returning(|_| Ok(()));
         mock.expect_create_container()
@@ -751,7 +751,11 @@ mod tests {
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(2).returning(|_| Ok(()));
 
-        let adapter = StrapiCmsAdapter::new(Arc::new(mock), Arc::new(mock_manifest()));
+        let adapter = StrapiCmsAdapter::new_with_base(
+            Arc::new(mock),
+            Arc::new(mock_manifest()),
+            tmp.path().to_path_buf(),
+        );
         let req = CmsCreateRequest {
             name: "sectest".to_string(),
             http_port: Some(8086),
@@ -795,8 +799,6 @@ mod tests {
             let mode = std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o755, "entrypoint.sh should be 0755, got {:o}", mode);
         }
-
-        teardown_test_base(tmp, guard);
     }
 
     #[tokio::test]
