@@ -1,5 +1,5 @@
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::file::FileManagerPort;
+use crate::ports::file::{AtomicFilePort, FileManagerPort};
 use crate::ports::service::ServiceManagerPort;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -30,6 +30,7 @@ impl Default for FwknopAccessConfig {
 
 pub struct FwknopConfig {
     file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+    atomic_file: Arc<dyn AtomicFilePort + Send + Sync>,
     service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
     access_conf_path: PathBuf,
     template_path: PathBuf,
@@ -38,10 +39,12 @@ pub struct FwknopConfig {
 impl FwknopConfig {
     pub fn new(
         file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+        atomic_file: Arc<dyn AtomicFilePort + Send + Sync>,
         service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
     ) -> Self {
         Self {
             file_manager,
+            atomic_file,
             service_manager,
             access_conf_path: PathBuf::from("/etc/fwknop/access.conf"),
             template_path: PathBuf::from("/usr/share/enola-server/templates/fwknop"),
@@ -81,13 +84,9 @@ impl FwknopConfig {
         );
         content = content.replace("$FW_ACCESS_TIMEOUT", &config.fw_access_timeout.to_string());
 
-        self.file_manager
-            .write_file(&self.access_conf_path, &content)
-            .await?;
-
-        // Set permissions 600 via FileManagerPort (no direct Command::new)
-        self.file_manager
-            .set_permissions(&self.access_conf_path, 0o600)
+        // Write atomically with 0o600 (no TOCTOU window)
+        self.atomic_file
+            .write_atomic(&self.access_conf_path, content.as_bytes(), 0o600)
             .await?;
 
         // Restart service
@@ -100,6 +99,7 @@ impl FwknopConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::file::MockAtomicFilePort;
 
     #[test]
     fn test_default_config() {
@@ -131,8 +131,13 @@ mod tests {
         use crate::ports::service::MockServiceManagerPort;
 
         let mock_file = MockFileManagerPort::new();
+        let mock_atomic = MockAtomicFilePort::new();
         let mock_svc = MockServiceManagerPort::new();
-        let svc = FwknopConfig::new(Arc::new(mock_file), Arc::new(mock_svc));
+        let svc = FwknopConfig::new(
+            Arc::new(mock_file),
+            Arc::new(mock_atomic),
+            Arc::new(mock_svc),
+        );
         // Template path doesn't exist, should return NotFound
         let result = svc.apply_config(FwknopAccessConfig::default()).await;
         assert!(result.is_err());

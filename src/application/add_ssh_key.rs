@@ -1,15 +1,23 @@
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::file::FileManagerPort;
+use crate::infrastructure::file_lock::FileLock;
+use crate::ports::file::{AtomicFilePort, FileManagerPort};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct AddSshKey {
     file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+    atomic_file: Arc<dyn AtomicFilePort + Send + Sync>,
 }
 
 impl AddSshKey {
-    pub fn new(file_manager: Arc<dyn FileManagerPort + Send + Sync>) -> Self {
-        Self { file_manager }
+    pub fn new(
+        file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+        atomic_file: Arc<dyn AtomicFilePort + Send + Sync>,
+    ) -> Self {
+        Self {
+            file_manager,
+            atomic_file,
+        }
     }
 
     pub async fn execute(&self, pubkey: &str, comment: Option<&str>) -> Result<()> {
@@ -22,14 +30,33 @@ impl AddSshKey {
         let home = std::env::var("HOME")
             .map_err(|_| EnolaError::InfrastructureError("HOME not set".to_string()))?;
         let ssh_dir = PathBuf::from(home).join(".ssh");
+
+        self.execute_with_ssh_dir(&ssh_dir, pubkey, comment).await
+    }
+
+    /// Execute with an explicit `.ssh` directory (testable — avoids std::env::set_var).
+    pub async fn execute_with_ssh_dir(
+        &self,
+        ssh_dir: &std::path::Path,
+        pubkey: &str,
+        comment: Option<&str>,
+    ) -> Result<()> {
         let auth_keys_path = ssh_dir.join("authorized_keys");
 
         // 3. Ensure .ssh dir exists
-        self.file_manager.ensure_dir(&ssh_dir).await?;
+        self.file_manager.ensure_dir(ssh_dir).await?;
 
-        // 4. Read existing keys to prevent duplicates
-        // Note: FileManagerPort currently reads entire file.
-        // For very large authorized_keys this is inefficient, but for this use case it's fine.
+        // 4. Acquire FileLock to serialize read-modify-write (anti-TOCTOU)
+        let lock_path = ssh_dir.join(".authorized_keys.lock");
+        let _lock = tokio::task::spawn_blocking({
+            let lock_path = lock_path.to_path_buf();
+            move || FileLock::try_acquire(&lock_path)
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking failed: {}", e)))?
+        .map_err(|e| EnolaError::InfrastructureError(format!("Failed to acquire lock: {}", e)))?;
+
+        // 5. Read existing keys to prevent duplicates
         let content = self
             .file_manager
             .read_file(&auth_keys_path)
@@ -51,12 +78,9 @@ impl AddSshKey {
             return Ok(());
         }
 
-        // 5. Append Key
+        // 6. Append Key
         let comment_str = comment.unwrap_or("enola-managed");
-        // Construct line if pubkey doesn't already have comment or we want to override/append logic?
-        // Usually pubkey string passed includes the type and body.
 
-        // If the input pubkey already serves as a full line:
         let new_line = if key_parts.len() >= 3 {
             pubkey.to_string()
         } else {
@@ -69,8 +93,9 @@ impl AddSshKey {
             format!("{}\n{}\n", content, new_line)
         };
 
-        self.file_manager
-            .write_file(&auth_keys_path, &new_content)
+        // 7. Write atomically with 0o600
+        self.atomic_file
+            .write_atomic(&auth_keys_path, new_content.as_bytes(), 0o600)
             .await?;
 
         Ok(())
@@ -127,12 +152,13 @@ impl AddSshKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::file::MockFileManagerPort;
+    use crate::ports::file::{MockAtomicFilePort, MockFileManagerPort};
 
     #[tokio::test]
     async fn test_add_ssh_key_validation_failure() {
         let mock_file = MockFileManagerPort::new();
-        let use_case = AddSshKey::new(Arc::new(mock_file));
+        let mock_atomic = MockAtomicFilePort::new();
+        let use_case = AddSshKey::new(Arc::new(mock_file), Arc::new(mock_atomic));
 
         let result = use_case.execute("invalid-key", None).await;
         assert!(result.is_err());
@@ -140,10 +166,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_ssh_key_duplicate() {
-        // Set HOME for the test environment
-        std::env::set_var("HOME", "/tmp/test_home");
+        let home_dir = tempfile::tempdir().unwrap();
+        let ssh_dir = home_dir.path().join(".ssh");
 
         let mut mock_file = MockFileManagerPort::new();
+        let mock_atomic = MockAtomicFilePort::new();
 
         mock_file.expect_ensure_dir().times(1).returning(|_| Ok(()));
 
@@ -153,11 +180,11 @@ mod tests {
             .times(1)
             .returning(|_| Ok("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBPQL existing\n".to_string()));
 
-        let use_case = AddSshKey::new(Arc::new(mock_file));
+        let use_case = AddSshKey::new(Arc::new(mock_file), Arc::new(mock_atomic));
         // Use the same key body to trigger duplicate detection
         let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBPQL";
         // Should succeed and do nothing because key already exists
-        let result = use_case.execute(key, None).await;
+        let result = use_case.execute_with_ssh_dir(&ssh_dir, key, None).await;
         assert!(result.is_ok());
     }
 
