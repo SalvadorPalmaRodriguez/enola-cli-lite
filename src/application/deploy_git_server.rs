@@ -345,27 +345,15 @@ fn write_admin_creds_hash(creds_dir: &std::path::Path, user: &str, pass: &str) -
         )?;
     }
 
-    std::fs::write(&creds_path, content).map_err(|e| {
-        EnolaError::InfrastructureError(format!(
-            "Cannot write creds file {}: {}",
-            creds_path.display(),
-            e
-        ))
-    })?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&creds_path, std::fs::Permissions::from_mode(0o600)).map_err(
-            |e| {
-                EnolaError::InfrastructureError(format!(
-                    "Cannot set creds file permissions {}: {}",
-                    creds_path.display(),
-                    e
-                ))
-            },
-        )?;
-    }
+    // Escritura atómica con 0o600 desde el primer instante (anti-TOCTOU)
+    crate::infrastructure::atomic_secret_file::write_atomic(&creds_path, content.as_bytes(), 0o600)
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Cannot write creds file {}: {}",
+                creds_path.display(),
+                e
+            ))
+        })?;
 
     Ok(())
 }

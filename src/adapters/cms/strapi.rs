@@ -351,20 +351,14 @@ export TRANSFER_TOKEN_SALT="$(cat /run/secrets/transfer_token_salt)"
 exec "$@"
 "#;
         let entrypoint_path = inst_dir.join("entrypoint.sh");
-        std::fs::write(&entrypoint_path, entrypoint_script).map_err(|e| {
+        crate::infrastructure::atomic_secret_file::write_atomic(
+            &entrypoint_path,
+            entrypoint_script.as_bytes(),
+            0o755,
+        )
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!("Cannot write entrypoint script: {}", e))
         })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&entrypoint_path, std::fs::Permissions::from_mode(0o755))
-                .map_err(|e| {
-                    EnolaError::InfrastructureError(format!(
-                        "Cannot set entrypoint permissions: {}",
-                        e
-                    ))
-                })?;
-        }
 
         // Mount the entrypoint wrapper into the container
         let mut web_volumes = HashMap::new();

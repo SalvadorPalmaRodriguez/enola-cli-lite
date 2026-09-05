@@ -7,7 +7,6 @@ use openssl::rsa::Rsa;
 use openssl::x509::extension::{BasicConstraints, SubjectAlternativeName};
 use openssl::x509::{X509Name, X509};
 use std::path::{Path, PathBuf};
-use tokio::fs;
 
 pub struct OpenSslCertAdapter;
 
@@ -140,23 +139,30 @@ impl CertManagerPort for OpenSslCertAdapter {
             })?;
         }
 
-        fs::write(&cert_path, cert_pem)
-            .await
-            .map_err(|e| EnolaError::InfrastructureError(format!("Failed to write cert: {}", e)))?;
+        // Atomic writes with correct permissions from inception (anti-TOCTOU)
+        let cert_path_owned = cert_path.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::infrastructure::atomic_secret_file::write_atomic(
+                &cert_path_owned,
+                &cert_pem,
+                0o644,
+            )
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| EnolaError::InfrastructureError(format!("Failed to write cert: {}", e)))?;
 
-        fs::write(&key_path, key_pem)
-            .await
-            .map_err(|e| EnolaError::InfrastructureError(format!("Failed to write key: {}", e)))?;
-
-        // Permissions (640)
-        // tokio::fs::set_permissions is platform specific (unix)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o640);
-            fs::set_permissions(&cert_path, perms.clone()).await.ok();
-            fs::set_permissions(&key_path, perms).await.ok();
-        }
+        let key_path_owned = key_path.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::infrastructure::atomic_secret_file::write_atomic(
+                &key_path_owned,
+                &key_pem,
+                0o600,
+            )
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| EnolaError::InfrastructureError(format!("Failed to write key: {}", e)))?;
 
         Ok((cert_path, key_path))
     }
