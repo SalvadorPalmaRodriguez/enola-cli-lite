@@ -11,10 +11,8 @@
 ## Quick start
 
 ```bash
-# Install
-wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
-tar xf enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
-sudo cp enola-cli /usr/local/bin/
+# Install (downloads, verifies SHA256 + minisign, and installs)
+curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
 
 # Deploy your first .onion service
 sudo enola-cli files create --name my-web
@@ -54,4 +52,4 @@ See the [Quick Start Guide](en/quickstart.md) for the full walkthrough.
 
 Proprietary (source-visible). See [LICENSE](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/LICENSE).
 
-Security vulnerabilities must be reported **only** by encrypted email to `salvadorpalmarodriguez@gmail.com`. See [SECURITY.md](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/SECURITY.md).
+Security vulnerabilities must be reported **only** by encrypted email to `salvadorpalmarodriguez@gmail.com`. See [SECURITY.md](user/general/SECURITY.md) · [Security model (EN)](en/security-model.md).

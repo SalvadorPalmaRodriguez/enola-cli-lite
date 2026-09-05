@@ -21,7 +21,7 @@
 - **🐙 Git hosting** — Forgejo servers with SSH-over-Tor cloning, user management and a pipeline watcher.
 - **🌐 Six CMS platforms** — WordPress, Drupal, Ghost, Magnolia, Strapi and Wagtail, each Dockerized, localhost-only and publishable to Tor with one command.
 - **📁 Anonymous file sharing** — Nginx autoindex shares over `.onion`, with optional HTTPS (TLSv1.3) and Tor client auth.
-- **🔒 WireGuard VPN** — encrypted tunnels for trusted devices, with optional preshared keys for post-quantum resistance.
+- **🔒 WireGuard VPN** — encrypted tunnels for trusted devices, with optional preshared keys (symmetric layer not vulnerable to Shor's algorithm, though KEX remains X25519).
 - **🛡️ Hardening built in** — UFW firewall setup (incl. DOCKER-USER chain), AppArmor profiles, SSH post-quantum KEX hardening.
 - **🔐 Post-quantum release signing** — every release is signed with minisign (Ed25519) **and** ML-DSA-65 (FIPS 204); verification is offline via `enola-cli verify`.
 - **📚 Embedded offline docs** — `enola-cli docs` works with no network.
@@ -76,6 +76,8 @@ Traffic model for every service: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT �
   - [📖 Quickref](#-quickref)
   - [🌐 Web — Local Dashboard](#-web--local-dashboard)
   - [⚙️ Config](#️-config)
+- [Detailed Documentation](#-detailed-documentation)
+- [Global Options](#️-global-options)
 - [Practical Examples](#-practical-examples)
 - [Troubleshooting](#-troubleshooting)
 - [License](#-license)
@@ -89,9 +91,18 @@ Traffic model for every service: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT �
 ```bash
 # Download and verify (recommended)
 curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
+
+# Or inspect the script first, then run it:
+curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh -o install.sh
+less install.sh
+sudo bash install.sh
 ```
 
 The installer downloads the binary, verifies SHA256 + minisign signature, and installs everything.
+After installation, verify the binary's post-quantum signature (ML-DSA-65, FIPS 204):
+```bash
+enola-cli verify /usr/local/bin/enola-cli
+```
 Full guide: [verify-downloads.md](docs/user/verify/verify-downloads.md)
 
 ---
@@ -242,7 +253,7 @@ sudo enola-cli tor edit myapp -t 4000
 ### Remove a Service
 
 ```bash
-sudo enola-cli tor remove <name> [--force]
+sudo enola-cli tor remove <name> --force
 ```
 
 ### Rotate Identity (.onion)
@@ -293,7 +304,7 @@ Manage Git servers (Forgejo) with Tor integration.
 sudo enola-cli git list
 
 # Create a server (web mode: browser install wizard)
-sudo enola-cli git create -n my-git [--ssl] [--http-port <PORT>] [--ssh-port <PORT>]
+sudo enola-cli git create -n my-git [--ssl] [--http-port <PORT: 10000-15000>] [--ssh-port <PORT: 30000-35000>]
 
 # Create a server (CLI mode: admin created automatically)
 sudo enola-cli git create -n my-git --admin-user alice --admin-password MyPass123
@@ -302,10 +313,12 @@ sudo enola-cli git create -n my-git --admin-user alice --admin-password MyPass12
 sudo enola-cli git start <name>
 sudo enola-cli git stop <name>
 sudo enola-cli git status <name>
-sudo enola-cli git delete <name> [--force]
+sudo enola-cli git delete <name> --force
 
-# Configure user self-registration (enable/disable)
+# Configure user self-registration (enable/disable/status)
 sudo enola-cli git registration <name> --enable
+sudo enola-cli git registration <name> --disable
+sudo enola-cli git registration <name> --status
 ```
 
 ### Edit Ports
@@ -338,7 +351,7 @@ sudo enola-cli git hide <name>
 sudo enola-cli git user list <server>
 
 # Create a user
-sudo enola-cli git user create <server> -u user -e email@test.com -p password
+sudo enola-cli git user create <server> -u user -e email@test.com -p password [--admin]
 
 # Delete a user
 sudo enola-cli git user delete <server> -u user
@@ -370,7 +383,7 @@ sudo enola-cli wp create -n my-blog [--http-port <PORT>]   # auto: range 8080-90
 sudo enola-cli wp start <name>
 sudo enola-cli wp stop <name>
 sudo enola-cli wp restart <name>
-sudo enola-cli wp delete <name> [--force]
+sudo enola-cli wp delete <name> --force
 
 # Check status
 sudo enola-cli wp status <name>
@@ -463,7 +476,7 @@ sudo enola-cli ghost edit <name> --http-port <PORT>
 
 ## ☕ Magnolia — Java CMS
 
-Manage Magnolia CMS instances. Stack: `magnolia-cms:6` (Tomcat, Java). **Requires ≥4 GB of available RAM.**
+Manage Magnolia CMS instances. Stack: `ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest` (Tomcat, Java) with embedded H2 database. **Requires ≥4 GB of available RAM.**
 
 ```bash
 # List instances
@@ -487,7 +500,7 @@ sudo enola-cli magnolia hide <name>
 
 ## 🚀 Strapi — Headless CMS
 
-Manage Strapi instances. Stack: `enola/strapi:5.49.0` + `postgres:16-alpine`. Generates per-instance secrets with 0600 permissions.
+Manage Strapi instances. Stack: `enola/strapi:5.49.0` + `postgres:16-alpine`. Generates 6 per-instance secrets (db_password, app_keys, api_token_salt, admin_jwt_secret, jwt_secret, transfer_token_salt) with 0600 permissions, mounted as Docker secrets.
 
 ```bash
 # Build the production Docker image (once, before the first create; ~5-10 min)
@@ -496,8 +509,8 @@ sudo enola-cli strapi build-image [--force]
 # List instances
 sudo enola-cli strapi list
 
-# Create an instance (internal HTTP port required; Strapi uses 1337)
-sudo enola-cli strapi create --name my-api --http-port 1337
+# Create an instance (host HTTP port mapped to internal port 1337)
+sudo enola-cli strapi create --name my-api --http-port 1357
 
 # Lifecycle
 sudo enola-cli strapi start <name>
@@ -514,7 +527,7 @@ sudo enola-cli strapi hide <name>
 
 ## 🐦 Wagtail — Django CMS
 
-Manage Wagtail instances. Stack: Wagtail (Python/Django) + `postgres:16-alpine`.
+Manage Wagtail instances. Stack: `wagtail/bakerydemo:latest` (Python/Django demo site) + `postgres:16-alpine`.
 
 ```bash
 # List instances
@@ -545,16 +558,19 @@ Create secure file servers accessible via Tor.
 sudo enola-cli files list
 
 # Create a share
-sudo enola-cli files create -n my-files [-a] [--ssl]
+sudo enola-cli files create -n my-files [-a] [--ssl]   # -a = --auth (Tor client authorization)
 
 # Edit port
 sudo enola-cli files edit <name> -p 8080
+
+# Show current config (without --port)
+sudo enola-cli files edit <name>
 
 # Fix permissions
 sudo enola-cli files fix-perms <name>
 
 # Delete a share
-sudo enola-cli files delete <name> [-f]
+sudo enola-cli files delete <name> --force
 ```
 
 **Files directory:** `/srv/enola-files/<name>/`
@@ -593,7 +609,7 @@ sudo enola-cli maintenance ssh-harden-pqc [--dry-run] [--force]
 sudo enola-cli maintenance backup
 
 # Clean temporary files and residual data
-sudo enola-cli maintenance cleanup [--target all|logs|docker] [--dry-run] [--keep-days 7]
+sudo enola-cli maintenance cleanup [--target all|logs|docker] [--dry-run] [--force] [--keep-days 7]
 ```
 
 ---
@@ -678,7 +694,7 @@ Shows every port used by Enola services (Tor, Nginx, Docker).
 
 ```bash
 # List all ports
-sudo enola-cli ports list
+sudo enola-cli ports list [--json]
 ```
 
 Includes stopped containers that retain Docker port bindings.
@@ -691,14 +707,14 @@ Manage the host's UFW firewall.
 
 ```bash
 # Configure a secure default policy
-sudo enola-cli firewall setup
+sudo enola-cli firewall setup [--ssh-port <PORT>] [--force]
 
 # Show firewall status
 sudo enola-cli firewall status
 
 # Allow/deny ports
-sudo enola-cli firewall allow --port <port>
-sudo enola-cli firewall deny --port <port>
+sudo enola-cli firewall allow --port <port> [--proto tcp|udp] [--from <CIDR>]
+sudo enola-cli firewall deny --port <port> [--proto tcp|udp]
 ```
 
 ---
@@ -709,13 +725,15 @@ Manage AppArmor profiles for process isolation.
 
 ```bash
 # Install base profiles (nginx, tor, docker)
-sudo enola-cli apparmor setup
+sudo enola-cli apparmor setup [--mode enforce|complain] [--force]
 
 # Show profile status
 sudo enola-cli apparmor status
 
 # Change mode (enforce/complain/disable)
 sudo enola-cli apparmor mode --enforce
+sudo enola-cli apparmor mode --complain
+sudo enola-cli apparmor mode --disable [--profile <name>]
 ```
 
 ---
@@ -726,7 +744,7 @@ Manage WireGuard VPN tunnels for authenticated remote access.
 
 ```bash
 # Create a VPN interface
-sudo enola-cli vpn create <name> [--port 51820] [--subnet 10.8.0.0/24] [--autostart] [--sync-firewall]
+sudo enola-cli vpn create <name> [--port 51820] [--subnet 10.8.0.0/24] [--autostart] [--sync-firewall] [--tor]
 
 # List interfaces
 sudo enola-cli vpn list
@@ -738,7 +756,7 @@ sudo enola-cli vpn status <name>
 sudo enola-cli vpn delete <name> [--force] [--sync-firewall]
 
 # Manage peers
-sudo enola-cli vpn peer add <interface> <peer> --endpoint <host> [--dns <ip>] [--psk] [--ip <ip>]
+sudo enola-cli vpn peer add <interface> <peer> --endpoint <host> [--dns <ip>] [--psk] [--ip <ip>] [--tor]
 sudo enola-cli vpn peer add-pubkey <interface> <peer> <public_key> <ip>
 sudo enola-cli vpn peer remove <interface> <public_key>
 ```
@@ -788,25 +806,22 @@ Security advisory feed and updates.
 
 ```bash
 # Check for available updates
-sudo enola-cli update check
-
-# JSON output (CI)
-sudo enola-cli update check --json
+sudo enola-cli update check [--force] [--json]
 
 # Show the feed schema
 sudo enola-cli update schema
 
 # Verify a feed manually
-sudo enola-cli update verify-feed <url-or-path>
+sudo enola-cli update verify-feed <url-or-path> [--signature <path>] [--json]
 
 # Download the latest version
-sudo enola-cli update download
+sudo enola-cli update download [--dry-run] [--json] [--force] [--allow-unsigned]
 
 # Download and apply
 sudo enola-cli update download --yes
 
 # Apply an already-downloaded update
-sudo enola-cli update apply [--binary <path>]
+sudo enola-cli update apply [--binary <path>] [--json] [--allow-unsigned]
 ```
 
 ---
@@ -821,6 +836,9 @@ enola-cli verify enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
 
 # With an alternative signature and JSON output
 enola-cli verify <file> --pqsig <signature.pqsig> --json
+
+# With an alternative public key
+enola-cli verify <file> --pubkey <key.bin>
 ```
 
 No network or external tools required — the public key is embedded in the binary.
@@ -940,6 +958,43 @@ enola-cli config-validate --json
 
 ---
 
+## 📖 Detailed Documentation
+
+Each module has a dedicated command reference with full flag descriptions and examples:
+
+| Module | Documentation |
+|--------|---------------|
+| Tor | [commands-tor.md](docs/user/tor/commands-tor.md) |
+| Git | [commands-git.md](docs/user/git/commands-git.md) |
+| WordPress | [commands-wp.md](docs/user/wp/commands-wp.md) |
+| Drupal | [commands-drupal.md](docs/user/drupal/commands-drupal.md) |
+| Ghost | [commands-ghost.md](docs/user/ghost/commands-ghost.md) |
+| Magnolia | [commands-magnolia.md](docs/user/magnolia/commands-magnolia.md) |
+| Strapi | [commands-strapi.md](docs/user/strapi/commands-strapi.md) |
+| Wagtail | [commands-wagtail.md](docs/user/wagtail/commands-wagtail.md) |
+| Files | [commands-files.md](docs/user/files/commands-files.md) |
+| VPN | [commands-vpn.md](docs/user/vpn/commands-vpn.md) |
+| Maintenance | [commands-simple.md](docs/user/general/commands-simple.md) |
+| Security | [quantum-security.md](docs/user/general/quantum-security.md) · [SECURITY.md](docs/user/general/SECURITY.md) |
+| Verification | [verify-downloads.md](docs/user/verify/verify-downloads.md) |
+| FAQ | [faq.md](docs/user/general/faq.md) |
+
+---
+
+## ⚙️ Global Options
+
+Available on all commands:
+
+| Flag | Description |
+|------|-------------|
+| `-v` / `--verbose` | Enable verbose output |
+| `--binary-base-url <URL>` | Override binary download URL |
+| `--web-url <URL>` | Override web dashboard URL |
+| `--docs-url <URL>` | Override documentation URL |
+| `--tor-socks <ADDR>` | Route HTTP requests through Tor SOCKS proxy (e.g. `127.0.0.1:9050`) |
+
+---
+
 ## 💡 Practical Examples
 
 ### Create an Anonymous Blog with WordPress
@@ -961,16 +1016,13 @@ sudo enola-cli tor list
 ### Secure Git Server
 
 ```bash
-# 1. Create a server with HTTPS
-sudo enola-cli git create -n code --ssl
+# 1. Create a server with HTTPS and admin user (CLI mode)
+sudo enola-cli git create -n code --ssl --admin-user admin --admin-password MyPassword123
 
-# 2. Create an admin user
-sudo enola-cli git user create code -u admin -e admin@local.onion -p MyPassword123
-
-# 3. Expose on Tor
+# 2. Expose on Tor
 sudo enola-cli git publish code --ssl
 
-# 4. Get the .onion address
+# 3. Get the .onion address
 sudo enola-cli tor list
 ```
 

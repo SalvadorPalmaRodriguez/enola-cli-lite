@@ -107,7 +107,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/magnolia/commands-magnolia.md
     /// Manage Magnolia CMS instances (CMS-MAGNOLIA-CLI)
     ///
-    /// Stack: magnolia-cms:6 (Tomcat-based, Java).
+    /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2.
     /// Note: needs ≥4 GB RAM available on the host.
     ///
     /// Examples:
@@ -128,7 +128,7 @@ pub enum Commands {
     /// admin JWT, transfer token, db password (SEC-EXT-DOCKER-040).
     ///
     /// Examples:
-    ///   sudo enola-cli strapi create --name myapi --http-port 1337
+    ///   sudo enola-cli strapi create --name myapi --http-port 1357
     ///   sudo enola-cli strapi status myapi
     ///   sudo enola-cli strapi delete myapi --force
     #[command(subcommand)]
@@ -140,7 +140,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/wagtail/commands-wagtail.md
     /// Manage Wagtail CMS instances (CMS-WAGTAIL-CLI)
     ///
-    /// Stack: wagtail (Python/Django) + postgres:16-alpine.
+    /// Stack: wagtail/bakerydemo:latest (demo site, Python/Django) + postgres:16-alpine.
     ///
     /// Examples:
     ///   sudo enola-cli wagtail create --name mysite --http-port 8200
@@ -609,7 +609,7 @@ pub enum TorCommands {
         /// Service name
         name: String,
 
-        /// Skip confirmation prompt
+        /// Required — confirms deletion (command aborts without this flag)
         #[arg(short, long)]
         force: bool,
     },
@@ -730,7 +730,7 @@ pub enum TorAuthCommands {
     ///   4. Client imports private key in Tor Browser → Onion Services → Client auth
     ///
     /// ⚠️  X25519 keys are not quantum-resistant. Rotate periodically until
-    ///    Tor supports post-quantum auth (PQC-043). See POST_QUANTUM_PLAN.md.
+    ///    Tor supports post-quantum auth (PQC-043).
     Generate {
         /// Client name
         #[arg(short, long)]
@@ -843,7 +843,7 @@ pub enum GitCommands {
         /// Server name
         name: String,
 
-        /// Skip confirmation
+        /// Required — confirms deletion (command aborts without this flag)
         #[arg(short, long)]
         force: bool,
     },
@@ -1048,7 +1048,7 @@ pub enum WordPressCommands {
         /// Site name
         name: String,
 
-        /// Skip confirmation
+        /// Required — confirms deletion (command aborts without this flag)
         #[arg(short, long)]
         force: bool,
     },
@@ -1280,7 +1280,7 @@ pub enum MagnoliaCommands {
 
     /// Create a new Magnolia instance
     ///
-    /// Stack: magnolia-cms:6 (Tomcat). Needs ≥4 GB RAM.
+    /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat) with embedded H2. Needs ≥4 GB RAM.
     /// Container prefix: `magnolia-`.
     Create {
         /// Instance name (alphanumeric + `_-`)
@@ -1303,7 +1303,7 @@ pub enum MagnoliaCommands {
     /// Delete a Magnolia instance (data preserved on /srv unless purged)
     Delete {
         name: String,
-        /// Skip confirmation prompt
+        /// Skip the running-state check (command aborts if container is running without this flag)
         #[arg(short, long)]
         force: bool,
     },
@@ -1329,7 +1329,7 @@ pub enum StrapiCommands {
 
     /// Create a new Strapi instance (Node + Postgres 16)
     ///
-    /// Generates 5 secrets (0600 perms) per instance.
+    /// Generates 6 secrets (0600 perms) per instance.
     /// Container prefix: `strapi-`.
     Create {
         /// Instance name (alphanumeric + `_-`)
@@ -1352,7 +1352,7 @@ pub enum StrapiCommands {
     /// Delete a Strapi instance
     Delete {
         name: String,
-        /// Skip confirmation prompt
+        /// Skip the running-state check (command aborts if containers are running without this flag)
         #[arg(short, long)]
         force: bool,
     },
@@ -1410,7 +1410,7 @@ pub enum WagtailCommands {
     /// Delete a Wagtail instance
     Delete {
         name: String,
-        /// Skip confirmation prompt
+        /// Skip the running-state check (command aborts if containers are running without this flag)
         #[arg(short, long)]
         force: bool,
     },
@@ -2088,7 +2088,7 @@ pub enum DocsCommands {
     ///   sudo enola-cli docs concepts
     ///   sudo enola-cli docs concepts tor
     Concepts {
-        /// Tema concreto (tor, ports)
+        /// Tema concreto (tor, ports, vpn, apparmor, docker, cms, pqc, advisories)
         /// Si se omite, muestra todos los conceptos.
         topic: Option<String>,
     },

@@ -6,6 +6,7 @@ authors = ["Salvador Palma Rodriguez"]
 description = "Enola CLI — CLI for managing Tor hidden services, CMS, VPN, firewall, and more"
 license-file = "LICENSE"
 publish = false
+rust-version = "1.96"
 
 [features]
 default = []

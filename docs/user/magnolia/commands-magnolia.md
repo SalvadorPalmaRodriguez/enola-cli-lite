@@ -4,7 +4,7 @@
 
 # 🌳 Magnolia — Comandos `enola-cli magnolia`
 
-> **Stack:** `magnolia-cms:6` (Tomcat). Requiere ≥4 GB RAM.
+> **Stack:** `ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest` (Tomcat, Java) con H2 embebido. Requiere ≥4 GB RAM.
 > Datos en `/srv/enola-magnolia/{name}/`.
 
 Magnolia es un CMS Java empresarial del catálogo Enola. Ideal para sitios corporativos
@@ -100,7 +100,7 @@ sudo enola-cli magnolia delete <NOMBRE> [--force]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--force` / `-f` | Bool | Omite el prompt de confirmación |
+| `--force` / `-f` | Bool | Omite la comprobación de si la instancia está corriendo. Sin este flag, se aborta si está activa. |
 
 ---
 

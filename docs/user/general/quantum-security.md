@@ -1,11 +1,11 @@
 > **Documento usuario:** `docs/user/general/quantum-security.md`
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de seguridad post-cuántica**
-> **Referencias:** POST_QUANTUM_PLAN.md v1.1, PQC_COMMUNICATION_POLICY.md, verify-downloads.md
+> **Referencias:** verify-downloads.md
 
 # 🔬 Seguridad Post-Cuántica en Enola CLI
 
-> Estado actual (2026-05-08): **todas las protecciones que dependen de nosotros están activas**.
+> Estado actual (2026-07-31): **todas las protecciones que dependen de nosotros están activas**.
 > Las limitaciones restantes dependen de proyectos externos (Tor, Forgejo, WireGuard).
 
 ---
@@ -208,7 +208,7 @@ de Chrome, Firefox, Cloudflare y las agencias de seguridad europeas.
 
 > 📖 Documento técnico completo: ver política PQC
 >
-> Última actualización: 2026-05-08
+> Última actualización: 2026-07-31
 
 ## Referencias Cruzadas
 

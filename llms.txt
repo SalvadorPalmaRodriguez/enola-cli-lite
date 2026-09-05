@@ -23,7 +23,7 @@ Important notes:
 
 ## Documentation
 
-- [README](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/README.md): Full command reference for all 28 modules
+- [README](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/README.md): Full command reference for all 28 commands
 - [Quickstart (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/quickstart): First steps: install, create your first .onion service
 - [Command reference (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/commands): Index of all commands by module
 - [Key concepts (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/concepts): Tor, ports, VPN, AppArmor, Docker, CMS, post-quantum crypto

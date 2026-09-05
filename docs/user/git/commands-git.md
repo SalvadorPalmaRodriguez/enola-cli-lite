@@ -109,7 +109,7 @@ sudo enola-cli git status <NOMBRE>
 Elimina un servidor Git.
 
 ```bash
-sudo enola-cli git delete <NOMBRE> [--force]
+sudo enola-cli git delete <NOMBRE> --force
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -118,7 +118,7 @@ sudo enola-cli git delete <NOMBRE> [--force]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--force` / `-f` | Bool | Omite el prompt de confirmación |
+| `--force` / `-f` | Bool | **Obligatorio** — confirma el borrado (el comando aborta sin este flag) |
 
 ---
 

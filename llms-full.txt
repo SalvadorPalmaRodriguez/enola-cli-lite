@@ -62,9 +62,9 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `wp` — WordPress. Extra: `restart`, `update` (with backup), `config`, `edit [--http-port] [--https-port] [--ssl] [--auto-ports]`. Port range 8080-9000 (auto).
 - `drupal` — drupal:10-apache + mariadb:10.11. Extra: `edit --http-port` (atomic container recreation).
 - `ghost` — ghost:5-alpine + embedded SQLite, container port 2368. Extra: `edit --http-port`.
-- `magnolia` — magnolia-cms:6 (Tomcat, Java). Needs ≥4 GB RAM.
-- `strapi` — Node + postgres:16-alpine. Extra: `build-image [--force]` (build production image once before first create).
-- `wagtail` — Python/Django + postgres:16-alpine, container port 8000.
+- `magnolia` — ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2 DB. Needs ≥4 GB RAM.
+- `strapi` — Node + postgres:16-alpine. 6 per-instance secrets (db_password, app_keys, api_token_salt, admin_jwt_secret, jwt_secret, transfer_token_salt). Extra: `build-image [--force]` (build production image once before first create).
+- `wagtail` — wagtail/bakerydemo:latest (demo site) + postgres:16-alpine, container port 8000.
 
 ### files — anonymous file sharing
 - `files list` / `files create -n <name> [--auth] [--ssl]` / `files edit <name> [-p <port>]` / `files delete <name> --force` / `files fix-perms <name>`
@@ -92,9 +92,9 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `apparmor mode --enforce|--complain|--disable [--profile <name>]`
 
 ### vpn — WireGuard
-- `vpn create <name> [--port 51820] [--subnet 10.8.0.0/24] [--autostart] [--sync-firewall]`
+- `vpn create <name> [--port 51820] [--subnet 10.8.0.0/24] [--autostart] [--sync-firewall] [--tor]`
 - `vpn list|start|stop|status|delete <name> [--force] [--sync-firewall]`
-- `vpn peer add <iface> <peer> --endpoint <host> [--dns <ip>] [--psk] [--ip <ip>]`
+- `vpn peer add <iface> <peer> --endpoint <host> [--dns <ip>] [--psk] [--ip <ip>] [--tor]`
 - `vpn peer add-pubkey <iface> <peer> <pubkey> <ip>` / `vpn peer remove <iface> <pubkey>`
 
 ### setup / doctor

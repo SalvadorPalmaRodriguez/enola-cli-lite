@@ -97,7 +97,7 @@ sudo enola-cli tor stop <NOMBRE>
 Elimina un servicio oculto Tor.
 
 ```bash
-sudo enola-cli tor remove <NOMBRE> [--force]
+sudo enola-cli tor remove <NOMBRE> --force
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -106,7 +106,7 @@ sudo enola-cli tor remove <NOMBRE> [--force]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--force` / `-f` | Bool | Omite el prompt de confirmación |
+| `--force` / `-f` | Bool | **Obligatorio** — confirma el borrado (el comando aborta sin este flag) |
 
 **Ejemplo:**
 ```bash

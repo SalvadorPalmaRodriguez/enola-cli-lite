@@ -144,7 +144,7 @@ Sé honesto contigo mismo sobre lo que esta herramienta puede y no puede hacer.
 | Reverse engineering del binario | **No por completo.** El hardening encarece pero no impide. Un atacante puede parchear el binario en su propia máquina. Esto es aceptado por diseño: el modelo es de "buena fe + auditoría", no DRM. |
 | Robo de credenciales desde tu disco | Si tu disco está cifrado y `~/.enola/` es 0600, sí. Si tu sistema está comprometido a nivel root, no. |
 | MITM en conexiones de red | Sí, mediante TLS. El CLI fuerza `rustls-tls` en todas las conexiones. |
-| Quantum adversary (Q-day) | Parcial. Tor v3 + SSH ya tienen modos PQC; los releases tienen firma dual ML-DSA. Faltan TLS PQC en nginx (esperando OpenSSL 3.5 LTS) y certificados PQC en CAs (esperando ~2027). Plan completo: `docs/user/quantum-security.md`. |
+| Quantum adversary (Q-day) | Parcial. Los releases tienen firma dual ML-DSA (FIPS 204). SSH endurecido con KEX post-cuántico (`ssh-harden-pqc`). TLS PQC disponible en Nginx vía `setup --pqc-tls` (KEX híbrido X25519MLKEM768). El circuito Tor aún no es PQC (requiere arti). Plan completo: `docs/user/general/quantum-security.md`. |
 
 ---
 

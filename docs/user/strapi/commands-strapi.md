@@ -119,7 +119,7 @@ sudo enola-cli strapi delete <NOMBRE> [--force]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--force` / `-f` | Bool | Omite el prompt de confirmación |
+| `--force` / `-f` | Bool | Omite la comprobación de si la instancia está corriendo. Sin este flag, se aborta si está activa. |
 
 ---
 

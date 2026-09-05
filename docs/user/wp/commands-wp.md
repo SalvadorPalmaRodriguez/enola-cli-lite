@@ -109,7 +109,7 @@ sudo enola-cli wp restart <NOMBRE>
 Elimina un sitio WordPress.
 
 ```bash
-sudo enola-cli wp delete <NOMBRE> [--force]
+sudo enola-cli wp delete <NOMBRE> --force
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -118,7 +118,7 @@ sudo enola-cli wp delete <NOMBRE> [--force]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--force` / `-f` | Bool | Omite el prompt de confirmación |
+| `--force` / `-f` | Bool | **Obligatorio** — confirma el borrado (el comando aborta sin este flag) |
 
 ---
 

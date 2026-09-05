@@ -25,6 +25,7 @@
 //   - `api_token_salt`   → 32-char hex salt (seguridad JWT API tokens)
 //   - `admin_jwt_secret` → 32-char hex secret (sesiones de panel admin)
 //   - `jwt_secret`       → 32-char hex secret (autenticación de usuarios)
+//   - `transfer_token_salt` → 32-char hex salt (seguridad transfer tokens)
 //
 // Setup wizard (13.1): Strapi v4 muestra un wizard de creación de admin
 // en el primer arranque. Antes de completar `/admin/`, puede devolver 200/302/500.

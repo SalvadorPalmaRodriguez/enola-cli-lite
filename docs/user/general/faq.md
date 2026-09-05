@@ -78,10 +78,11 @@ Cada CMS guarda datos en `/srv/enola-{tipo}/{name}/` (bind mount de Docker).
 Esto incluye archivos, base de datos y secrets.
 
 **¿Puedo publicar Ghost en Tor?**
-Los subcomandos `ghost publish/hide/edit` son stubs pendientes de implementación.
-Mientras tanto, usa el comando equivalente de Tor:
+Sí. Los subcomandos `ghost publish`, `ghost hide` y `ghost edit` están implementados:
 ```
-sudo enola-cli tor create --name ghost-miblog --target-port 8095
+sudo enola-cli ghost publish miblog
+sudo enola-cli ghost hide miblog
+sudo enola-cli ghost edit miblog --http-port 8095
 ```
 
 ---

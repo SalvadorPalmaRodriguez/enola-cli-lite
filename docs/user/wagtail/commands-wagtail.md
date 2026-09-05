@@ -4,7 +4,7 @@
 
 # 🐍 Wagtail — Comandos `enola-cli wagtail`
 
-> **Stack:** Python/Django + Postgres. Datos en `/srv/enola-wagtail/{name}/`.
+> **Stack:** `wagtail/bakerydemo:latest` (sitio demo Python/Django) + Postgres. Datos en `/srv/enola-wagtail/{name}/`.
 > Secrets montados como Docker secrets en `/run/secrets/` e inyectados via
 > entrypoint wrapper (no plaintext en env vars).
 
@@ -102,7 +102,7 @@ sudo enola-cli wagtail delete <NOMBRE> [--force]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--force` / `-f` | Bool | Omite el prompt de confirmación |
+| `--force` / `-f` | Bool | Omite la comprobación de si la instancia está corriendo. Sin este flag, se aborta si está activa. |
 
 ---
 

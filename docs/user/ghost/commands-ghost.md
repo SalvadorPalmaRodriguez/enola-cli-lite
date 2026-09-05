@@ -131,11 +131,6 @@ sudo enola-cli ghost delete miblog --force
 
 Publica el blog en Tor como hidden service.
 
-> **Nota:** Este subcomando es un stub pendiente de implementación nativa. Mientras tanto, usa el comando equivalente de Tor:
-> ```bash
-> sudo enola-cli tor create --name ghost-<NOMBRE> --target-port <PUERTO>
-> ```
-
 ```bash
 sudo enola-cli ghost publish <NOMBRE>
 ```
@@ -150,11 +145,6 @@ sudo enola-cli ghost publish <NOMBRE>
 
 Retira el blog de Tor (elimina el hidden service).
 
-> **Nota:** Este subcomando es un stub pendiente de implementación nativa. Mientras tanto, usa el comando equivalente de Tor:
-> ```bash
-> sudo enola-cli tor remove ghost-<NOMBRE> --force
-> ```
-
 ```bash
 sudo enola-cli ghost hide <NOMBRE>
 ```
@@ -168,8 +158,6 @@ sudo enola-cli ghost hide <NOMBRE>
 ## `ghost edit`
 
 Cambia el puerto HTTP del blog. Recrea el contenedor de forma atómica preservando datos.
-
-> **Nota:** Este subcomando es un stub pendiente de implementación nativa. Mientras tanto, usa `delete --force` + `create` con el nuevo puerto (los datos persisten en `/srv/enola-ghost/{name}/`).
 
 ```bash
 sudo enola-cli ghost edit <NOMBRE> --http-port <PUERTO>
