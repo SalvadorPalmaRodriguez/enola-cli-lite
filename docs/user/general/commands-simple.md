@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/general/commands-simple.md`
 > **Versión:** 2.1 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🛠️ Comandos simples — Setup, Doctor, Config, Test, Docs y más
 
@@ -209,7 +210,7 @@ enola-cli verify <ARCHIVO> [--pqsig <PATH>] [--pubkey <PATH>] [--json]
 
 **Ejemplos:**
 ```bash
-enola-cli verify enola-cli-v0.2.0-alpha-x86_64-linux.tar.gz
+enola-cli verify enola-cli-v0.3.0-alpha-x86_64-linux.tar.gz
 enola-cli verify mybinary --pqsig mybinary.pqsig --json
 ```
 

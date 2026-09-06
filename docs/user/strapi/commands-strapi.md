@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/strapi/commands-strapi.md`
 > **Versión:** 2.1 | **Actualizado:** 2026-08-02
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🚀 Strapi — Comandos `enola-cli strapi`
 

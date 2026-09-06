@@ -1,3 +1,6 @@
+> **Versión:** 1.0 | **Actualizado:** 2026-09-06
+> **Estado:** ✅ **VIGENTE**
+> **Referencias:** commands.md
 # Tor Client Authorization — Guía para usuarios
 
 ## ¿Qué es?

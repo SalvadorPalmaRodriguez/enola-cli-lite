@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/diag/commands-diag.md`
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🩺 Diagnostics — Comandos `enola-cli diag`
 

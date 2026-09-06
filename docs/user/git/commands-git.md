@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
 > **Versión:** 2.1 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🔧 Git — Comandos `enola-cli git`
 

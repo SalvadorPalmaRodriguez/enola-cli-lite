@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/files/commands-files.md`
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 📁 Files — Comandos `enola-cli files`
 

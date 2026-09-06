@@ -1,3 +1,6 @@
+> **Version:** 1.0 | **Updated:** 2026-09-06
+> **Status:** ✅ **CURRENT**
+> **References:** commands.md
 # Enola CLI
 
 **Rust CLI for self-hosting Tor hidden services (.onion), Git servers (Forgejo), CMS (WordPress, Drupal, Ghost, Strapi, Wagtail, Magnolia), file sharing, WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux — with post-quantum signed releases (ML-DSA).**
@@ -10,8 +13,8 @@
 
 ```bash
 # Install
-wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
-tar xf enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.3.0-alpha-x86_64-linux-client.tar.gz
+tar xf enola-cli-v0.3.0-alpha-x86_64-linux-client.tar.gz
 sudo cp enola-cli /usr/local/bin/
 
 # Deploy your first .onion service

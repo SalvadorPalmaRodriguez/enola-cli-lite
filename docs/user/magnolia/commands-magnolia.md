@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/magnolia/commands-magnolia.md`
 > **Versión:** 2.1 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🌳 Magnolia — Comandos `enola-cli magnolia`
 

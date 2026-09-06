@@ -1,3 +1,6 @@
+> **Version:** 1.0 | **Updated:** 2026-09-06
+> **Status:** ✅ **CURRENT**
+> **References:** quickstart.md
 # Enola CLI
 
 **Rust CLI for self-hosting Tor hidden services (.onion), Git servers (Forgejo), CMS (WordPress, Drupal, Ghost, Strapi, Wagtail, Magnolia), file sharing, WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux — with post-quantum signed releases (ML-DSA).**

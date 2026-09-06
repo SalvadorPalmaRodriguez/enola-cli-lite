@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/docs/commands-docs.md`
 > **Versión:** 1.0 | **Actualizado:** 2026-08-07
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 📖 Docs — Comando `enola-cli docs`
 

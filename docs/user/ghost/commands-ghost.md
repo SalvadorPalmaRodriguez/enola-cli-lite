@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/ghost/commands-ghost.md`
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # ✍️ Ghost — Comandos `enola-cli ghost`
 

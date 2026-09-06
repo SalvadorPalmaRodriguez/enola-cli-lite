@@ -1,3 +1,5 @@
+> **Versión:** 1.0 | **Actualizado:** 2026-09-06
+> **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
 > **Versión**: 3.1 (2026-08-04)

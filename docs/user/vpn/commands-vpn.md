@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/vpn/commands-vpn.md`
 > **Versión:** 2.0 | **Actualizado:** 2026-07-31
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🔒 VPN — Comandos `enola-cli vpn`
 

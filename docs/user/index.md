@@ -1,3 +1,6 @@
+> **Versión:** 1.0 | **Actualizado:** 2026-09-06
+> **Estado:** ✅ **VIGENTE**
+> **Referencias:** commands.md
 # Enola CLI
 
 **CLI en Rust para autohospedar servicios Tor hidden services (.onion), servidores Git (Forgejo), CMS (WordPress, Drupal, Ghost, Strapi, Wagtail, Magnolia), compartir archivos, VPN WireGuard, firewall UFW y sandboxing AppArmor en Debian/Linux — con releases firmadas post-cuánticas (ML-DSA).**
@@ -10,8 +13,8 @@
 
 ```bash
 # Instalar
-wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
-tar xf enola-cli-v0.2.0-alpha-x86_64-linux-client.tar.gz
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.3.0-alpha-x86_64-linux-client.tar.gz
+tar xf enola-cli-v0.3.0-alpha-x86_64-linux-client.tar.gz
 sudo cp enola-cli /usr/local/bin/
 
 # Desplegar tu primer servicio .onion

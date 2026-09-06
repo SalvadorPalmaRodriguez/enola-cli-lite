@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/wagtail/commands-wagtail.md`
 > **Versión:** 2.2 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🐍 Wagtail — Comandos `enola-cli wagtail`
 

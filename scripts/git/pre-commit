@@ -3,7 +3,8 @@
 #
 #   1. Sincronización de versión (sync_version.sh --check)
 #   2. cargo fmt --check
-#   3. Anti-leak operator→docs/user (DOC-SEC-005)
+#   3. Coherencia de archivos de contexto IA (check 18)
+#   4. Anti-leak operator→docs/user (DOC-SEC-005)
 #
 # Instalar:
 #   bash scripts/git/install-hooks.sh
@@ -33,7 +34,16 @@ if ! cargo fmt --check 2>&1; then
 fi
 echo "  ✅ Formato correcto"
 
-# ─── 3. Anti-leak operator→docs/user (DOC-SEC-005) ─────────────────────
+# ─── 3. Coherencia de archivos de contexto IA (check 18) ───────────────
+echo "🔍 Verificando coherencia de docs IA (skills, frontmatter, índice)..."
+if ! PROJECT_ROOT="$PROJECT_ROOT" bash docs/dev/audit/checks/18_ai_docs_sync.sh; then
+    echo "" >&2
+    echo "  ❌ Drift en archivos de contexto IA. Revisa y corrige." >&2
+    exit 1
+fi
+echo "  ✅ Docs IA coherentes"
+
+# ─── 4. Anti-leak operator→docs/user (DOC-SEC-005) ─────────────────────
 # Detecta términos operator-only en archivos staged de docs/user/.
 OPERATOR_TERMS=(
     "appliance deploy"

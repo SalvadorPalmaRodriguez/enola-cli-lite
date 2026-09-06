@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
 > **Versión:** 3.0 | **Actualizado:** 2026-08-02
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🔄 Update — Comandos `enola-cli update`
 

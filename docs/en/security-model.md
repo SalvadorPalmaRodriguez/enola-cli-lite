@@ -2,6 +2,9 @@
 > **Version:** 3.1 (2026-08-04)
 > **Audience:** end users, security researchers, journalists.
 > **Spanish original:** [`docs/user/general/SECURITY.md`](../user/general/SECURITY.md)
+> **Updated:** 2026-09-06
+> **Status:** ✅ **CURRENT**
+> **References:** commands.md
 
 # 🛡️ Security Policy — Enola CLI
 
@@ -123,7 +126,7 @@ file "$BIN" | grep -q stripped && echo OK
   strace ./enola-cli --version
   # → "exited with 2" — the binary detects strace and aborts.
   ./enola-cli --version
-  # → "enola 0.2.0-alpha" — normal operation.
+  # → "enola 0.3.0-alpha" — normal operation.
   ```
   > **Honest note**: this layer **does not prevent** reverse engineering. An
   > attacker can recompile Rust or patch the binary on disk. It's a

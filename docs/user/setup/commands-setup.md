@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/setup/commands-setup.md`
 > **Versión:** 1.0 | **Actualizado:** 2026-08-07
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🩺 Setup & Doctor — Comandos `enola-cli setup` y `enola-cli doctor`
 

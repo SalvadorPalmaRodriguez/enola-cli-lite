@@ -55,7 +55,6 @@ __pycache__/
 
 # Archivos de contexto IA (raíz + anidados por directorio)
 **/AGENTS.md
-.github/copilot-instructions.md
 
 # Project Brain (privado — roles, skills, memoria, workflows)
 .agents/
@@ -64,11 +63,10 @@ __pycache__/
 docs/dev/
 scripts/dev/
 
-# Plantillas de desarrollo privado (.github)
+# Plantillas de issues (.github) — solo las dos .yml son públicas; el resto privado
 .github/ISSUE_TEMPLATE/*
 !.github/ISSUE_TEMPLATE/bug_report.yml
 !.github/ISSUE_TEMPLATE/config.yml
-.github/PULL_REQUEST_TEMPLATE.md
 
 # Minisign private key
 feed/minisign.key

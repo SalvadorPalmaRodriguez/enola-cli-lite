@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/test/commands-test.md`
 > **Versión:** 1.0 | **Actualizado:** 2026-08-07
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
+> **Referencias:** commands.md
 
 # 🧪 Test — Comando `enola-cli test`
 

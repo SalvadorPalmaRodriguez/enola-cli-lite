@@ -2,6 +2,7 @@
 > **Version:** 3.3 | **Updated:** 2026-08-08
 > **Status:** ✅ **CURRENT — Command Index**
 > **Spanish original:** [`docs/user/general/commands.md`](../user/general/commands.md)
+> **References:** commands.md
 
 # Enola CLI — Command Index
 

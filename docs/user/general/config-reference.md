@@ -1,6 +1,7 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
 > **Versión:** 1.0 | **Actualizado:** 2026-08-08
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
+> **Referencias:** commands.md
 
 # ⚙️ Referencia de Configuración — `config.toml`
 
