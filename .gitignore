@@ -59,6 +59,10 @@ __pycache__/
 # Project Brain (privado — roles, skills, memoria, workflows)
 .agents/
 
+# Claude Code bridge (privado — apunta a AGENTS.md/.agents/skills, ambos gitignored)
+CLAUDE.md
+.claude/
+
 # Herramientas de desarrollo (audit, build, test, session_start, release)
 docs/dev/
 scripts/dev/
