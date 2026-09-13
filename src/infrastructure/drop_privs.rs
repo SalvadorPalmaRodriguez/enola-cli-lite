@@ -81,7 +81,9 @@ pub fn invoking_user() -> Option<InvokingUser> {
 pub(crate) fn lookup_home_for_uid(uid: u32) -> Option<String> {
     use std::ffi::CStr;
 
-    let mut buf = vec![0i8; 4096];
+    // c_char depende del target: i8 en x86_64, u8 en aarch64. Hardcodear
+    // 0i8 rompe el build aarch64 que anuncian install.sh y release.sh.
+    let mut buf = vec![0 as libc::c_char; 4096];
     let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
     let mut result: *mut libc::passwd = std::ptr::null_mut();
 
@@ -107,7 +109,9 @@ pub(crate) fn lookup_home_for_name(name: &str) -> Option<String> {
     use std::ffi::{CStr, CString};
 
     let cname = CString::new(name).ok()?;
-    let mut buf = vec![0i8; 4096];
+    // c_char depende del target: i8 en x86_64, u8 en aarch64. Hardcodear
+    // 0i8 rompe el build aarch64 que anuncian install.sh y release.sh.
+    let mut buf = vec![0 as libc::c_char; 4096];
     let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
     let mut result: *mut libc::passwd = std::ptr::null_mut();
 

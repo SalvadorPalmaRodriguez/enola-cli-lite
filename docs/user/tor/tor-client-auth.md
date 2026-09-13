@@ -1,4 +1,4 @@
-> **Versión:** 1.1 | **Actualizado:** 2026-09-10
+> **Versión:** 1.2 | **Actualizado:** 2026-09-13
 > **Estado:** ✅ **VIGENTE**
 > **Referencias:** commands.md
 # Tor Client Authorization — Guía para usuarios
@@ -71,6 +71,10 @@ sudo enola-cli tor auth rotate mi-servicio --client mi-nombre --pubkey <nueva-p�
 
 Tu clave privada antigua deja de ser válida. Importa la nueva clave privada
 en tu Tor Browser reemplazando la anterior.
+
+> ⚠️ `tor auth rotate` exige que el cliente exista ya (si no, el operador debe
+> crearlo antes con `tor auth add`) y no habilita la autenticación del servicio
+> si estaba desactivada.
 
 ## Comparación con GitHub/GitLab
 

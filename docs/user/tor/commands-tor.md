@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/tor/commands-tor.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-09-10
+> **Versión:** 2.2 | **Actualizado:** 2026-09-13
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -278,6 +278,10 @@ sudo enola-cli tor auth generate --client <CLIENTE>
 Sustituye la clave pública de un cliente. El cliente genera el nuevo par con
 `tor auth generate` y envía SOLO la nueva clave pública al operador; la clave
 privada nunca llega al servidor.
+
+> ⚠️ El cliente debe existir ya: `rotate` no crea clientes nuevos (usa
+> `tor auth add` primero) ni habilita la autenticación del servicio si estaba
+> desactivada.
 
 ```bash
 sudo enola-cli tor auth rotate <SERVICIO> --client <CLIENTE> --pubkey <NUEVA_PUBLICA>

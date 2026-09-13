@@ -751,6 +751,9 @@ pub enum TorAuthCommands {
     /// The CLIENT generates a new keypair with `tor auth generate` and sends the
     /// new PUBLIC key to the operator. The operator replaces the stored public
     /// key with this one. The private key never reaches the operator.
+    ///
+    /// The client must already exist (otherwise use `tor auth add`); rotation
+    /// does not enable client auth on the service.
     Rotate {
         /// Service name
         service: String,

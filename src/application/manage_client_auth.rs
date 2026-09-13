@@ -8,23 +8,71 @@ impl ManageClientAuth {
     pub fn new(tor_manager: Arc<dyn TorManagerPort + Send + Sync>) -> Self {
         Self { tor_manager }
     }
+
+    /// Valida el nombre de cliente. El nombre se usa para construir el
+    /// fichero `{client}.auth` dentro de `authorized_clients`
+    /// (`src/adapters/tor.rs`), así que un nombre con '/' escribiría fuera
+    /// del directorio. Se rechazan vacío, >64 chars, prefijo '.' (mata "."
+    /// y "..") y cualquier char fuera de [A-Za-z0-9._-].
+    fn validate_client_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(EnolaError::ValidationError(
+                "Client name cannot be empty".to_string(),
+            ));
+        }
+        if name.len() > 64 {
+            return Err(EnolaError::ValidationError(
+                "Client name too long: maximum 64 characters".to_string(),
+            ));
+        }
+        if name.starts_with('.') {
+            return Err(EnolaError::ValidationError(format!(
+                "Invalid client name '{}': must not start with '.'",
+                name
+            )));
+        }
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+        {
+            return Err(EnolaError::ValidationError(format!(
+                "Invalid client name '{}': only alphanumeric, '.', '_' and '-' allowed",
+                name
+            )));
+        }
+        Ok(())
+    }
+
+    /// Valida la clave pública x25519 (base32 sin padding, 52 chars).
+    /// Además de la longitud exige el alfabeto BASE32_NOPAD (A-Z, 2-7):
+    /// una cadena de 52 chars con '\n' inyectaría una línea extra en el
+    /// fichero `.auth`.
+    fn validate_client_pubkey(key: &str) -> Result<()> {
+        if key.len() != 52 {
+            // Tor x25519 base32 keys are 52 chars
+            return Err(EnolaError::ValidationError(
+                "Invalid key length. Must be 52 chars base32".to_string(),
+            ));
+        }
+        if !key
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c))
+        {
+            return Err(EnolaError::ValidationError(
+                "Invalid public key: expected base32 (A-Z, 2-7)".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn add_client(
         &self,
         service_name: &str,
         client_name: &str,
         public_key: &str,
     ) -> Result<()> {
-        if client_name.is_empty() {
-            return Err(EnolaError::ValidationError(
-                "Client name cannot be empty".to_string(),
-            ));
-        }
-        if public_key.len() != 52 {
-            // Tor x25519 base32 keys are 52 chars
-            return Err(EnolaError::ValidationError(
-                "Invalid key length. Must be 52 chars base32".to_string(),
-            ));
-        }
+        Self::validate_client_name(client_name)?;
+        Self::validate_client_pubkey(public_key)?;
         // Ensure auth is enabled
         self.tor_manager.enable_client_auth(service_name).await?;
         self.tor_manager
@@ -47,6 +95,7 @@ impl ManageClientAuth {
         }
     }
     pub async fn revoke_client(&self, service_name: &str, client_name: &str) -> Result<()> {
+        Self::validate_client_name(client_name)?;
         self.tor_manager
             .revoke_client_auth(service_name, client_name)
             .await
@@ -58,6 +107,11 @@ impl ManageClientAuth {
     /// Rotate a client's public key: replace the stored public key with a new
     /// one provided by the client (generated locally with `tor auth generate`).
     ///
+    /// Strict semantics: the client MUST already exist (`NotFound` otherwise —
+    /// a typo in `--client` must never silently authorize a brand-new client),
+    /// and rotation does NOT enable client auth on the service (enabling it as
+    /// a side effect would change the service's exposure).
+    ///
     /// This is atomic by design: the same `{client}.auth` file is overwritten
     /// with the new public key in a single write, so there is no window where
     /// the client has neither the old nor the new key. The private key is never
@@ -68,18 +122,16 @@ impl ManageClientAuth {
         client_name: &str,
         new_public_key: &str,
     ) -> Result<()> {
-        if client_name.is_empty() {
-            return Err(EnolaError::ValidationError(
-                "Client name cannot be empty".to_string(),
-            ));
+        Self::validate_client_name(client_name)?;
+        Self::validate_client_pubkey(new_public_key)?;
+        let clients = self.list_clients(service_name).await?;
+        if !clients.iter().any(|c| c == client_name) {
+            return Err(EnolaError::NotFound(format!(
+                "Client '{}' not found on service '{}'. Create it first with: \
+                 enola-cli tor auth add {} --client {} --pubkey <key>",
+                client_name, service_name, service_name, client_name
+            )));
         }
-        if new_public_key.len() != 52 {
-            return Err(EnolaError::ValidationError(
-                "Invalid key length. Must be 52 chars base32".to_string(),
-            ));
-        }
-        // Ensure auth is enabled, then overwrite the client's public key.
-        self.tor_manager.enable_client_auth(service_name).await?;
         self.tor_manager
             .add_client_auth(service_name, client_name, new_public_key)
             .await
@@ -318,14 +370,105 @@ mod tests {
 
     #[tokio::test]
     async fn test_rotate_client_success() {
-        let tor = Arc::new(MockTorManager::new());
+        let services = vec![TorServiceInfo {
+            name: "myservice".into(),
+            hostname: "abc.onion".into(),
+            hidden_service_dir: "/var/lib/tor/enola_myservice".into(),
+            ports: vec![(80, "127.0.0.1:8080".into())],
+            active: true,
+            auth_enabled: true,
+            clients: vec!["client1".into()],
+        }];
+        let tor = Arc::new(MockTorManager::with_services(services));
         let use_case = ManageClientAuth::new(tor.clone());
         let key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST";
 
         let result = use_case.rotate_client("myservice", "client1", key).await;
 
         assert!(result.is_ok());
-        assert!(*tor.enable_auth_called.lock().unwrap());
+        // Strict rotate must NOT enable client auth as a side effect.
+        assert!(!*tor.enable_auth_called.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_rotate_client_not_found() {
+        let services = vec![TorServiceInfo {
+            name: "myservice".into(),
+            hostname: "abc.onion".into(),
+            hidden_service_dir: "/var/lib/tor/enola_myservice".into(),
+            ports: vec![(80, "127.0.0.1:8080".into())],
+            active: true,
+            auth_enabled: true,
+            clients: vec!["other".into()],
+        }];
+        let tor = Arc::new(MockTorManager::with_services(services));
+        let use_case = ManageClientAuth::new(tor);
+        let key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST";
+
+        let result = use_case.rotate_client("myservice", "client1", key).await;
+
+        match result {
+            Err(EnolaError::NotFound(msg)) => {
+                assert!(msg.contains("client1"));
+                assert!(msg.contains("tor auth add"));
+            }
+            _ => panic!("Expected NotFound"),
+        }
+    }
+
+    #[test]
+    fn test_validate_client_name_rejects_traversal_and_bad_chars() {
+        for bad in ["../evil", "a/b", "", ".", "..", ".hidden"] {
+            assert!(
+                ManageClientAuth::validate_client_name(bad).is_err(),
+                "debe rechazar {:?}",
+                bad
+            );
+        }
+        let long_name = "a".repeat(65);
+        assert!(ManageClientAuth::validate_client_name(&long_name).is_err());
+        assert!(ManageClientAuth::validate_client_name("alice.laptop-1_2").is_ok());
+    }
+
+    #[test]
+    fn test_validate_client_pubkey() {
+        let valid = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST";
+        assert!(ManageClientAuth::validate_client_pubkey(valid).is_ok());
+        assert!(ManageClientAuth::validate_client_pubkey("TOOSHORT").is_err());
+        let lower = "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst";
+        assert_eq!(lower.len(), 52);
+        assert!(ManageClientAuth::validate_client_pubkey(lower).is_err());
+        let mut injected = valid.to_string();
+        injected.replace_range(51..52, "\n");
+        assert_eq!(injected.len(), 52);
+        assert!(ManageClientAuth::validate_client_pubkey(&injected).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_add_client_rejects_traversal_name() {
+        let tor = Arc::new(MockTorManager::new());
+        let use_case = ManageClientAuth::new(tor);
+        let key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST";
+
+        let result = use_case.add_client("myservice", "../evil", key).await;
+
+        match result {
+            Err(EnolaError::ValidationError(_)) => {}
+            _ => panic!("Expected ValidationError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_revoke_client_rejects_invalid_name() {
+        let tor = Arc::new(MockTorManager::new());
+        let use_case = ManageClientAuth::new(tor);
+
+        let result = use_case.revoke_client("myservice", "a/b").await;
+
+        match result {
+            Err(EnolaError::ValidationError(_)) => {}
+            _ => panic!("Expected ValidationError"),
+        }
     }
 
     #[tokio::test]
