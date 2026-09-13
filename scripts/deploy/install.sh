@@ -30,6 +30,9 @@
 #   ENOLA_INSTALL_NO_VERIFY Saltar verificacin minisign (DESACONSEJADO)
 #   ENOLA_INSTALL_PUBKEY    Clave pblica minisign (default: la del repo)
 #   ENOLA_INSTALL_STRICT_PUBKEY  Abortar si ENOLA_INSTALL_PUBKEY difiere del default (CI)
+#   ENOLA_INSTALL_SKIP_DEPS Saltar bootstrap de dependencias (enola-cli setup)
+#   ENOLA_INSTALL_FORCE_DOWNLOAD  Forzar descarga aunque haya un binario local
+#                                 junto al script (modo tarball extrado)
 #
 # CDIGOS DE SALIDA:
 #   0  OK
@@ -62,6 +65,17 @@ ok()   { printf "  \033[1;32m%s\033[0m %s\n" "✅" "$*"; }
 warn() { printf "  \033[1;33m%s\033[0m %s\n" "⚠️ " "$*" >&2; }
 err()  { printf "  \033[1;31m%s\033[0m %s\n" "❌" "$*" >&2; }
 hdr()  { printf "\n\033[1;36m═══ %s ═══\033[0m\n" "$*"; }
+
+# ── Modo local / offline (tarball extrado) ────────────────────────────────
+# Si junto a install.sh hay un binario enola-cli ejecutable, estamos ante un
+# tarball cliente extrado: se usa ese binario y NO se descarga nada.
+# ENOLA_INSTALL_FORCE_DOWNLOAD=1 fuerza el modo remoto.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOCAL_BIN="$SCRIPT_DIR/enola-cli"
+OFFLINE=0
+if [ -x "$LOCAL_BIN" ] && [ "${ENOLA_INSTALL_FORCE_DOWNLOAD:-0}" != "1" ]; then
+    OFFLINE=1
+fi
 
 # SEC-004: Warn when using a custom pubkey that overrides the built-in trust anchor.
 if [ -n "${ENOLA_INSTALL_PUBKEY:-}" ] && [ "$ENOLA_INSTALL_PUBKEY" != "$DEFAULT_PUBKEY" ]; then
@@ -101,6 +115,11 @@ fi
 
 ok "SO: Linux ($DISTRO)"
 ok "Arch: $ARCH ($ARCH_TAG)"
+if [ "$OFFLINE" = "1" ]; then
+    ok "Modo: LOCAL — binario detectado junto al instalador ($LOCAL_BIN); no se descargar nada"
+else
+    ok "Modo: REMOTO — se descargar el binario desde $BASE_URL"
+fi
 
 # ── 2. Verificar dependencias ──────────────────────────────────────────────
 hdr "Dependencias"
@@ -115,9 +134,11 @@ need_cmd() {
     fi
 }
 
-need_cmd curl       || exit 3
+if [ "$OFFLINE" != "1" ]; then
+    need_cmd curl || exit 3
+    ok "curl ($(curl --version | head -1 | awk '{print $2}'))"
+fi
 need_cmd sha256sum  || exit 3
-ok "curl ($(curl --version | head -1 | awk '{print $2}'))"
 ok "sha256sum ($(sha256sum --version 2>/dev/null | head -1 || echo 'coreutils'))"
 
 HAS_MINISIGN=0
@@ -132,12 +153,33 @@ else
         warn "minisign NO instalado. Recomendado: sudo apt install minisign"
         warn "Sin minisign, una compromiso del servidor de releases pasara desapercibida."
         warn "Para forzar instalacin sin firma: ENOLA_INSTALL_NO_VERIFY=1 sudo bash install.sh"
-        exit 5
+        # En modo local la autenticidad la aporta la firma del tarball, no hace falta minisign.
+        [ "$OFFLINE" != "1" ] && exit 5
     fi
 fi
 
 
+TMP="$(mktemp -d -t enola-install.XXXXXX)"
+trap 'rm -rf "$TMP"' EXIT
+
+if [ "$OFFLINE" = "1" ]; then
+    # ── Modo local: binario y sha256 vienen en el tarball extrado ──
+    hdr "Origen local (tarball extrado)"
+    cp "$LOCAL_BIN" "$TMP/enola-cli"
+    if [ ! -f "$SCRIPT_DIR/enola-cli.sha256" ]; then
+        err "Tarball incompleto: falta $SCRIPT_DIR/enola-cli.sha256"
+        log "El tarball cliente debe incluir enola-cli.sha256. Vuelve a descargarlo o"
+        log "fuerza el modo remoto con: ENOLA_INSTALL_FORCE_DOWNLOAD=1 sudo bash install.sh"
+        exit 3
+    fi
+    cp "$SCRIPT_DIR/enola-cli.sha256" "$TMP/enola-cli.sha256"
+    VERSION="$("$LOCAL_BIN" --version 2>/dev/null | awk '{print $NF}')"
+    VERSION="${VERSION:-local}"
+    ok "Binario local: $LOCAL_BIN (versin: $VERSION)"
+fi
+
 # ── 3. Resolver URL de descarga ────────────────────────────────────────────
+if [ "$OFFLINE" != "1" ]; then
 hdr "Resolucin de versin"
 if [ "$VERSION" = "latest" ]; then
     # Convencin: el operador publica un fichero LATEST con el tag de la
@@ -159,12 +201,11 @@ SIG_URL="${BIN_URL}.minisig"
 log "Binario:  $BIN_URL"
 log "SHA256:   $SHA_URL"
 log "Firma:    $SIG_URL"
+fi  # OFFLINE (resolución remota)
 
 # ── 4. Descargar a un temporal ─────────────────────────────────────────────
+if [ "$OFFLINE" != "1" ]; then
 hdr "Descarga"
-TMP="$(mktemp -d -t enola-install.XXXXXX)"
-trap 'rm -rf "$TMP"' EXIT
-
 log "Trabajando en $TMP"
 curl -fSL --progress-bar "$BIN_URL" -o "$TMP/enola-cli"        || { err "Descarga binario fall"; exit 1; }
 curl -fSL --silent       "$SHA_URL" -o "$TMP/enola-cli.sha256" || { err "Descarga .sha256 fall"; exit 1; }
@@ -172,6 +213,7 @@ if [ "$NO_VERIFY" != "1" ]; then
     curl -fSL --silent "$SIG_URL" -o "$TMP/enola-cli.minisig" || { err "Descarga .minisig fall"; exit 1; }
 fi
 ok "Descargados $(du -h "$TMP/enola-cli" | awk '{print $1}') de binario"
+fi  # OFFLINE
 
 # ── 5. Verificar SHA256 ────────────────────────────────────────────────────
 hdr "Verificacin de integridad"
@@ -186,7 +228,11 @@ fi
 ok "SHA256 OK ($EXPECTED_SHA)"
 
 # ── 6. Verificar firma minisign ────────────────────────────────────────────
-if [ "$NO_VERIFY" != "1" ] && [ "$HAS_MINISIGN" = "1" ]; then
+if [ "$OFFLINE" = "1" ]; then
+    warn "Modo local: no se verifica la firma minisign del binario aqu."
+    warn "La autenticidad la aporta la firma del tarball (*.tar.gz.minisig),"
+    warn "que debes verificar ANTES de extraerlo."
+elif [ "$NO_VERIFY" != "1" ] && [ "$HAS_MINISIGN" = "1" ]; then
     if minisign -V -m "$TMP/enola-cli" -x "$TMP/enola-cli.minisig" -P "$PUBKEY" >/dev/null 2>&1; then
         ok "Firma minisign vlida (clave $PUBKEY)"
     else
@@ -229,10 +275,20 @@ chmod 0644 "$SHARE_DIR/cli.sha256"
 ok "Hash de integridad: $SHARE_DIR/cli.sha256"
 
 # UNINSTALL-FIX-001: instalar script de desinstalacion
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR/../ops/uninstall.sh" ]; then
-    install -m 0755 "$SCRIPT_DIR/../ops/uninstall.sh" "$SHARE_DIR/uninstall.sh"
+# Tarball extrado (plano): $SCRIPT_DIR/uninstall.sh
+# Repo:                    $SCRIPT_DIR/../ops/uninstall.sh
+UNINSTALL_SRC=""
+if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
+    UNINSTALL_SRC="$SCRIPT_DIR/uninstall.sh"
+elif [ -f "$SCRIPT_DIR/../ops/uninstall.sh" ]; then
+    UNINSTALL_SRC="$SCRIPT_DIR/../ops/uninstall.sh"
+fi
+if [ -n "$UNINSTALL_SRC" ]; then
+    install -m 0755 "$UNINSTALL_SRC" "$SHARE_DIR/uninstall.sh"
     ok "Script de desinstalacion: $SHARE_DIR/uninstall.sh"
+else
+    warn "No se encontr uninstall.sh junto al instalador — no se instala desinstalador."
+    warn "Puedes desinstalar manualmente borrando $INSTALL_PATH y $SHARE_DIR."
 fi
 
 
@@ -247,21 +303,13 @@ else
 fi
 
 # ── 8b. Bootstrap de dependencias del sistema (INSTALL-012) ────────────────
-# Si estamos como root y existe el script, invocarlo para dejar Docker / Tor /
-# Nginx / UFW listos. Es idempotente: si ya están instalados es no-op.
+# El bootstrap lo hace el propio binario instalado:
+#   enola-cli setup              → scope Core: docker.io, nginx, tor, curl, openssl
+#   enola-cli setup --security   → scope Security: ufw, apparmor, apparmor-utils
+# (setup --vpn queda opt-in deliberadamente: wireguard/qrencode/socat)
+# Es idempotente: si ya están instalados es no-op.
 # IMPORTANTE: registramos qué deps existían ANTES de instalar, para que el
 # manifiesto sepa cuáles instaló Enola y cuáles ya las tenía el usuario.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPS_SCRIPT_LOCAL="${SCRIPT_DIR}/postinstall_deps.sh"
-DEPS_SCRIPT_INSTALLED="/opt/enola/postinstall_deps.sh"
-DEPS_SCRIPT=""
-if [ -x "$DEPS_SCRIPT_LOCAL" ]; then
-    DEPS_SCRIPT="$DEPS_SCRIPT_LOCAL"
-elif [ -x "$DEPS_SCRIPT_INSTALLED" ]; then
-    DEPS_SCRIPT="$DEPS_SCRIPT_INSTALLED"
-fi
-
-# Registrar qué deps existían antes de instalar
 DEPS_BEFORE=""
 for dep in docker nginx tor ufw; do
     if command -v "$dep" >/dev/null 2>&1; then
@@ -269,30 +317,28 @@ for dep in docker nginx tor ufw; do
     fi
 done
 
-if [ -n "$DEPS_SCRIPT" ] && [ "$(id -u)" = "0" ] && [ "${ENOLA_INSTALL_SKIP_DEPS:-0}" != "1" ]; then
+if [ "$(id -u)" = "0" ] && [ "${ENOLA_INSTALL_SKIP_DEPS:-0}" != "1" ]; then
     hdr "Instalación de dependencias del sistema"
-    log "Ejecutando: $DEPS_SCRIPT"
-    if bash "$DEPS_SCRIPT"; then
-        ok "Dependencias del sistema listas (Docker / Tor / Nginx / UFW)"
+    if "$INSTALL_PATH" setup; then
+        ok "Dependencias Core listas (Docker / Tor / Nginx / curl / openssl)"
     else
-        warn "postinstall_deps.sh falló; el binario está instalado pero algunas"
+        warn "'enola-cli setup' falló; el binario está instalado pero algunas"
         warn "dependencias del sistema podrían faltar. Re-ejecuta manualmente:"
-        warn "  sudo bash $DEPS_SCRIPT"
+        warn "  sudo enola-cli setup"
+    fi
+    if "$INSTALL_PATH" setup --security; then
+        ok "Dependencias Security listas (UFW / AppArmor)"
+    else
+        warn "'enola-cli setup --security' falló. Re-ejecuta manualmente:"
+        warn "  sudo enola-cli setup --security"
     fi
 elif [ "${ENOLA_INSTALL_SKIP_DEPS:-0}" = "1" ]; then
     warn "ENOLA_INSTALL_SKIP_DEPS=1 — saltando bootstrap de dependencias."
-    warn "Ejecuta manualmente más tarde: sudo bash /opt/enola/postinstall_deps.sh"
+    warn "Ejecuta manualmente más tarde: sudo enola-cli setup && sudo enola-cli setup --security"
 elif [ "$(id -u)" != "0" ]; then
     warn "No eres root — bootstrap de dependencias OMITIDO."
-    warn "Para instalar Docker / Tor / Nginx / UFW automáticamente:"
-    warn "  sudo bash $0  (re-ejecuta como root)  ó"
-    warn "  sudo bash /opt/enola/postinstall_deps.sh"
-fi
-
-# Copia del script para uso posterior (re-aprovisionamiento)
-if [ -n "$DEPS_SCRIPT" ] && [ "$(id -u)" = "0" ]; then
-    install -d -m 0755 /opt/enola
-    install -m 0755 "$DEPS_SCRIPT" /opt/enola/postinstall_deps.sh
+    warn "Para instalar Docker / Tor / Nginx / UFW / AppArmor automáticamente:"
+    warn "  sudo enola-cli setup && sudo enola-cli setup --security"
 fi
 
 # ── 8c. Manifiesto de instalación (UNINSTALL-MANIFEST-001) ─────────────────

@@ -1,4 +1,4 @@
-> **Version:** 1.0 | **Updated:** 2026-09-06
+> **Version:** 1.1 | **Updated:** 2026-09-13
 > **Status:** ✅ **CURRENT**
 > **References:** commands.md
 # Enola CLI
@@ -15,7 +15,8 @@
 # Install
 wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-v0.3.0-alpha-x86_64-linux-client.tar.gz
 tar xf enola-cli-v0.3.0-alpha-x86_64-linux-client.tar.gz
-sudo cp enola-cli /usr/local/bin/
+cd enola-cli-v0.3.0-alpha-x86_64-linux-client
+sudo bash install.sh   # offline mode: uses the bundled binary, no download
 
 # Deploy your first .onion service
 sudo enola-cli files create --name my-web

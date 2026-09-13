@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/guia/install-from-iso.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-09-13
 > **Estado:** ✅ **VIGENTE — Guía de instalación desde ISO**
 > **Referencias:** docs/user/guia/quickstart.md
 
@@ -68,9 +68,14 @@ qm start 9000
 curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
 ```
 
-Esto ejecuta el mismo `postinstall_deps.sh --flavor client` que usa la ISO,
-así que tu sistema queda igual de preparado (Docker + Tor + Nginx + UFW +
-AppArmor + `~/.enola` 0700) — sin instalar nada a mano.
+El instalador ejecuta `enola-cli setup` + `enola-cli setup --security` (los mismos
+scopes que prepara la ISO), así que tu sistema queda igual de preparado
+(Docker + Tor + Nginx + UFW + AppArmor + `~/.enola` 0700) — sin instalar nada a mano.
+Si lo omitiste con `ENOLA_INSTALL_SKIP_DEPS=1`, puedes completarlo después con:
+
+```bash
+sudo enola-cli setup && sudo enola-cli setup --security
+```
 
 ## Referencias Cruzadas
 

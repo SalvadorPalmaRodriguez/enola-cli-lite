@@ -1,5 +1,5 @@
 > **User document:** `docs/en/verify-downloads.md`
-> **Version:** 2.0 | **Updated:** 2026-07-31
+> **Version:** 2.1 | **Updated:** 2026-09-13
 > **Status:** ✅ **CURRENT — Download Verification Guide**
 > **References:** security-model.md, commands.md
 > **Spanish original:** [`docs/user/verify/verify-downloads.md`](../user/verify/verify-downloads.md)
@@ -195,6 +195,27 @@ enola-cli-v0.3.0-alpha-x86_64-linux.tar.gz.minisig  ← Minisign signature (auth
 |------|-----------------|------|
 | `.sha256` | That the file was not modified | `sha256sum` (included with Linux) |
 | `.minisig` | That it was signed by the author | `minisign` (install separately) |
+
+---
+
+## Install from the tarball (offline mode)
+
+The `*-client.tar.gz` tarball is self-contained: it ships `enola-cli`, `install.sh`,
+`uninstall.sh`, `enola-cli.sha256` and the public keys. After **verifying the
+tarball signature** (`.minisig`, see sections above) and extracting it, you can
+install without downloading anything else:
+
+```bash
+tar xf enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz
+cd enola-cli-vX.Y.Z-x86_64-linux-client
+sudo bash install.sh
+```
+
+In this mode the installer uses the local binary, checks its SHA256 against
+`enola-cli.sha256` and skips the binary's minisign verification (authenticity
+is already provided by the tarball signature you verified before extracting).
+To force a remote download even when a local binary exists:
+`ENOLA_INSTALL_FORCE_DOWNLOAD=1 sudo bash install.sh`.
 
 ---
 

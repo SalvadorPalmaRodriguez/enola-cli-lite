@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.0 | **Actualizado:** 2026-08-02
+> **Versión:** 3.1 | **Actualizado:** 2026-09-13
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -175,6 +175,8 @@ clientes existentes.
 | `ENOLA_INSTALL_PUBKEY` | Clave pública minisign (override del trust anchor — solo desarrollo/testing) |
 | `ENOLA_INSTALL_STRICT_PUBKEY` | Si `1`, aborta cuando `ENOLA_INSTALL_PUBKEY` difiere del default |
 | `ENOLA_INSTALL_NO_VERIFY` | Si `1`, salta verificación minisign (DESACONSEJADO) |
+| `ENOLA_INSTALL_SKIP_DEPS` | Si `1`, salta el bootstrap de dependencias (`enola-cli setup` + `enola-cli setup --security`) |
+| `ENOLA_INSTALL_FORCE_DOWNLOAD` | Si `1`, fuerza la descarga remota aunque exista un binario `enola-cli` junto a `install.sh` (modo local del tarball extraído) |
 | `ENOLA_MINISIGN_BIN` | Path al binario minisign (default: `minisign` en PATH). Si es un path absoluto, se valida que el binario exista y sea minisign de verdad |
 
 > **Nota**: Si se establece `ENOLA_INSTALL_PUBKEY` con un valor distinto del default,

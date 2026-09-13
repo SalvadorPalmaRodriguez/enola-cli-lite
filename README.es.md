@@ -101,6 +101,8 @@ sudo bash install.sh
 ```
 
 El instalador descarga el binario, verifica SHA256 + firma minisign, e instala todo.
+
+**Modo offline / tarball:** el asset `*-client.tar.gz` es autocontenido (binario + `install.sh` + `uninstall.sh` + `enola-cli.sha256`). Tras verificar el `.minisig` del tarball y extraerlo, ejecuta `sudo bash install.sh` dentro del directorio — instala desde el binario incluido sin descargar nada. Usa `ENOLA_INSTALL_FORCE_DOWNLOAD=1` para forzar la descarga remota.
 Después de instalar, verifica la firma post-cuántica del binario (ML-DSA-65, FIPS 204):
 ```bash
 enola-cli verify /usr/local/bin/enola-cli

@@ -32,6 +32,10 @@ curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/lat
 
 The installer verifies SHA256 + minisign signature. Downloads can additionally be verified offline with the embedded post-quantum key: `enola-cli verify <file>`.
 
+Offline / tarball mode: the `*-client.tar.gz` asset is self-contained (binary + `install.sh` + `uninstall.sh` + `enola-cli.sha256`). After verifying the tarball's `.minisig` and extracting it, run `sudo bash install.sh` inside the directory: it installs from the bundled binary without downloading anything.
+
+Installer environment variables: `ENOLA_INSTALL_BASE_URL`, `ENOLA_INSTALL_VERSION`, `ENOLA_INSTALL_PREFIX`, `ENOLA_INSTALL_NO_VERIFY`, `ENOLA_INSTALL_PUBKEY`, `ENOLA_INSTALL_STRICT_PUBKEY`, `ENOLA_INSTALL_SKIP_DEPS` (skip the `enola-cli setup` + `setup --security` dependency bootstrap), `ENOLA_INSTALL_FORCE_DOWNLOAD` (force a remote download even when a local binary sits next to `install.sh`).
+
 ## Command reference (complete tree)
 
 Global options: `--format text|json`, `--verbose`, `--binary-base-url <URL>`, `--web-url <URL>`, `--docs-url <URL>`, `--tor-socks <URL>`.
@@ -46,7 +50,7 @@ Global options: `--format text|json`, `--verbose`, `--binary-base-url <URL>`, `-
 - `tor auth list|enable|disable <service>` — client authorization
 - `tor auth add <service> -c <client> -p <pubkey>` / `tor auth revoke <service> -c <client>`
 - `tor auth generate -c <client>` — generate x25519 keypair (client side)
-- `tor auth rotate <service> -c <client>` — rotate client keys (mitigates harvest-now-decrypt-later)
+- `tor auth rotate <service> -c <client> -p <pubkey>` — replace client public key (client generates the new pair; private key never reaches the operator)
 
 ### git — Forgejo Git servers
 - `git list` / `git create -n <name> [--ssl] [--http-port] [--ssh-port] [--admin-user <u> --admin-password <p>]`
@@ -77,6 +81,10 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 
 ### diag — diagnostics
 - `diag summary|nginx|tor|ssh|wordpress|wp-sync|nginx-test|resources`
+
+### ssh — SSH access
+- `ssh add-key [--user <name>] -p <pubkey> [--comment <c>]` — append to ~/.ssh/authorized_keys (atomic, deduplicated)
+- `ssh deploy-hidden --name <n> --onion-port <p> --local-ssh-port <p>` — publish SSH only via .onion
 
 ### test / logs / ports
 - `test run [-f filter]|list|benchmark|results|clean`

@@ -99,6 +99,11 @@ has_section() {
     echo ",$ONLY_SECTIONS," | grep -q ",$check,"
 }
 
+# run() aborts the whole script on failure (exit inside the function); a
+# caller-side `|| true` cannot intercept that exit. Sections that depend on an
+# external command must probe with has_cmd first, like docker/ufw/nginx do.
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
 # ─── Parse args ───────────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -155,7 +160,7 @@ if has_section binary; then
     if [ -d "$SHARE_DIR" ]; then
         run_rm "$SHARE_DIR"
     fi
-    # Remove /opt/enola (postinstall_deps.sh installed by installer)
+    # Remove /opt/enola (restos de instalaciones previas; registrado en el manifiesto)
     opt_dir="/opt/enola"
     if [ -n "${MANIFEST_OPT:-}" ]; then
         opt_dir="$MANIFEST_OPT"
@@ -276,7 +281,9 @@ if has_section nginx; then
     fi
     if ! $DRY_RUN; then
         if command -v nginx &>/dev/null; then
-            run nginx -t 2>/dev/null && run systemctl reload nginx 2>/dev/null || true
+            if nginx -t >/dev/null 2>&1 && has_cmd systemctl; then
+                run systemctl reload nginx 2>/dev/null || true
+            fi
         fi
     fi
     echo ""
@@ -285,22 +292,26 @@ fi
 # ─── Section: systemd ─────────────────────────────────────────────────────────
 if has_section systemd; then
     log "Section: systemd"
-    # Remove enola timers
-    for timer in $(systemctl list-unit-files --type=timer 2>/dev/null | grep 'enola-' | awk '{print $1}' || true); do
-        run systemctl stop "$timer" 2>/dev/null || true
-        run systemctl disable "$timer" 2>/dev/null || true
-        run_rm "/etc/systemd/system/${timer}"
-    done
-    # Remove VPN services (wg-quick@) from manifest
-    vpn_services="$(manifest_get_all vpn_service 2>/dev/null || true)"
-    if [ -n "$vpn_services" ]; then
-        for svc in $vpn_services; do
-            run systemctl stop "$svc" 2>/dev/null || true
-            run systemctl disable "$svc" 2>/dev/null || true
+    if has_cmd systemctl; then
+        # Remove enola timers
+        for timer in $(systemctl list-unit-files --type=timer 2>/dev/null | grep 'enola-' | awk '{print $1}' || true); do
+            run systemctl stop "$timer" 2>/dev/null || true
+            run systemctl disable "$timer" 2>/dev/null || true
+            run_rm "/etc/systemd/system/${timer}"
         done
-    fi
-    if ! $DRY_RUN; then
-        run systemctl daemon-reload 2>/dev/null || true
+        # Remove VPN services (wg-quick@) from manifest
+        vpn_services="$(manifest_get_all vpn_service 2>/dev/null || true)"
+        if [ -n "$vpn_services" ]; then
+            for svc in $vpn_services; do
+                run systemctl stop "$svc" 2>/dev/null || true
+                run systemctl disable "$svc" 2>/dev/null || true
+            done
+        fi
+        if ! $DRY_RUN; then
+            run systemctl daemon-reload 2>/dev/null || true
+        fi
+    else
+        log "  systemctl not available, skipping systemd cleanup."
     fi
     echo ""
 fi
@@ -308,6 +319,9 @@ fi
 # ─── Section: apparmor ────────────────────────────────────────────────────────
 if has_section apparmor; then
     log "Section: apparmor"
+    if ! has_cmd apparmor_parser; then
+        log "  apparmor_parser not available, profiles will be removed without reload."
+    fi
     AA_DIR="/etc/apparmor.d"
     # Use manifest to get exact profile names
     aa_profiles="$(manifest_get_all apparmor_profile 2>/dev/null || true)"
@@ -316,7 +330,9 @@ if has_section apparmor; then
             profile_path="$AA_DIR/$profile"
             [ -f "$profile_path" ] || continue
             if ! $DRY_RUN; then
-                run apparmor_parser -r "$profile_path" 2>/dev/null || true
+                if has_cmd apparmor_parser; then
+                    run apparmor_parser -r "$profile_path" 2>/dev/null || true
+                fi
             fi
             run_rm "$profile_path"
         done
@@ -326,7 +342,9 @@ if has_section apparmor; then
         for profile in "$AA_DIR"/enola-* "$AA_DIR"/usr.local.bin.enola-cli; do
             [ -f "$profile" ] || continue
             if ! $DRY_RUN; then
-                run apparmor_parser -r "$profile" 2>/dev/null || true
+                if has_cmd apparmor_parser; then
+                    run apparmor_parser -r "$profile" 2>/dev/null || true
+                fi
             fi
             run_rm "$profile"
         done
@@ -536,7 +554,11 @@ if has_section deps; then
                         echo "  $d already removed, skipping."
                     fi
                 done
-                ok "Deps installed by Enola have been removed."
+                if $DRY_RUN; then
+                    log "Dry-run: the deps above would be removed. Re-run with --yes --remove-deps to apply."
+                else
+                    log "Deps installed by Enola have been removed."
+                fi
                 echo "  Deps you had before Enola were NOT touched."
             fi
         fi

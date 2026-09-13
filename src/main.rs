@@ -12,7 +12,7 @@ const BUILD_DATE: &str = env!("ENOLA_BUILD_DATE");
 
 /// INT-008: Self-integrity check — verifica que el binario no fue modificado
 /// tras la instalación. Compara SHA256 del ejecutable actual con el hash
-/// guardado por post_install.sh en /usr/local/share/enola/cli.sha256.
+/// guardado por install.sh en /usr/local/share/enola/cli.sha256.
 /// Si el archivo de referencia no existe → skip silencioso.
 /// Si existe y no coincide → warning (no aborta).
 fn check_self_integrity() {
@@ -36,7 +36,7 @@ fn check_self_integrity() {
     use sha2::{Digest, Sha256};
     let actual_hash = format!("{:x}", Sha256::digest(&exe_data));
 
-    // Leer hash esperado desde archivo instalado por post_install.sh
+    // Leer hash esperado desde archivo instalado por install.sh
     let hash_file = "/usr/local/share/enola/cli.sha256";
     let expected = match std::fs::read_to_string(hash_file) {
         Ok(s) => s.trim().to_string(),

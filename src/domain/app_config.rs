@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// Se usa en:
 /// - La página web (`releases.component.html`) para construir la URL real de descarga.
 /// - El subcomando `enola-cli verify` / `enola-cli info releases` (futuro).
-/// - El script `post_install.sh` para descargar la clave pública si no existe.
+/// - El script `install.sh` para descargar la clave pública si no existe.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct DistributionSettings {
     /// Base URL para descargar los artefactos del release (tar.gz + minisig + sha256).
