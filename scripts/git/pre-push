@@ -4,6 +4,7 @@
 #   1. cargo clippy -- -D warnings
 #   2. cargo test --lib --release
 #   3. Auditoría completa (run_all.sh --profile cli --strict)
+#   4. Limpieza de contexto de Windsurf (opcional, preguntar sí/no)
 #
 # La versión y el formato se validan ya en pre-commit (fail-fast) y la
 # versión se re-valida en la auditoría (check 19).
@@ -21,7 +22,7 @@ echo "================================"
 echo ""
 
 # ─── 1. cargo clippy -- -D warnings ────────────────────────────────────
-echo "1/3  🧹 cargo clippy -- -D warnings"
+echo "1/4  🧹 cargo clippy -- -D warnings"
 if ! cargo clippy -- -D warnings 2>&1; then
     echo ""
     echo "❌ clippy encontró warnings. Corrige antes de pushar."
@@ -31,7 +32,7 @@ echo "  ✅ Sin warnings"
 echo ""
 
 # ─── 2. cargo test --lib --release ─────────────────────────────────────
-echo "2/3  🧪 cargo test --lib --release"
+echo "2/4  🧪 cargo test --lib --release"
 if ! cargo test --lib --release 2>&1; then
     echo ""
     echo "❌ Tests fallaron. Revisa los errores arriba."
@@ -41,13 +42,29 @@ echo "  ✅ Tests pasaron"
 echo ""
 
 # ─── 3. Auditoría completa (anti-filtración + versión + docs IA) ───────
-echo "3/3  🔍 run_all.sh --profile cli --strict"
+echo "3/4  🔍 run_all.sh --profile cli --strict"
 if ! bash docs/dev/audit/run_all.sh --profile cli --strict; then
     echo ""
     echo "❌ Auditoría bloqueada. Corrige los hallazgos antes de pushar."
     exit 1
 fi
 echo "  ✅ Auditoría limpia"
+echo ""
+
+# ─── 4. Limpieza de contexto de Windsurf (opcional, ligera) ───────────
+echo "4/4  🧹 Limpieza de contexto de Windsurf Cascade (ligera)"
+echo "     Windsurf está corriendo, así que solo limpia lo seguro:"
+echo "     sesiones .pb, state.vscdb y Cache. Salta Local Storage (lock)."
+echo "     NO afecta al proyecto ni a la configuración del IDE."
+echo ""
+if [[ -f "docs/dev/clean_windsurf_context.sh" ]]; then
+    bash docs/dev/clean_windsurf_context.sh || true
+else
+    echo "  ⚠️  Script no encontrado: docs/dev/clean_windsurf_context.sh (saltando)"
+fi
+echo ""
+echo "  💡 Para limpieza completa (incluye Local Storage):"
+echo "     cierra Windsurf y ejecuta 'bash docs/dev/clean_windsurf_context.sh --yes'"
 echo ""
 
 echo "================================"

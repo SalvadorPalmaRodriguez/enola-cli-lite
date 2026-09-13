@@ -4,7 +4,7 @@
 #   1. Sincronización de versión (sync_version.sh --check)
 #   2. cargo fmt --check
 #   3. Coherencia de archivos de contexto IA (check 18)
-#   4. Anti-leak operator→docs/user (DOC-SEC-005)
+#   4. Anti-leak operator en blobs staged (DOC-SEC-005)
 #
 # Instalar:
 #   bash scripts/git/install-hooks.sh
@@ -43,8 +43,12 @@ if ! PROJECT_ROOT="$PROJECT_ROOT" bash docs/dev/audit/checks/18_ai_docs_sync.sh;
 fi
 echo "  ✅ Docs IA coherentes"
 
-# ─── 4. Anti-leak operator→docs/user (DOC-SEC-005) ─────────────────────
-# Detecta términos operator-only en archivos staged de docs/user/.
+# ─── 4. Anti-leak operator en blobs staged (DOC-SEC-005) ───────────────
+# Detecta términos operator-only en TODOS los ficheros staged.
+# Se lee el blob del índice (git show ":file"), nunca el worktree:
+# escanear el worktree producía falsos negativos (leak en índice pero
+# borrado del worktree → pasaba) y falsos positivos (leak solo en
+# worktree, nada staged → bloqueaba sin motivo).
 OPERATOR_TERMS=(
     "appliance deploy"
     "enola-signup"
@@ -65,24 +69,24 @@ OPERATOR_TERMS=(
     "rusqlite"
 )
 
-STAGED_USER_DOCS=$(git diff --cached --name-only --diff-filter=ACM \
-    | grep -E "^docs/user/" || true)
-
-if [[ -z "$STAGED_USER_DOCS" ]]; then
-    exit 0
-fi
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM || true)
 
 FOUND_LEAKS=0
 
 while IFS= read -r file; do
-    [[ -f "$file" ]] || continue
+    [[ -z "$file" ]] && continue
+    # Única exclusión: este propio hook contiene la lista OPERATOR_TERMS
+    # (es el único fichero trackeado con esos términos); sin excluirlo se
+    # autobloquearía al commitear cambios sobre sí mismo.
+    [[ "$file" == "scripts/git/pre-commit" ]] && continue
+    content=$(git show ":$file" 2>/dev/null) || continue
     for term in "${OPERATOR_TERMS[@]}"; do
-        if grep -qi "$term" "$file" 2>/dev/null; then
-            echo "❌ LEAK DETECTADO en docs/user: '$term' encontrado en $file" >&2
+        if printf '%s\n' "$content" | grep -qiI "$term"; then
+            echo "❌ LEAK DETECTADO (staged): '$term' encontrado en $file" >&2
             FOUND_LEAKS=1
         fi
     done
-done <<< "$STAGED_USER_DOCS"
+done <<< "$STAGED_FILES"
 
 # DOC-SEC-003: el binario no debe embeber docs internas
 STAGED_DOCS_RS=$(git diff --cached --name-only --diff-filter=ACM \
