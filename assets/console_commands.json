@@ -119,6 +119,16 @@
       "--security",
       "--pqc-tls"
     ],
+    "ssh.add-key": [
+      "--user",
+      "--pubkey",
+      "--comment"
+    ],
+    "ssh.deploy-hidden": [
+      "--name",
+      "--onion-port",
+      "--local-ssh-port"
+    ],
     "strapi.build-image": [
       "--force"
     ],
@@ -236,6 +246,7 @@
     "firewall",
     "apparmor",
     "vpn",
+    "ssh",
     "setup",
     "doctor",
     "quickref",
@@ -354,6 +365,10 @@
     ],
     "ports": [
       "list"
+    ],
+    "ssh": [
+      "add-key",
+      "deploy-hidden"
     ],
     "strapi": [
       "list",

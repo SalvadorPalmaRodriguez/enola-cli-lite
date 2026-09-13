@@ -6,8 +6,9 @@
 // Do not add new uses of `obfstr!` — existing ones are kept for backwards
 // compatibility but should not be expanded.
 use crate::domain::error::{EnolaError, Result};
+use crate::infrastructure::atomic_secret_file::write_atomic;
 use crate::infrastructure::file_lock::FileLock;
-use crate::ports::tor::{TorManagerPort, TorServiceInfo};
+use crate::ports::tor::{ClientKeypair, TorManagerPort, TorServiceInfo};
 use data_encoding::BASE32_NOPAD;
 use obfstr::obfstr;
 use rand::rngs::OsRng;
@@ -803,13 +804,16 @@ impl TorManagerPort for TorConfigAdapter {
         self.reload_tor().await?;
         Ok(())
     }
-    async fn generate_client_keys(&self, _client_name: &str) -> Result<(String, String)> {
+    async fn generate_client_keys(&self, _client_name: &str) -> Result<ClientKeypair> {
         let rng = OsRng;
         let private_key = StaticSecret::random_from_rng(rng);
         let public_key = PublicKey::from(&private_key);
         let public_b32 = BASE32_NOPAD.encode(public_key.as_bytes());
         let private_b32 = BASE32_NOPAD.encode(private_key.as_bytes());
-        Ok((public_b32, private_b32))
+        Ok(ClientKeypair {
+            public_key: public_b32,
+            private_key: private_b32,
+        })
     }
     async fn add_client_auth(
         &self,
@@ -834,18 +838,25 @@ impl TorManagerPort for TorConfigAdapter {
             obfstr!("x25519"),
             public_key
         );
-        write(&file_path, content).await.map_err(|e| {
-            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                EnolaError::InfrastructureError(permission_errors::write_error(
-                    &file_path,
-                    "write client auth file",
-                ))
-            } else {
-                EnolaError::InfrastructureError(format!("Failed to write auth file: {}", e))
-            }
-        })?;
+        // TOCTOU-safe: write atomically (temp + rename) so the file never exists
+        // with lax permissions nor is left half-written during a key rotation.
+        let write_path = file_path.clone();
+        let content_bytes = content.into_bytes();
+        tokio::task::spawn_blocking(move || write_atomic(&write_path, &content_bytes, 0o600))
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking failed: {}", e)))?
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    EnolaError::InfrastructureError(permission_errors::write_error(
+                        &file_path,
+                        "write client auth file",
+                    ))
+                } else {
+                    EnolaError::InfrastructureError(format!("Failed to write auth file: {}", e))
+                }
+            })?;
 
-        // Set correct permissions for auth file
+        // Set correct ownership for auth file (mode 0600 already applied atomically)
         Self::set_auth_file_permissions(&file_path).await?;
 
         Ok(())
@@ -1329,14 +1340,16 @@ mod tests {
     #[tokio::test]
     async fn test_generate_client_keys_returns_valid_keys() {
         let (adapter, _torrc, _svc, _conf) = test_adapter();
-        let (pub_key, priv_key) = adapter.generate_client_keys("testclient").await.unwrap();
-        assert!(!pub_key.is_empty());
-        assert!(!priv_key.is_empty());
+        let keypair = adapter.generate_client_keys("testclient").await.unwrap();
+        assert!(!keypair.public_key.is_empty());
+        assert!(!keypair.private_key.is_empty());
         // Keys should be base32 encoded (uppercase alpha + digits)
-        assert!(pub_key
+        assert!(keypair
+            .public_key
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
-        assert!(priv_key
+        assert!(keypair
+            .private_key
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
     }
@@ -1344,11 +1357,11 @@ mod tests {
     #[tokio::test]
     async fn test_generate_client_keys_unique() {
         let (adapter, _torrc, _svc, _conf) = test_adapter();
-        let (pub1, priv1) = adapter.generate_client_keys("client1").await.unwrap();
-        let (pub2, priv2) = adapter.generate_client_keys("client2").await.unwrap();
+        let kp1 = adapter.generate_client_keys("client1").await.unwrap();
+        let kp2 = adapter.generate_client_keys("client2").await.unwrap();
         // Keys should differ between calls
-        assert_ne!(pub1, pub2);
-        assert_ne!(priv1, priv2);
+        assert_ne!(kp1.public_key, kp2.public_key);
+        assert_ne!(kp1.private_key, kp2.private_key);
     }
 
     // ═══════════════════════════════════════════════════════════════

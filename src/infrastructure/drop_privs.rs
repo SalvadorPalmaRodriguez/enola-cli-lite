@@ -100,6 +100,59 @@ fn lookup_home_for_uid(_uid: u32) -> Option<String> {
     None
 }
 
+/// Resuelve el directorio HOME de un nombre de usuario via `getpwnam_r` (NSS).
+/// Devuelve `None` si el usuario no existe. Evita hardcodear `/home/<user>`.
+#[cfg(unix)]
+pub(crate) fn lookup_home_for_name(name: &str) -> Option<String> {
+    use std::ffi::{CStr, CString};
+
+    let cname = CString::new(name).ok()?;
+    let mut buf = vec![0i8; 4096];
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+
+    let rc = unsafe {
+        libc::getpwnam_r(
+            cname.as_ptr(),
+            &mut pwd,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut result,
+        )
+    };
+
+    if rc != 0 || result.is_null() {
+        return None;
+    }
+
+    let dir = unsafe { CStr::from_ptr(pwd.pw_dir) };
+    dir.to_str().ok().map(|s| s.to_string())
+}
+
+#[cfg(not(unix))]
+fn lookup_home_for_name(_name: &str) -> Option<String> {
+    None
+}
+
+/// Resuelve el directorio HOME destino para operaciones sobre un usuario.
+///
+/// Prioridad:
+///   1. `name` explícito (`--user <name>`) — si no resuelve, devuelve `None`
+///      (falla en voz alta, sin caer silenciosamente a otro usuario).
+///   2. Usuario invocador vía sudo (`SUDO_USER`).
+///   3. `$HOME` del entorno.
+pub fn resolve_user_home(name: Option<&str>) -> Option<String> {
+    if let Some(n) = name.filter(|s| !s.is_empty()) {
+        return lookup_home_for_name(n);
+    }
+    if let Some(user) = invoking_user() {
+        if let Some(home) = user.home {
+            return Some(home);
+        }
+    }
+    std::env::var("HOME").ok()
+}
+
 /// Logica interna de `should_drop_for_auxiliary` con euid inyectable para tests.
 /// Permite cubrir la rama "euid == 0" sin necesitar privilegios reales.
 #[cfg(unix)]
@@ -180,6 +233,41 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         assert!(invoking_user().is_none());
+    }
+
+    #[test]
+    fn lookup_home_for_name_finds_root() {
+        // `root` siempre existe en sistemas POSIX reales.
+        let home = lookup_home_for_name("root");
+        assert!(home.is_some());
+        assert!(!home.unwrap().is_empty());
+    }
+
+    #[test]
+    fn lookup_home_for_name_missing_user() {
+        assert!(lookup_home_for_name("__enola_missing_user_zzz__").is_none());
+    }
+
+    #[test]
+    fn resolve_user_home_prefers_explicit_name() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_sudo_env();
+        std::env::set_var("SUDO_UID", "1000");
+        std::env::set_var("SUDO_GID", "1000");
+        std::env::set_var("SUDO_USER", "alice");
+        // `--user root` debe resolver el home de root aunque SUDO_* apunte a otro.
+        assert!(resolve_user_home(Some("root")).is_some());
+        clear_sudo_env();
+    }
+
+    #[test]
+    fn resolve_user_home_explicit_missing_user_returns_none() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_sudo_env();
+        std::env::set_var("HOME", "/tmp/some-home");
+        // `--user` explícito inexistente NO debe caer silenciosamente a $HOME.
+        assert!(resolve_user_home(Some("__enola_missing_user_zzz__")).is_none());
+        clear_sudo_env();
     }
 
     #[test]

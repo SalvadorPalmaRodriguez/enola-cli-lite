@@ -1,7 +1,6 @@
 use crate::domain::error::{EnolaError, Result};
 use crate::infrastructure::file_lock::FileLock;
 use crate::ports::file::{AtomicFilePort, FileManagerPort};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct AddSshKey {
@@ -20,16 +19,24 @@ impl AddSshKey {
         }
     }
 
-    pub async fn execute(&self, pubkey: &str, comment: Option<&str>) -> Result<()> {
+    /// Add a key to `<home>/.ssh/authorized_keys`.
+    ///
+    /// The target home directory is resolved by the CLI layer (`--user`,
+    /// `SUDO_USER`, `$HOME`), not read from the environment here, so running
+    /// via `sudo` targets the intended user instead of `/root`.
+    pub async fn execute_for_home(
+        &self,
+        home: &std::path::Path,
+        pubkey: &str,
+        comment: Option<&str>,
+    ) -> Result<()> {
         let pubkey = pubkey.trim();
 
         // 1. Validate Public Key Format
         self.validate_key(pubkey)?;
 
-        // 2. Determine target file (~/.ssh/authorized_keys)
-        let home = std::env::var("HOME")
-            .map_err(|_| EnolaError::InfrastructureError("HOME not set".to_string()))?;
-        let ssh_dir = PathBuf::from(home).join(".ssh");
+        // 2. Determine target file (<home>/.ssh/authorized_keys)
+        let ssh_dir = home.join(".ssh");
 
         self.execute_with_ssh_dir(&ssh_dir, pubkey, comment).await
     }
@@ -123,6 +130,7 @@ impl AddSshKey {
             "ecdsa-sha2-nistp384",
             "ecdsa-sha2-nistp521",
             "sk-ssh-ed25519@openssh.com",
+            "sk-ecdsa-sha2-nistp256@openssh.com",
         ];
 
         if !valid_types.contains(&key_type) {
@@ -159,9 +167,24 @@ mod tests {
         let mock_file = MockFileManagerPort::new();
         let mock_atomic = MockAtomicFilePort::new();
         let use_case = AddSshKey::new(Arc::new(mock_file), Arc::new(mock_atomic));
+        let home_dir = tempfile::tempdir().unwrap();
 
-        let result = use_case.execute("invalid-key", None).await;
+        let result = use_case
+            .execute_for_home(home_dir.path(), "invalid-key", None)
+            .await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_key_accepts_fido2_ecdsa() {
+        let mock_file = MockFileManagerPort::new();
+        let mock_atomic = MockAtomicFilePort::new();
+        let use_case = AddSshKey::new(Arc::new(mock_file), Arc::new(mock_atomic));
+
+        // FIDO2 ECDSA keys were previously rejected (they don't start with
+        // `ssh-`/`ecdsa-`). The explicit whitelist must accept them.
+        let key = "sk-ecdsa-sha2-nistp256@openssh.com AAAAB3NzaC1yc2EAAAADAQABAAABAQ";
+        assert!(use_case.validate_key(key).is_ok());
     }
 
     #[tokio::test]

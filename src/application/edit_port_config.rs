@@ -137,8 +137,11 @@ mod tests {
             self.reload_called.store(true, Ordering::SeqCst);
             Ok(())
         }
-        async fn generate_client_keys(&self, _: &str) -> Result<(String, String)> {
-            Ok(("pub".into(), "priv".into()))
+        async fn generate_client_keys(&self, _: &str) -> Result<crate::ports::tor::ClientKeypair> {
+            Ok(crate::ports::tor::ClientKeypair {
+                public_key: "pub".into(),
+                private_key: "priv".into(),
+            })
         }
         async fn add_client_auth(&self, _: &str, _: &str, _: &str) -> Result<()> {
             Ok(())

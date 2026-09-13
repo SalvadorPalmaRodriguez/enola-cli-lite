@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/tor/commands-tor.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-09-10
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -275,10 +275,12 @@ sudo enola-cli tor auth generate --client <CLIENTE>
 
 ### `tor auth rotate`
 
-Rota el keypair de un cliente (genera nuevas claves X25519, actualiza el servidor y revoca la clave antigua).
+Sustituye la clave pública de un cliente. El cliente genera el nuevo par con
+`tor auth generate` y envía SOLO la nueva clave pública al operador; la clave
+privada nunca llega al servidor.
 
 ```bash
-sudo enola-cli tor auth rotate <SERVICIO> --client <CLIENTE>
+sudo enola-cli tor auth rotate <SERVICIO> --client <CLIENTE> --pubkey <NUEVA_PUBLICA>
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -288,6 +290,7 @@ sudo enola-cli tor auth rotate <SERVICIO> --client <CLIENTE>
 | Flag | Tipo | Obligatorio | Descripción |
 |------|------|-------------|-------------|
 | `--client` / `-c` | String | Sí | Nombre del cliente a rotar |
+| `--pubkey` / `-p` | String | Sí | Nueva clave pública X25519 (base32, 52 chars) |
 
 ---
 

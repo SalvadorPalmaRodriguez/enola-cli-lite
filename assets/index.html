@@ -77,12 +77,16 @@
                     <button onclick="torAuthList()">List Clients</button>
                     <button onclick="torAuthEnable()">Enable Auth</button>
                     <button onclick="torAuthDisable()">Disable Auth</button>
-                    <button onclick="torAuthRotate()">Rotate Keys</button>
                 </div>
                 <div id="tor-auth-clients"></div>
                 <div class="actions">
                     <input type="text" id="tor-auth-gen-client" placeholder="Client name for key generation">
                     <button onclick="torAuthGenerate()">Generate Keys</button>
+                </div>
+                <div class="actions">
+                    <input type="text" id="tor-auth-rotate-client" placeholder="Client name to rotate">
+                    <input type="text" id="tor-auth-rotate-pubkey" placeholder="New public key">
+                    <button onclick="torAuthRotate()" class="btn-danger">Rotate Keys</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="tor-auth-add-client" placeholder="Client name">

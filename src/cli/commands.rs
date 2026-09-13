@@ -1691,11 +1691,84 @@ pub mod tor {
         }
 
         /// Generate new client keypair
-        pub async fn generate(client: &str) -> CliResult<(String, String)> {
+        pub async fn generate(client: &str) -> CliResult<crate::ports::tor::ClientKeypair> {
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case.generate_keys(client).await.map_err(CliError::from)
         }
+
+        /// Rotate a client's public key (SERVER-SIDE operation).
+        ///
+        /// The client generates the new keypair locally with `tor auth generate`
+        /// and sends the new PUBLIC key to the operator. The operator replaces
+        /// the stored public key with this one. The private key never reaches
+        /// the operator.
+        pub async fn rotate(service: &str, client: &str, pubkey: &str) -> CliResult<()> {
+            let actual_name = resolve_service_name(service).await?;
+            let adapter = Arc::new(TorConfigAdapter::new());
+            let use_case = ManageClientAuth::new(adapter);
+            use_case
+                .rotate_client(&actual_name, client, pubkey)
+                .await
+                .map_err(CliError::from)
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+pub mod ssh {
+    use super::*;
+    use crate::application::add_ssh_key::AddSshKey;
+    use crate::application::deploy_ssh_hidden_service::DeploySshHiddenService;
+    use crate::infrastructure::drop_privs::resolve_user_home;
+
+    /// Add a public key to a user's `~/.ssh/authorized_keys`.
+    pub async fn add_key(
+        user: Option<&str>,
+        pubkey: &str,
+        comment: Option<&str>,
+    ) -> CliResult<String> {
+        let home = resolve_user_home(user).ok_or_else(|| {
+            CliError::InvalidInput(
+                "Could not resolve the target user's home directory. \
+                 Use --user <name> or run without sudo."
+                    .to_string(),
+            )
+        })?;
+
+        let file_adapter: Arc<dyn crate::ports::file::FileManagerPort + Send + Sync> =
+            Arc::new(EnolaFileAdapter::new());
+        let atomic_adapter: Arc<dyn crate::ports::file::AtomicFilePort + Send + Sync> =
+            Arc::new(EnolaFileAdapter::new());
+
+        let use_case = AddSshKey::new(file_adapter, atomic_adapter);
+        use_case
+            .execute_for_home(std::path::Path::new(&home), pubkey, comment)
+            .await
+            .map_err(CliError::from)?;
+
+        Ok(format!(
+            "✅ SSH key added to {}/.ssh/authorized_keys",
+            home.trim_end_matches('/')
+        ))
+    }
+
+    /// Deploy an SSH hidden service over Tor.
+    pub async fn deploy_hidden(
+        name: &str,
+        onion_port: u16,
+        local_ssh_port: u16,
+    ) -> CliResult<String> {
+        let tor_adapter = Arc::new(TorConfigAdapter::new());
+        let service_adapter: Arc<dyn crate::ports::service::ServiceManagerPort + Send + Sync> =
+            Arc::new(SystemdAdapter);
+        let manifest_adapter = Arc::new(FileManifestAdapter::new());
+
+        let use_case = DeploySshHiddenService::new(tor_adapter, service_adapter, manifest_adapter);
+        use_case
+            .execute(name, onion_port, local_ssh_port)
+            .await
+            .map_err(CliError::from)
     }
 }
 

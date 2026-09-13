@@ -1,5 +1,5 @@
 use crate::domain::error::Result;
-pub use crate::domain::tor::TorServiceInfo;
+pub use crate::domain::tor::{ClientKeypair, TorServiceInfo};
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
@@ -17,7 +17,7 @@ pub trait TorManagerPort {
     async fn reload_tor(&self) -> Result<()>;
 
     /// Generate new client x25519 authorization keys
-    async fn generate_client_keys(&self, client_name: &str) -> Result<(String, String)>; // (Priv, Pub)
+    async fn generate_client_keys(&self, client_name: &str) -> Result<ClientKeypair>;
 
     /// Add client authorization to a service
     async fn add_client_auth(

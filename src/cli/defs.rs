@@ -251,6 +251,14 @@ pub enum Commands {
     Vpn(VpnCommands),
 
     // ═══════════════════════════════════════════════════════════════════
+    // SSH (🔑 SSH access)
+    // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/ssh/commands-ssh.md
+    /// Manage SSH access (authorized keys) and SSH-over-Tor hidden services
+    #[command(subcommand)]
+    Ssh(SshCommands),
+
+    // ═══════════════════════════════════════════════════════════════════
     // SETUP & DOCTOR (🩺 System Dependencies — DEP-001..003)
     // ═══════════════════════════════════════════════════════════════════
     /// DOC-SYNC: docs/user/setup/commands-setup.md
@@ -737,12 +745,12 @@ pub enum TorAuthCommands {
         client: String,
     },
 
-    /// Rotate client keypair — generates new X25519 keys and updates the server
-    /// (PQC-013: mitigates harvest-now-decrypt-later by reducing key lifetime)
+    /// Rotate a client's public key (PQC-013: mitigates harvest-now-decrypt-later
+    /// by reducing key lifetime).
     ///
-    /// The operator generates new keys for the client, updates the server with
-    /// the new public key, and sends the new private key to the client via a
-    /// secure channel. The old key is automatically revoked.
+    /// The CLIENT generates a new keypair with `tor auth generate` and sends the
+    /// new PUBLIC key to the operator. The operator replaces the stored public
+    /// key with this one. The private key never reaches the operator.
     Rotate {
         /// Service name
         service: String,
@@ -750,6 +758,60 @@ pub enum TorAuthCommands {
         /// Client name to rotate
         #[arg(short, long)]
         client: String,
+
+        /// New client public key (x25519, base32, 52 chars)
+        #[arg(short, long)]
+        pubkey: String,
+    },
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Subcommand, Debug)]
+pub enum SshCommands {
+    /// DOC-SYNC: docs/user/ssh/commands-ssh.md
+    /// Add a public key to a user's ~/.ssh/authorized_keys
+    ///
+    /// The key is appended only if not already present (deduplicated by body).
+    /// Written atomically with 0o600 permissions and a file lock (anti-TOCTOU).
+    ///
+    /// Examples:
+    ///   sudo enola-cli ssh add-key --user alice --pubkey "ssh-ed25519 AAAA..."
+    ///   enola-cli ssh add-key --pubkey "ssh-ed25519 AAAA..."
+    AddKey {
+        /// Target user (defaults to the invoking user / SUDO_USER)
+        #[arg(long)]
+        user: Option<String>,
+
+        /// Public key to append (type + base64 body [+ comment])
+        #[arg(short, long)]
+        pubkey: String,
+
+        /// Optional comment appended when the key has no comment
+        #[arg(long)]
+        comment: Option<String>,
+    },
+
+    /// DOC-SYNC: docs/user/ssh/commands-ssh.md
+    /// Deploy an SSH hidden service over Tor (onion_port -> local_ssh_port)
+    ///
+    /// Ensures sshd is running and publishes it only via a .onion address,
+    /// without exposing SSH to the public network.
+    ///
+    /// Example:
+    ///   sudo enola-cli ssh deploy-hidden --name my-ssh --onion-port 22 --local-ssh-port 2222
+    DeployHidden {
+        /// Service name
+        #[arg(long)]
+        name: String,
+
+        /// Virtual .onion port (e.g. 22)
+        #[arg(long)]
+        onion_port: u16,
+
+        /// Local sshd port on the host
+        #[arg(long)]
+        local_ssh_port: u16,
     },
 }
 

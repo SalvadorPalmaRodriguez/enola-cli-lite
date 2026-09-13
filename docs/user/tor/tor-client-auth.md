@@ -1,4 +1,4 @@
-> **Versión:** 1.0 | **Actualizado:** 2026-09-06
+> **Versión:** 1.1 | **Actualizado:** 2026-09-10
 > **Estado:** ✅ **VIGENTE**
 > **Referencias:** commands.md
 # Tor Client Authorization — Guía para usuarios
@@ -56,15 +56,21 @@ Una vez añadido, ya puedes acceder al `.onion` desde tu Tor Browser.
 ## Rotación de claves
 
 Por seguridad, las claves deben rotarse cada 90 días (recomendado).
-El operador puede rotar tus claves:
+La rotación sigue el mismo modelo que la creación: **tú generas** el nuevo
+par de claves en tu equipo y solo envías la nueva clave pública al operador.
 
 ```bash
-sudo enola-cli tor auth rotate mi-servicio --client mi-nombre
+# 1. (CLIENTE) Genera un nuevo par de claves
+enola-cli tor auth generate --client mi-nombre
+
+# 2. Envía la NUEVA clave pública al operador (Signal, PGP, etc.)
+
+# 3. (OPERADOR) Sustituye la clave pública en el servidor
+sudo enola-cli tor auth rotate mi-servicio --client mi-nombre --pubkey <nueva-pública>
 ```
 
-Esto genera un nuevo par de claves. El operador te enviará la nueva
-clave privada por canal seguro. Debes importarla en tu Tor Browser
-reemplazando la anterior.
+Tu clave privada antigua deja de ser válida. Importa la nueva clave privada
+en tu Tor Browser reemplazando la anterior.
 
 ## Comparación con GitHub/GitLab
 
@@ -95,8 +101,9 @@ Contacta al operador del servicio. Tendrá que revocar tu clave antigua
 y añadir una nueva que generes.
 
 **¿Puede el operador ver mi clave privada?**
-No. Si tú generas las claves con `tor auth generate`, la privada solo
-se muestra una vez en tu terminal. El operador nunca la ve.
+No. Si tú generas las claves con `tor auth generate` (incluida la rotación),
+la privada solo se muestra una vez en tu terminal. El operador solo recibe
+y almacena tu clave pública.
 
 **¿Puedo usar la misma clave para varios servicios?**
 Técnicamente sí, pero no es recomendable. Usa claves separadas para

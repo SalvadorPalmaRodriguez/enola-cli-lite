@@ -5,8 +5,9 @@ use crate::cli::commands::{self, CliError, CliResult};
 use crate::cli::{
     AppArmorCommands, Cli, Commands, DiagnosticsCommands, DocsCommands, DrupalCommands,
     FileCommands, FirewallCommands, GhostCommands, GitCommands, GitUserCommands, LogCommands,
-    MagnoliaCommands, MaintenanceCommands, PortsCommands, StrapiCommands, TestCommands,
-    TorAuthCommands, TorCommands, VpnCommands, VpnPeerCommands, WagtailCommands, WordPressCommands,
+    MagnoliaCommands, MaintenanceCommands, PortsCommands, SshCommands, StrapiCommands,
+    TestCommands, TorAuthCommands, TorCommands, VpnCommands, VpnPeerCommands, WagtailCommands,
+    WordPressCommands,
 };
 use std::sync::Arc;
 
@@ -45,6 +46,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
         Commands::Firewall(cmd) => execute_firewall(cmd).await,
         Commands::Apparmor(cmd) => execute_apparmor(cmd).await,
         Commands::Vpn(cmd) => execute_vpn(cmd).await,
+        Commands::Ssh(cmd) => execute_ssh(cmd).await,
         Commands::Setup {
             all,
             vpn,
@@ -503,7 +505,7 @@ async fn execute_tor_auth(cmd: TorAuthCommands, format: &str) -> CliResult<Strin
         TorAuthCommands::Generate { client } => {
             // Modelo GitHub/GitLab: el CLIENTE genera su propio par de claves.
             // La privada NUNCA sale de su equipo. Solo envía la pública al operador.
-            let (pubkey, privkey) = commands::tor::auth::generate(&client).await?;
+            let keypair = commands::tor::auth::generate(&client).await?;
             // PQC-014: Advertencia post-cuántica — X25519 no es resistente a Shor
             Ok(format!(
                 "🔐 Generated keypair for client '{}'\n\n\
@@ -520,33 +522,29 @@ async fn execute_tor_auth(cmd: TorAuthCommands, format: &str) -> CliResult<Strin
                  🔬 QUANTUM SECURITY NOTE:\n\
                     These keys use X25519 (Curve25519), which is NOT resistant to quantum\n\
                     computers (Shor's algorithm). Mitigations:\n\
-                    • Rotate keys periodically: enola-cli tor auth rotate <service-name> --client {}\n\
+                    • Rotate keys periodically: enola-cli tor auth rotate <service-name> --client {} --pubkey <new-key>\n\
                     • The Tor Project is working on post-quantum auth (ML-KEM). Update when available.\n\
                     • See PQC documentation",
-                client, client, pubkey, privkey, client
+                client, client, keypair.public_key, keypair.private_key, client
             ))
         }
-        // PQC-013: Rotar claves X25519 — el cliente genera nuevas claves
-        // El operador actualiza solo la pública en el servidor
-        // Mitiga HNDL reduciendo la vida útil de cada par de claves
-        TorAuthCommands::Rotate { service, client } => {
-            let (pubkey, privkey) = commands::tor::auth::generate(&client).await?;
-            // Revocar la clave antigua y añadir la nueva en una operación atómica
-            commands::tor::auth::revoke(&service, &client).await?;
-            commands::tor::auth::add(&service, &client, &pubkey).await?;
+        // PQC-013: Rotar claves X25519 — el cliente genera el nuevo par y
+        // envía SOLO la pública; el operador sustituye la pública almacenada.
+        TorAuthCommands::Rotate {
+            service,
+            client,
+            pubkey,
+        } => {
+            commands::tor::auth::rotate(&service, &client, &pubkey).await?;
             Ok(format!(
-                "🔄 Keypair rotated for client '{}' on service '{}'\n\n\
+                "🔄 Public key rotated for client '{}' on service '{}'\n\n\
                  ── ROTATION FLOW ──\n\
-                 New keys were generated. The server has been updated with the new public key.\n\
-                 The client MUST import the new private key in their Tor Browser.\n\n\
-                 📤 NEW PUBLIC KEY (already updated on server):\n{}\n\n\
-                 📥 NEW PRIVATE KEY (send to client — they import in Tor Browser):\n{}\n\n\
-                 ⚠️  The old private key is now invalid.\n\
-                 ⚠️  Send the private key to the client via a secure channel (Signal, PGP, etc.)\n\n\
+                 The server now trusts the new public key.\n\
+                 The client MUST import the matching new private key in their Tor Browser.\n\n\
+                 ⚠️  The old private key is now invalid.\n\n\
                  🔬 QUANTUM SECURITY: Regular rotation reduces the HNDL attack window.\n\
-                    Recommended rotation frequency: every 90 days.\n\
-                    Future: will migrate to ML-KEM when Tor supports post-quantum auth (PQC-043).",
-                client, service, pubkey, privkey
+                    Recommended rotation frequency: every 90 days.",
+                client, service
             ))
         }
     }
@@ -2794,6 +2792,30 @@ async fn execute_docs(cmd: DocsCommands) -> CliResult<String> {
         DocsCommands::VerifyDownloads => docs::verify_downloads(),
         DocsCommands::Security => docs::security(),
         DocsCommands::InstallFromIso => docs::install_from_iso(),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SSH EXECUTOR
+// ═══════════════════════════════════════════════════════════════════════════
+async fn execute_ssh(cmd: SshCommands) -> CliResult<String> {
+    match cmd {
+        SshCommands::AddKey {
+            user,
+            pubkey,
+            comment,
+        } => commands::ssh::add_key(user.as_deref(), &pubkey, comment.as_deref()).await,
+        SshCommands::DeployHidden {
+            name,
+            onion_port,
+            local_ssh_port,
+        } => {
+            let onion = commands::ssh::deploy_hidden(&name, onion_port, local_ssh_port).await?;
+            Ok(format!(
+                "✅ SSH hidden service '{}' deployed\n🧅 Onion address: {}\n   Port {} → localhost:{}",
+                name, onion, onion_port, local_ssh_port
+            ))
+        }
     }
 }
 

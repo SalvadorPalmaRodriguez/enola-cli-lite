@@ -1,5 +1,15 @@
 use serde::Serialize;
 
+/// Client authorization keypair (X25519, base32-encoded).
+///
+/// The field order is explicit — no bare tuples — to avoid the
+/// historical `(Priv, Pub)` vs `(Pub, Priv)` ambiguity.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClientKeypair {
+    pub public_key: String,
+    pub private_key: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TorServiceInfo {
     pub name: String,

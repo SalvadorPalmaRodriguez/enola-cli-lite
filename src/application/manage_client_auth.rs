@@ -1,5 +1,5 @@
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::tor::TorManagerPort;
+use crate::ports::tor::{ClientKeypair, TorManagerPort};
 use std::sync::Arc;
 pub struct ManageClientAuth {
     tor_manager: Arc<dyn TorManagerPort + Send + Sync>,
@@ -51,8 +51,38 @@ impl ManageClientAuth {
             .revoke_client_auth(service_name, client_name)
             .await
     }
-    pub async fn generate_keys(&self, client_name: &str) -> Result<(String, String)> {
+    pub async fn generate_keys(&self, client_name: &str) -> Result<ClientKeypair> {
         self.tor_manager.generate_client_keys(client_name).await
+    }
+
+    /// Rotate a client's public key: replace the stored public key with a new
+    /// one provided by the client (generated locally with `tor auth generate`).
+    ///
+    /// This is atomic by design: the same `{client}.auth` file is overwritten
+    /// with the new public key in a single write, so there is no window where
+    /// the client has neither the old nor the new key. The private key is never
+    /// generated nor handled by the operator.
+    pub async fn rotate_client(
+        &self,
+        service_name: &str,
+        client_name: &str,
+        new_public_key: &str,
+    ) -> Result<()> {
+        if client_name.is_empty() {
+            return Err(EnolaError::ValidationError(
+                "Client name cannot be empty".to_string(),
+            ));
+        }
+        if new_public_key.len() != 52 {
+            return Err(EnolaError::ValidationError(
+                "Invalid key length. Must be 52 chars base32".to_string(),
+            ));
+        }
+        // Ensure auth is enabled, then overwrite the client's public key.
+        self.tor_manager.enable_client_auth(service_name).await?;
+        self.tor_manager
+            .add_client_auth(service_name, client_name, new_public_key)
+            .await
     }
 }
 
@@ -117,14 +147,14 @@ mod tests {
         async fn reload_tor(&self) -> Result<()> {
             Ok(())
         }
-        async fn generate_client_keys(&self, _: &str) -> Result<(String, String)> {
+        async fn generate_client_keys(&self, _: &str) -> Result<ClientKeypair> {
             if self.should_fail {
                 Err(EnolaError::InfrastructureError("Generate failed".into()))
             } else {
-                Ok((
-                    "PRIVKEY1234567890123456789012345678901234567890AB".into(),
-                    "PUBKEY12345678901234567890123456789012345678901234".into(),
-                ))
+                Ok(ClientKeypair {
+                    public_key: "PUBKEY12345678901234567890123456789012345678901234".into(),
+                    private_key: "PRIVKEY1234567890123456789012345678901234567890AB".into(),
+                })
             }
         }
         async fn add_client_auth(&self, _: &str, _: &str, _: &str) -> Result<()> {
@@ -287,6 +317,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_rotate_client_success() {
+        let tor = Arc::new(MockTorManager::new());
+        let use_case = ManageClientAuth::new(tor.clone());
+        let key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST";
+
+        let result = use_case.rotate_client("myservice", "client1", key).await;
+
+        assert!(result.is_ok());
+        assert!(*tor.enable_auth_called.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_rotate_client_invalid_key_length() {
+        let tor = Arc::new(MockTorManager::new());
+        let use_case = ManageClientAuth::new(tor);
+
+        let result = use_case
+            .rotate_client("myservice", "client1", "TOOSHORT")
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(EnolaError::ValidationError(msg)) => {
+                assert!(msg.contains("52 chars"));
+            }
+            _ => panic!("Expected ValidationError"),
+        }
+    }
+
+    #[tokio::test]
     async fn test_generate_keys_success() {
         let tor = Arc::new(MockTorManager::new());
         let use_case = ManageClientAuth::new(tor);
@@ -294,9 +354,9 @@ mod tests {
         let result = use_case.generate_keys("client1").await;
 
         assert!(result.is_ok());
-        let (priv_key, pub_key) = result.unwrap();
-        assert!(!priv_key.is_empty());
-        assert!(!pub_key.is_empty());
+        let keypair = result.unwrap();
+        assert!(keypair.private_key.starts_with("PRIVKEY"));
+        assert!(keypair.public_key.starts_with("PUBKEY"));
     }
 
     #[tokio::test]

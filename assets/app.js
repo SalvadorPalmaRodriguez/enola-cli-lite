@@ -386,7 +386,7 @@
                 '<div class="key-display">Private key: ' + escapeHtml(data.private_key) +
                 copyBtn(data.private_key, 'Copy') + '</div>' +
                 '<p class="hint">' + escapeHtml(data.message) + '</p>' +
-                '<p class="hint">⚠️ Send the PRIVATE key to the client securely. The PUBLIC key stays on the server.</p>';
+                '<p class="hint">⚠️ Send the PUBLIC key to the operator. Import the PRIVATE key in your Tor Browser.</p>';
         } catch (e) { toast(e.message, true); }
     };
 
@@ -417,19 +417,16 @@
 
     window.torAuthRotate = async function () {
         const service = document.getElementById('tor-auth-service').value;
+        const client = document.getElementById('tor-auth-rotate-client').value.trim();
+        const pubkey = document.getElementById('tor-auth-rotate-pubkey').value.trim();
         if (!service) { toast('Select a service first', true); return; }
+        if (!client) { toast('Client name required', true); return; }
+        if (!pubkey) { toast('New public key required', true); return; }
         try {
-            const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/rotate');
-            if (result && result.public_key) {
-                const el = document.getElementById('tor-auth-output');
-                el.innerHTML = '<div class="key-display">New public key: ' + escapeHtml(result.public_key) +
-                    copyBtn(result.public_key, 'Copy') + '</div>' +
-                    '<div class="key-display">New private key: ' + escapeHtml(result.private_key) +
-                    copyBtn(result.private_key, 'Copy') + '</div>' +
-                    '<p class="hint">' + escapeHtml(result.message) + '</p>';
-            } else {
-                toast(result || 'Keys rotated');
-            }
+            const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/rotate', { client, pubkey });
+            document.getElementById('tor-auth-output').innerHTML =
+                '<p class="hint">' + escapeHtml(result || 'Public key rotated') + '</p>';
+            torAuthLoadClients();
         } catch (e) { toast(e.message, true); }
     };
 

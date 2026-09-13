@@ -1191,7 +1191,8 @@ struct TorAuthRevokeRequest {
 
 #[derive(Deserialize)]
 struct TorAuthRotateRequest {
-    client: Option<String>,
+    client: String,
+    pubkey: String,
 }
 
 async fn api_tor_auth_revoke(
@@ -1222,12 +1223,12 @@ struct TorAuthGenerateResponse {
 async fn api_tor_auth_generate(
     Json(req): Json<TorAuthGenerateRequest>,
 ) -> ApiResult<TorAuthGenerateResponse> {
-    let (pubkey, privkey) = commands::tor::auth::generate(&req.client)
+    let keypair = commands::tor::auth::generate(&req.client)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(TorAuthGenerateResponse {
-        public_key: pubkey,
-        private_key: privkey,
+        public_key: keypair.public_key,
+        private_key: keypair.private_key,
         message: format!(
             "🔐 Generated keypair for client '{}'. Send the PUBLIC key to the operator.",
             req.client
@@ -1235,38 +1236,22 @@ async fn api_tor_auth_generate(
     }))
 }
 
-/// Rotate the x25519 keypair for a client on a Tor hidden service.
+/// Rotate the x25519 public key for a client on a Tor hidden service.
 ///
-/// Generates a new keypair, revokes the old client entry (if any), and adds
-/// the new public key. The revoke step is best-effort: if the client never
-/// existed (e.g. first rotation), the error is silently ignored and the
-/// new keypair is added anyway. This matches the semantics of "rotate" —
-/// the caller wants fresh keys regardless of prior state.
-///
-/// `client` is optional in the request body. If omitted, defaults to
-/// `"rotated-client"`. The frontend (`torAuthRotate`) does not send it.
+/// The client generated the new keypair locally and sends only the new PUBLIC
+/// key. The operator replaces the stored public key with it. The private key
+/// never reaches the operator, so no key material is returned here.
 async fn api_tor_auth_rotate(
     Path(service): Path<String>,
     Json(req): Json<TorAuthRotateRequest>,
-) -> ApiResult<TorAuthGenerateResponse> {
-    let client = req.client.unwrap_or_else(|| "rotated-client".to_string());
-    let (pubkey, privkey) = commands::tor::auth::generate(&client)
+) -> ApiResult<String> {
+    commands::tor::auth::rotate(&service, &req.client, &req.pubkey)
         .await
         .map_err(ApiError::from)?;
-    // Best-effort revoke: client may not exist yet (first rotation).
-    // Silently ignore "not found" — the goal is to install fresh keys.
-    let _ = commands::tor::auth::revoke(&service, &client).await;
-    commands::tor::auth::add(&service, &client, &pubkey)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(TorAuthGenerateResponse {
-        public_key: pubkey,
-        private_key: privkey,
-        message: format!(
-            "🔄 Keypair rotated for client '{}' on service '{}'",
-            client, service
-        ),
-    }))
+    Ok(Json(format!(
+        "🔄 Public key rotated for client '{}' on service '{}'",
+        req.client, service
+    )))
 }
 
 // ── Git Complete ──────────────────────────────────────────────────────────────
