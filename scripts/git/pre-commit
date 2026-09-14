@@ -5,6 +5,7 @@
 #   2. cargo fmt --check
 #   3. Coherencia de archivos de contexto IA (check 18)
 #   4. Anti-leak operator en blobs staged (DOC-SEC-005)
+#   5. Aviso temprano de advisories (cargo audit --no-fetch, NO bloqueante)
 #
 # Instalar:
 #   bash scripts/git/install-hooks.sh
@@ -105,6 +106,28 @@ if [[ "$FOUND_LEAKS" -ne 0 ]]; then
     echo "  Para saltarte esta comprobación (NO recomendado):" >&2
     echo "    git commit --no-verify" >&2
     exit 1
+fi
+
+# ─── 5. Aviso temprano de advisories (NO bloqueante) ───────────────────
+# El gate autoritativo es `pre-push` (run_all.sh --strict, check 14), que
+# hace fetch completo de la advisory DB. Aquí solo se avisa pronto usando
+# la DB ya cacheada (--no-fetch): sin red y sin latencia en cada commit.
+# NUNCA bloquea: un advisory publicado upstream no debe impedir commitear
+# trabajo local en curso — eso lo frena el push.
+if command -v cargo-audit &>/dev/null; then
+    echo "🔍 Advisories de dependencias (aviso temprano, no bloqueante)..."
+    if AUDIT_OUT=$(cargo audit --no-fetch 2>&1); then
+        echo "  ✅ Sin vulnerabilidades conocidas (DB local cacheada)"
+    elif printf '%s\n' "$AUDIT_OUT" | grep -qE "^Crate:"; then
+        echo "  ⚠️  cargo audit reporta vulnerabilidades — el PUSH sí se bloqueará:" >&2
+        printf '%s\n' "$AUDIT_OUT" | grep -E "^(Crate|ID|Severity|Solution):" >&2 || true
+        echo "" >&2
+        echo "     Fix habitual (transitiva):  cargo update -p <crate>" >&2
+        echo "     Este commit NO se bloquea." >&2
+    else
+        echo "  ℹ️  DB local ausente u obsoleta (--no-fetch): no evaluado aquí." >&2
+        echo "     Se verificará de forma autoritativa en pre-push." >&2
+    fi
 fi
 
 exit 0

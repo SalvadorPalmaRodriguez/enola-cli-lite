@@ -44,8 +44,19 @@ echo ""
 # ─── 3. Auditoría completa (anti-filtración + versión + docs IA) ───────
 echo "3/4  🔍 run_all.sh --profile cli --strict"
 if ! bash docs/dev/audit/run_all.sh --profile cli --strict; then
-    echo ""
-    echo "❌ Auditoría bloqueada. Corrige los hallazgos antes de pushar."
+    echo "" >&2
+    echo "❌ Auditoría bloqueada. Corrige los hallazgos antes de pushar." >&2
+    echo "" >&2
+    echo "  Si el bloqueo viene del check 14 (cargo audit / cargo deny):" >&2
+    echo "    · Busca arriba las líneas 'Crate:' y 'Solution: Upgrade to >=X.Y.Z'." >&2
+    echo "    · Casi siempre es una dependencia TRANSITIVA; se arregla con:" >&2
+    echo "        cargo update -p <crate>" >&2
+    echo "      Comprueba el alcance antes:  cargo update -p <crate> --dry-run" >&2
+    echo "    · No la declares en Cargo.toml solo para fijar versión: el pin" >&2
+    echo "      correcto de una transitiva vive en Cargo.lock." >&2
+    echo "    · Luego: cargo build --release && cargo test --lib --release" >&2
+    echo "      y commitea SOLO Cargo.lock." >&2
+    echo "    · 'warning[yanked]' NO bloquea (ver deny.toml); el bloqueo es un CVE." >&2
     exit 1
 fi
 echo "  ✅ Auditoría limpia"
