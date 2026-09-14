@@ -43,22 +43,62 @@ echo ""
 
 # ─── 3. Auditoría completa (anti-filtración + versión + docs IA) ───────
 echo "3/4  🔍 run_all.sh --profile cli --strict"
-if ! bash docs/dev/audit/run_all.sh --profile cli --strict; then
+# Se guarda transcripción sin ANSI para poder señalar el check culpable:
+# antes el mensaje de fallo asumía que el bloqueo venía del check 14, lo
+# que despistaba cuando el culpable era un warning de otro check.
+# mktemp (no un nombre predecible en /tmp) para evitar symlink attack y
+# crear con 0600: la transcripción lista rutas del repo y contadores de
+# hallazgos, y con umask 0002 un nombre fijo quedaría legible por todos.
+AUDIT_LOG="$(mktemp -t enola_prepush_audit.XXXXXX)"
+# OJO: no usar `if ! cmd; then AUDIT_RC=$?` — el `!` invierte el estado y
+# $? valdría 0 dentro del then. Se captura con `|| AUDIT_RC=$?`.
+AUDIT_RC=0
+bash docs/dev/audit/run_all.sh --profile cli --strict --output "$AUDIT_LOG" || AUDIT_RC=$?
+
+if [ "$AUDIT_RC" -ne 0 ]; then
     echo "" >&2
-    echo "❌ Auditoría bloqueada. Corrige los hallazgos antes de pushar." >&2
+    if [ "$AUDIT_RC" -eq 2 ]; then
+        echo "❌ Push bloqueado: la auditoría NO tiene errores, pero sí warnings." >&2
+        echo "   Con --strict, UN SOLO warning bloquea (run_all.sh exit=2)." >&2
+    else
+        echo "❌ Push bloqueado: auditoría con errores (run_all.sh exit=$AUDIT_RC)." >&2
+    fi
     echo "" >&2
-    echo "  Si el bloqueo viene del check 14 (cargo audit / cargo deny):" >&2
-    echo "    · Busca arriba las líneas 'Crate:' y 'Solution: Upgrade to >=X.Y.Z'." >&2
-    echo "    · Casi siempre es una dependencia TRANSITIVA; se arregla con:" >&2
-    echo "        cargo update -p <crate>" >&2
+
+    # Checks culpables, a partir de las sentinelas AUDIT_RESULT.
+    OFFENDERS=$(awk '/^AUDIT_RESULT /{
+        c=""; e=0; w=0
+        for (i=1; i<=NF; i++) {
+            if ($i ~ /^check=/)    c = substr($i, 7)
+            if ($i ~ /^errors=/)   e = substr($i, 8) + 0
+            if ($i ~ /^warnings=/) w = substr($i, 10) + 0
+        }
+        if (e > 0 || w > 0) printf "    · %s → errors=%d warnings=%d\n", c, e, w
+    }' "$AUDIT_LOG")
+    if [ -n "$OFFENDERS" ]; then
+        echo "  Checks con hallazgos:" >&2
+        printf '%s\n' "$OFFENDERS" >&2
+        echo "" >&2
+    fi
+
+    DETAIL=$(grep -E "(ERROR|WARN):" "$AUDIT_LOG" | head -20 || true)
+    if [ -n "$DETAIL" ]; then
+        echo "  Detalle:" >&2
+        printf '%s\n' "$DETAIL" | sed 's/^ */    /' >&2
+        echo "" >&2
+    fi
+
+    echo "  Transcripción completa (sin colores): $AUDIT_LOG" >&2
+    echo "" >&2
+    echo "  Si el hallazgo es del check 14 (cargo audit / cargo deny):" >&2
+    echo "    · Busca 'Crate:' y 'Solution: Upgrade to >=X.Y.Z' en la transcripción." >&2
+    echo "    · Suele ser una dependencia TRANSITIVA:  cargo update -p <crate>" >&2
     echo "      Comprueba el alcance antes:  cargo update -p <crate> --dry-run" >&2
-    echo "    · No la declares en Cargo.toml solo para fijar versión: el pin" >&2
-    echo "      correcto de una transitiva vive en Cargo.lock." >&2
-    echo "    · Luego: cargo build --release && cargo test --lib --release" >&2
-    echo "      y commitea SOLO Cargo.lock." >&2
-    echo "    · 'warning[yanked]' NO bloquea (ver deny.toml); el bloqueo es un CVE." >&2
+    echo "    · El pin de una transitiva vive en Cargo.lock, no en Cargo.toml." >&2
+    echo "    · 'warning[yanked]' NO bloquea por sí solo (ver deny.toml)." >&2
     exit 1
 fi
+rm -f "$AUDIT_LOG"
 echo "  ✅ Auditoría limpia"
 echo ""
 
