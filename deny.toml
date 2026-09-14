@@ -5,9 +5,34 @@
 # Or:  bash scripts/supply-chain-check.sh
 
 [advisories]
-# cargo-deny 0.20.x: all advisories (vulnerability, unmaintained, unsound, yanked, notice)
+# cargo-deny 0.20.x: vulnerability / unmaintained / unsound / notice advisories
 # are denied by default. Use `ignore` to suppress specific advisory IDs.
+# `yanked` is the exception: it is reported at WARN level, so a yanked crate
+# does NOT fail `cargo deny check advisories` (verified empirically with
+# cargo-deny 0.20.2 — output is `warning[yanked]`, not `error[yanked]`).
 unmaintained = "all"
+
+# ── Yanked crates currently tolerated (reviewed 2026-09-14) ──────────────
+# `chacha20 0.10.1` and `der 0.8.0` are reported as yanked by both
+# `cargo audit` ("2 allowed warnings") and `cargo deny` ("warning[yanked]").
+# Neither blocks the audit gate.
+#
+# They are transitive pre-release deps of the post-quantum signing stack:
+#     ml-dsa 0.1.0-rc.8 → pkcs8 0.11.0-rc.11 → {der 0.8.0, spki 0.8.0}
+#     ml-dsa 0.1.0-rc.8 → chacha20 0.10.1
+#
+# `ml-dsa` is still a release candidate, so dragging along yanked
+# pre-releases of its own dependency tree is expected, not a defect.
+#
+# DO NOT try to "fix" this by pinning or replacing these crates: `ml-dsa`
+# produces the ML-DSA-65 (FIPS 204) signatures for every release, and
+# forcing its dependency graph risks breaking signature compatibility with
+# already-published `.pqsig` assets.
+#
+# Revisit when `ml-dsa` publishes a stable (non-rc) release: bump it, then
+# re-run `cargo audit` and drop this note if the warnings disappear.
+# Escalate ONLY if either crate turns into a real advisory (RUSTSEC ID with
+# a vulnerability), which WOULD block the gate.
 
 [licenses]
 # Allow only permissive and weak-copyleft licenses.
