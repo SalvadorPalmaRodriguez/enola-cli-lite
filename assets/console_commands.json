@@ -210,23 +210,6 @@
       "--pubkey",
       "--json"
     ],
-    "plan.wp.create": [
-      "--name",
-      "--http-port"
-    ],
-    "plan.git.create": [
-      "--name",
-      "--ssl",
-      "--http-port",
-      "--ssh-port"
-    ],
-    "plan.tor.create": [
-      "--name",
-      "--service-type",
-      "--virtual-port",
-      "--target-port",
-      "--ssl"
-    ],
     "vpn.create": [
       "--port",
       "--subnet",
