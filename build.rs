@@ -169,6 +169,45 @@ fn generate_console_commands_json() {
                     ),
                 );
             }
+
+            // Nivel 3: si `nested` es un grupo con UN SOLO subcomando hoja
+            // (ej: `plan wp` → `create`), promover las flags del hoja a la
+            // clave de 2 niveles `plan.wp`. La consola web solo resuelve
+            // `parts[0].parts[1]`, así que es la única vía de autocompletarlas.
+            // Grupos con varios leaves (tor auth, git user, vpn peer) son
+            // ambiguos → se omiten, igual que hasta ahora.
+            let leaves: Vec<_> = nested.get_subcommands().collect();
+            if leaves.len() == 1 {
+                let leaf_flags: Vec<String> = leaves[0]
+                    .get_arguments()
+                    .filter_map(|a| a.get_long().map(|l| format!("--{}", l)))
+                    .collect();
+                if !leaf_flags.is_empty() {
+                    let key = format!("{}.{}", name, nested.get_name());
+                    // Merge defensivo: si el grupo tuviera args propios ya
+                    // registrados, se unen con los del hoja sin duplicar.
+                    let mut merged: Vec<String> = flags
+                        .get(&key)
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    for f in leaf_flags {
+                        if !merged.contains(&f) {
+                            merged.push(f);
+                        }
+                    }
+                    flags.insert(
+                        key,
+                        serde_json::Value::Array(
+                            merged.into_iter().map(serde_json::Value::String).collect(),
+                        ),
+                    );
+                }
+            }
         }
     }
 

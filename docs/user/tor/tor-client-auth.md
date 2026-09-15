@@ -114,7 +114,7 @@ Técnicamente sí, pero no es recomendable. Usa claves separadas para
 cada servicio por seguridad.
 
 **¿Por qué `tor auth revoke` rechaza un nombre de cliente raro?**
-Desde la validación estricta (commit `8e324f1`), `add`, `revoke` y `rotate`
+Desde la validación estricta (commit `95c2b8a`), `add`, `revoke` y `rotate`
 solo aceptan nombres con caracteres `[A-Za-z0-9._-]` (sin prefijo `.`, máx 64
 chars) para evitar path traversal sobre `authorized_clients/`. Si existe un
 cliente **legado** creado antes de esa validación con un nombre fuera de la

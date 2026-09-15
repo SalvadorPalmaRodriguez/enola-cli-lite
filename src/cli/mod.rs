@@ -321,4 +321,74 @@ mod console_json_sync {
             );
         }
     }
+
+    /// CONSOLE-JSON-FLAGS: las flags de `plan <svc> create` se promueven a la
+    /// clave de 2 niveles `plan.<svc>` (única que la consola web resuelve),
+    /// y los grupos ambiguos de 3 niveles (tor auth, git user, vpn peer)
+    /// NO emiten flags.
+    #[test]
+    fn console_json_plan_flags_promoted() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let json_path = format!("{manifest_dir}/assets/console_commands.json");
+        let json_str = std::fs::read_to_string(&json_path)
+            .unwrap_or_else(|e| panic!("no se pudo leer {json_path}: {e}"));
+        let json: serde_json::Value =
+            serde_json::from_str(&json_str).expect("console_commands.json no es JSON válido");
+
+        let flags = json["flags"].as_object().expect("flags no es un objeto");
+        let get = |key: &str| -> BTreeSet<String> {
+            flags
+                .get(key)
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        // Grupos de un solo leaf (`create`) → flags promovidas a 2 niveles.
+        assert_eq!(
+            get("plan.wp"),
+            ["--http-port", "--name"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+        assert_eq!(
+            get("plan.git"),
+            ["--http-port", "--name", "--ssh-port", "--ssl"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+        assert_eq!(
+            get("plan.tor"),
+            [
+                "--name",
+                "--service-type",
+                "--ssl",
+                "--target-port",
+                "--virtual-port"
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect()
+        );
+
+        // Grupos ambiguos de 3 niveles → sin flags (convención establecida).
+        assert!(!flags.contains_key("tor.auth"));
+        assert!(!flags.contains_key("git.user"));
+        assert!(!flags.contains_key("vpn.peer"));
+
+        // No deben existir claves de 3 niveles (0 = flag de comando plano,
+        // 1 = modulo.sub — la consola solo resuelve esos dos).
+        for key in flags.keys() {
+            assert!(
+                key.matches('.').count() <= 1,
+                "flag key '{key}' tiene más de 2 niveles — la consola solo resuelve modulo.sub"
+            );
+        }
+    }
 }

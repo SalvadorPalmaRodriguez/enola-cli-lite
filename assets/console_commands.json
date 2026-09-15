@@ -110,6 +110,23 @@
       "--force",
       "--dry-run"
     ],
+    "plan.git": [
+      "--name",
+      "--ssl",
+      "--http-port",
+      "--ssh-port"
+    ],
+    "plan.tor": [
+      "--name",
+      "--service-type",
+      "--virtual-port",
+      "--target-port",
+      "--ssl"
+    ],
+    "plan.wp": [
+      "--name",
+      "--http-port"
+    ],
     "ports.list": [
       "--json"
     ],

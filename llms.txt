@@ -1,6 +1,6 @@
 # Enola CLI
 
-> Enola CLI is a Rust command-line tool for self-hosting Tor hidden services (.onion), Git servers (Forgejo), CMS platforms (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail), anonymous file sharing, WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux. All services bind to 127.0.0.1 and are exposed only through Tor. Releases are signed with minisign (Ed25519) and post-quantum ML-DSA-65 (FIPS 204).
+> Enola CLI builds private infrastructure on Linux: self-hosted services that bind only to 127.0.0.1 and are reachable exclusively through the Tor network, with system hardening applied by default and releases verifiable offline. Deploy targets include Tor hidden services (.onion), Git servers (Forgejo), CMS platforms (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail), anonymous file sharing, WireGuard VPN, UFW firewall and AppArmor sandboxing on Debian/Linux. Releases are signed with minisign (Ed25519) and post-quantum ML-DSA-65 (FIPS 204).
 
 Important notes:
 

@@ -1,4 +1,4 @@
-# 🚀 Enola CLI — Privacidad por diseño, auto-alojamiento sobre Tor
+# 🚀 Enola CLI — Infraestructura Privada para Linux
 
 **[English](README.md)** · **Español**
 
@@ -9,7 +9,13 @@
 
 ![Enola CLI — Tor Hidden Services Demo](docs/demo_tor.gif)
 
-> **CLI para gestionar servicios Tor, servidores Git, WordPress, CMS y archivos compartidos.**
+> **Enola CLI** construye **infraestructura privada en Linux**: servicios auto-alojados que escuchan solo en `127.0.0.1` y son accesibles exclusivamente a través de la red Tor — con hardening aplicado por defecto y releases verificables offline.
+>
+> - 🔒 **Privada** — nada escucha en una interfaz pública; la exposición ocurre solo mediante servicios `.onion` de Tor, con autorización de cliente opcional.
+> - 🛡️ **Endurecida** — firewall, sandboxing y defaults seguros forman parte de la instalación, no son un añadido.
+> - 🔐 **Verificable** — cada release está doblemente firmada (minisign + ML-DSA-65 post-cuántico, FIPS 204) y es verificable offline.
+>
+> Los targets de despliegue incluyen hosting Git (Forgejo), seis CMS (WordPress, Drupal, Ghost, Magnolia, Strapi, Wagtail), sitios estáticos, compartición de archivos y VPN WireGuard — cada uno publicable como servicio oculto Tor con un solo comando.
 >
 > 📖 **Documentación**: [https://salvadorpalmarodriguez.github.io/enola-cli-lite/](https://salvadorpalmarodriguez.github.io/enola-cli-lite/) · 📄 **[llms.txt](llms.txt)** para indexadores de IA — la legibilidad por IA no constituye concesión de licencia; ver [LICENSE](LICENSE)
 
