@@ -103,10 +103,18 @@ sudo bash install.sh
 El instalador descarga el binario, verifica SHA256 + firma minisign, e instala todo.
 
 **Modo offline / tarball:** el asset `*-client.tar.gz` es autocontenido (binario + `install.sh` + `uninstall.sh` + `enola-cli.sha256`). Tras verificar el `.minisig` del tarball y extraerlo, ejecuta `sudo bash install.sh` dentro del directorio — instala desde el binario incluido sin descargar nada. Usa `ENOLA_INSTALL_FORCE_DOWNLOAD=1` para forzar la descarga remota.
-Después de instalar, verifica la firma post-cuántica del binario (ML-DSA-65, FIPS 204):
+
+Para verificar la **firma post-cuántica** (ML-DSA-65, FIPS 204) de tu descarga, ejecuta `enola-cli verify` sobre el **tarball** que descargaste (no sobre el binario instalado — el `.pqsig` se publica junto al tarball del release, no junto al fichero instalado):
+
 ```bash
-enola-cli verify /usr/local/bin/enola-cli
+# Descarga el tarball cliente y su firma post-cuántica
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz.pqsig
+
+# Verifica (usa la clave pública ML-DSA-65 embebida en enola-cli y el .sha256 hermano)
+enola-cli verify enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz
 ```
+
 Ver guía completa: [verify-downloads.md](docs/user/verify/verify-downloads.md)
 
 ---
@@ -981,6 +989,7 @@ Cada módulo tiene una referencia de comandos dedicada con descripciones complet
 | Wagtail | [commands-wagtail.md](docs/user/wagtail/commands-wagtail.md) |
 | Files | [commands-files.md](docs/user/files/commands-files.md) |
 | VPN | [commands-vpn.md](docs/user/vpn/commands-vpn.md) |
+| Plan (dry-run) | [commands-plan.md](docs/user/general/commands-plan.md) |
 | Maintenance | [commands-simple.md](docs/user/general/commands-simple.md) |
 | Seguridad | [quantum-security.md](docs/user/general/quantum-security.md) · [SECURITY.md](docs/user/general/SECURITY.md) |
 | Verificación | [verify-downloads.md](docs/user/verify/verify-downloads.md) |

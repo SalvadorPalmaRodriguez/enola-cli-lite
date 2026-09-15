@@ -12,6 +12,7 @@ pub mod git;
 pub mod git_flattening;
 pub(crate) mod license_acceptance; // LIC-002 — License acceptance on first run
 pub mod naming;
+pub mod plan; // Tarea 3 — `enola plan` dry-run domain types
 pub mod port_config;
 pub mod system;
 pub mod tests;

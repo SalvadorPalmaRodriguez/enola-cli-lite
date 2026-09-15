@@ -43,6 +43,7 @@ const DOCS_COMMANDS_DIAG: &str = include_str!("../../docs/user/diag/commands-dia
 const DOCS_COMMANDS_LOGS: &str = include_str!("../../docs/user/logs/commands-logs.md");
 const DOCS_COMMANDS_UPDATE: &str = include_str!("../../docs/user/update/commands-update.md");
 const DOCS_COMMANDS_SIMPLE: &str = include_str!("../../docs/user/general/commands-simple.md");
+const DOCS_COMMANDS_PLAN: &str = include_str!("../../docs/user/general/commands-plan.md");
 const DOCS_COMMANDS_SETUP: &str = include_str!("../../docs/user/setup/commands-setup.md");
 const DOCS_COMMANDS_TEST: &str = include_str!("../../docs/user/test/commands-test.md");
 const DOCS_WEB: &str = include_str!("../../docs/user/web/README.md");
@@ -85,6 +86,7 @@ const COMMAND_FAMILY_DOCS: &[(&[&str], &str)] = &[
         DOCS_COMMANDS_SIMPLE,
     ),
     (&["docs", "documentation"], DOCS_COMMANDS_DOCS),
+    (&["plan", "dry-run"], DOCS_COMMANDS_PLAN),
     (
         &["tor-auth", "tor-client-auth", "client-auth"],
         DOCS_TOR_CLIENT_AUTH,

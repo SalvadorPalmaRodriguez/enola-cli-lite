@@ -193,6 +193,23 @@
       "--pubkey",
       "--json"
     ],
+    "plan.wp.create": [
+      "--name",
+      "--http-port"
+    ],
+    "plan.git.create": [
+      "--name",
+      "--ssl",
+      "--http-port",
+      "--ssh-port"
+    ],
+    "plan.tor.create": [
+      "--name",
+      "--service-type",
+      "--virtual-port",
+      "--target-port",
+      "--ssl"
+    ],
     "vpn.create": [
       "--port",
       "--subnet",
@@ -257,7 +274,8 @@
     "config-validate",
     "docs",
     "update",
-    "web"
+    "web",
+    "plan"
   ],
   "subcommands": {
     "apparmor": [
@@ -362,6 +380,11 @@
       "ssh-harden-pqc",
       "backup",
       "cleanup"
+    ],
+    "plan": [
+      "wp",
+      "tor",
+      "git"
     ],
     "ports": [
       "list"

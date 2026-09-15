@@ -108,7 +108,7 @@ pub enum Commands {
     /// Manage Magnolia CMS instances (CMS-MAGNOLIA-CLI)
     ///
     /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2.
-    /// Note: needs ≥4 GB RAM available on the host.
+    /// Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.
     ///
     /// Examples:
     ///   sudo enola-cli magnolia create --name mysite --http-port 8100
@@ -467,6 +467,24 @@ pub enum Commands {
         #[arg(short, long, default_value = "8090")]
         port: u16,
     },
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PLAN (📋 Dry-run — Tarea 3)
+    // ═══════════════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/general/commands-plan.md
+    /// Plan a service creation as a dry-run (0 side effects).
+    ///
+    /// Shows what WOULD happen: ports to open/assign, Docker containers to
+    /// create, filesystem paths, UFW rules, AppArmor profiles, and a
+    /// statically-computed risk level — WITHOUT executing anything.
+    ///
+    /// Examples:
+    ///   enola-cli plan wp create --name foo --http-port 8090
+    ///   enola-cli plan git create --name repo --http-port 10500 --ssh-port 30100
+    ///   enola-cli plan tor create --name svc --target-port 15000
+    ///   enola-cli --format json plan wp create --name foo
+    #[command(subcommand)]
+    Plan(PlanCommands),
 }
 
 /// UPD-CLI-001: subcomandos del comando `update`.
@@ -553,6 +571,92 @@ pub enum UpdateCommands {
         /// Allow applying without minisign signature verification (dangerous).
         #[arg(long)]
         allow_unsigned: bool,
+    },
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLAN SUBCOMMANDS (Tarea 3 — dry-run)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Duplica los args de los *Commands::Create correspondientes (wp/tor/git),
+// limitados a los que afectan al plan (puertos, nombre, tipo, ssl).
+// admin_user/admin_password de `git create` se omiten: no cambian puertos,
+// contenedor, firewall ni AppArmor.
+
+#[derive(Subcommand, Debug)]
+pub enum PlanCommands {
+    /// Plan a WordPress site creation (dry-run)
+    #[command(subcommand)]
+    Wp(PlanWpCommands),
+
+    /// Plan a Tor hidden service creation (dry-run)
+    #[command(subcommand)]
+    Tor(PlanTorCommands),
+
+    /// Plan a Git server creation (dry-run)
+    #[command(subcommand)]
+    Git(PlanGitCommands),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PlanWpCommands {
+    /// Plan a WordPress site creation (dry-run)
+    Create {
+        /// Site name (alphanumeric + hyphens, lowercase)
+        #[arg(short, long)]
+        name: String,
+
+        /// Puerto HTTP interno de WordPress (auto: rango 8080-9000)
+        #[arg(long, value_name = "PORT")]
+        http_port: Option<u16>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PlanTorCommands {
+    /// Plan a Tor hidden service creation (dry-run)
+    Create {
+        /// Service name (alphanumeric + hyphens, lowercase)
+        #[arg(short, long)]
+        name: String,
+
+        /// Service type: raw, web, static, files
+        #[arg(short, long, default_value = "web")]
+        service_type: String,
+
+        /// Virtual port (public .onion port, usually 80)
+        #[arg(short = 'p', long, default_value = "80")]
+        virtual_port: u16,
+
+        /// Target port (local app port; auto: rango 10000-20000)
+        #[arg(short, long)]
+        target_port: Option<u16>,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PlanGitCommands {
+    /// Plan a Git server creation (dry-run)
+    Create {
+        /// Nombre del servidor
+        #[arg(short, long)]
+        name: String,
+
+        /// Habilitar HTTPS con certificado autofirmado
+        #[arg(long)]
+        ssl: bool,
+
+        /// Puerto HTTP interno de Forgejo (auto: rango 10000-15000)
+        #[arg(long, value_name = "PORT")]
+        http_port: Option<u16>,
+
+        /// Puerto SSH interno de Forgejo (auto: rango 30000-35000)
+        #[arg(long, value_name = "PORT")]
+        ssh_port: Option<u16>,
     },
 }
 
@@ -1345,7 +1449,7 @@ pub enum MagnoliaCommands {
 
     /// Create a new Magnolia instance
     ///
-    /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat) with embedded H2. Needs ≥4 GB RAM.
+    /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat) with embedded H2. Needs ≥1.5 GB RAM (warns if <1536 MB); 4 GB recommended.
     /// Container prefix: `magnolia-`.
     Create {
         /// Instance name (alphanumeric + `_-`)

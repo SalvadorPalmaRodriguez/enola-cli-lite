@@ -5,9 +5,9 @@ use crate::cli::commands::{self, CliError, CliResult};
 use crate::cli::{
     AppArmorCommands, Cli, Commands, DiagnosticsCommands, DocsCommands, DrupalCommands,
     FileCommands, FirewallCommands, GhostCommands, GitCommands, GitUserCommands, LogCommands,
-    MagnoliaCommands, MaintenanceCommands, PortsCommands, SshCommands, StrapiCommands,
-    TestCommands, TorAuthCommands, TorCommands, VpnCommands, VpnPeerCommands, WagtailCommands,
-    WordPressCommands,
+    MagnoliaCommands, MaintenanceCommands, PlanCommands, PlanGitCommands, PlanTorCommands,
+    PlanWpCommands, PortsCommands, SshCommands, StrapiCommands, TestCommands, TorAuthCommands,
+    TorCommands, VpnCommands, VpnPeerCommands, WagtailCommands, WordPressCommands,
 };
 use std::sync::Arc;
 
@@ -87,6 +87,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
                 .map_err(|e| CliError::Generic(format!("web server error: {}", e)))?;
             Ok(String::new())
         }
+        Commands::Plan(cmd) => execute_plan(cmd, cli.format.as_str()).await,
     }
 }
 
@@ -2409,6 +2410,127 @@ async fn execute_quickref() -> CliResult<String> {
 async fn execute_license() -> CliResult<String> {
     const LICENSE_TEXT: &str = include_str!("../../LICENSE");
     Ok(LICENSE_TEXT.to_string())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLAN (Tarea 3 — dry-run)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Execute the `enola plan` dry-run command.
+///
+/// 0 side effects: only resolves ports (read-only) and builds a declarative
+/// `ServicePlan`. No Docker, UFW, AppArmor, or file writes.
+async fn execute_plan(cmd: PlanCommands, format: &str) -> CliResult<String> {
+    use crate::adapters::infra::port_checker::PortCheckerAdapter;
+    use crate::application::plan_service::PlanService;
+
+    let svc = PlanService::new(Arc::new(PortCheckerAdapter::new()));
+    let plan = match cmd {
+        PlanCommands::Wp(sub) => match sub {
+            PlanWpCommands::Create { name, http_port } => svc.plan_wordpress(&name, http_port),
+        },
+        PlanCommands::Tor(sub) => match sub {
+            PlanTorCommands::Create {
+                name,
+                service_type,
+                virtual_port,
+                target_port,
+                ssl: _,
+            } => svc.plan_tor(&name, &service_type, virtual_port, target_port),
+        },
+        PlanCommands::Git(sub) => match sub {
+            PlanGitCommands::Create {
+                name,
+                ssl: _,
+                http_port,
+                ssh_port,
+            } => svc.plan_git(&name, http_port, ssh_port),
+        },
+    }
+    .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+
+    match format {
+        "json" => format_output(&plan, format),
+        _ => Ok(render_plan_text(&plan)),
+    }
+}
+
+/// Render a `ServicePlan` as human-readable text (sections: Ports, Containers,
+/// Filesystem, Firewall, AppArmor, Risk).
+fn render_plan_text(plan: &crate::domain::plan::ServicePlan) -> String {
+    use crate::domain::plan::RiskLevel;
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "📋 Plan: {} service '{}'\n",
+        plan.kind, plan.service_name
+    ));
+    out.push_str("──────────────────────────────────────────────────────────\n");
+
+    // Ports
+    out.push_str("\n🔌 Ports:\n");
+    for p in &plan.ports {
+        out.push_str(&format!(
+            "  • {} → {}:{} ({})\n",
+            p.label, p.bind_interface, p.port, p.source
+        ));
+    }
+
+    // Containers
+    if plan.containers.is_empty() {
+        out.push_str("\n📦 Containers: (none — systemd service)\n");
+    } else {
+        out.push_str("\n📦 Containers:\n");
+        for c in &plan.containers {
+            out.push_str(&format!("  • {} — image: {}\n", c.name, c.image));
+            out.push_str(&format!("    internal port: {}", c.internal_port));
+            if let Some(hp) = c.host_port {
+                out.push_str(&format!(" (host: {})", hp));
+            }
+            out.push('\n');
+            out.push_str(&format!("    network: {}\n", c.network));
+            for (host, container) in &c.volumes {
+                out.push_str(&format!("    volume: {} → {}\n", host, container));
+            }
+        }
+    }
+
+    // Filesystem
+    out.push_str("\n📂 Filesystem:\n");
+    for p in &plan.paths {
+        out.push_str(&format!("  • {} — {}\n", p.path, p.purpose));
+    }
+
+    // Firewall
+    if plan.firewall_rules.is_empty() {
+        out.push_str("\n🛡 Firewall: (no rules)\n");
+    } else {
+        out.push_str("\n🛡 Firewall (UFW — NOT applied):\n");
+        for r in &plan.firewall_rules {
+            out.push_str(&format!(
+                "  • allow {}/{} ({})\n",
+                r.port, r.protocol, r.scope
+            ));
+        }
+    }
+
+    // AppArmor
+    out.push_str("\n🔒 AppArmor (NOT applied):\n");
+    out.push_str(&format!(
+        "  • profile: {} (mode: {})\n",
+        plan.apparmor.profile_name, plan.apparmor.mode
+    ));
+
+    // Risk
+    let risk_icon = match plan.risk {
+        RiskLevel::Low => "🟢",
+        RiskLevel::Medium => "🟡",
+        RiskLevel::High => "🔴",
+    };
+    out.push_str(&format!("\n⚠️  Risk: {} {}\n", risk_icon, plan.risk));
+
+    out.push_str("\n💡 This is a dry-run — nothing was executed.\n");
+    out
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

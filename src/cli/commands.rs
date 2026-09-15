@@ -2204,13 +2204,13 @@ pub mod git {
             let container = format!("enola-git-{}", name);
             eprintln!("⏳ Esperando que Forgejo arranque y su API esté lista (max 90s)...");
 
-            // Fase 1: esperar a que la DB esté creada (indica que Forgejo inició)
+            // Paso 1: esperar a que la DB esté creada (indica que Forgejo inició)
             let db_ready = wait_for_forgejo_db(&container, 60);
 
             if db_ready {
                 eprintln!("   ✓ Base de datos lista");
 
-                // Fase 2: esperar a que la API HTTP responda
+                // Paso 2: esperar a que la API HTTP responda
                 let api_ready = wait_for_forgejo_api(http_port, 60);
 
                 if api_ready {
@@ -2221,10 +2221,10 @@ pub mod git {
                     );
                 }
 
-                // Fase 3: si Forgejo está en modo instalación (wizard), completarlo via POST
+                // Paso 3: si Forgejo está en modo instalación (wizard), completarlo via POST
                 complete_forgejo_wizard_if_needed(http_port, auser, apass);
 
-                // Fase 4: crear el admin via docker exec (método más fiable en Forgejo 9.x)
+                // Paso 4: crear el admin via docker exec (método más fiable en Forgejo 9.x)
                 create_forgejo_admin_via_exec(&container, auser, apass);
             } else {
                 eprintln!("⚠️  Forgejo tardó demasiado en inicializar su DB.");

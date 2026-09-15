@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands.md`
-> **Versión:** 3.3 | **Actualizado:** 2026-08-08
+> **Versión:** 3.4 | **Actualizado:** 2026-09-15
 > **Estado:** ✅ **VIGENTE — Índice de comandos**
 > **English:** [`docs/en/commands.md`](../../en/commands.md)
 > **Referencias:** commands.md
@@ -63,6 +63,7 @@ sudo enola-cli docs search <TÉRMINO>     # buscar en toda la documentación
 | Update | `update` | Feed de advisories y actualizaciones del binario | [update/commands-update.md](../update/commands-update.md) |
 | Test | `test` | Tests del sistema (run, list, benchmark) | [test/commands-test.md](../test/commands-test.md) |
 | Docs | `docs` | Documentación embebida en el binario (offline) | [commands-simple.md](commands-simple.md#docs) |
+| Plan | `plan` | Dry-run: plan de cambios sin ejecutar (wp/tor/git) | [commands-plan.md](commands-plan.md) |
 
 ---
 

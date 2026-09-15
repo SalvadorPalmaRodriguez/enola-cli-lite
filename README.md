@@ -101,10 +101,18 @@ sudo bash install.sh
 The installer downloads the binary, verifies SHA256 + minisign signature, and installs everything.
 
 **Offline / tarball mode:** the `*-client.tar.gz` asset is self-contained (binary + `install.sh` + `uninstall.sh` + `enola-cli.sha256`). After verifying the tarball's `.minisig` and extracting it, run `sudo bash install.sh` inside the directory — it installs from the bundled binary without downloading. Set `ENOLA_INSTALL_FORCE_DOWNLOAD=1` to force a remote download.
-After installation, verify the binary's post-quantum signature (ML-DSA-65, FIPS 204):
+
+To verify the **post-quantum signature** (ML-DSA-65, FIPS 204) of your download, run `enola-cli verify` on the **tarball** you downloaded (not the installed binary — the `.pqsig` ships alongside the release tarball, not the installed file):
+
 ```bash
-enola-cli verify /usr/local/bin/enola-cli
+# Download the client tarball and its post-quantum signature
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz.pqsig
+
+# Verify (uses the ML-DSA-65 public key embedded in enola-cli, plus the .sha256 sibling)
+enola-cli verify enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz
 ```
+
 Full guide: [verify-downloads.md](docs/user/verify/verify-downloads.md)
 
 ---
@@ -976,6 +984,7 @@ Each module has a dedicated command reference with full flag descriptions and ex
 | Wagtail | [commands-wagtail.md](docs/user/wagtail/commands-wagtail.md) |
 | Files | [commands-files.md](docs/user/files/commands-files.md) |
 | VPN | [commands-vpn.md](docs/user/vpn/commands-vpn.md) |
+| Plan (dry-run) | [commands-plan.md](docs/user/general/commands-plan.md) |
 | Maintenance | [commands-simple.md](docs/user/general/commands-simple.md) |
 | Security | [quantum-security.md](docs/user/general/quantum-security.md) · [SECURITY.md](docs/user/general/SECURITY.md) |
 | Verification | [verify-downloads.md](docs/user/verify/verify-downloads.md) |

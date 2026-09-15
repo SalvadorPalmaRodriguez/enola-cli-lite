@@ -252,7 +252,7 @@ mod tests {
             setup_wizard_status_codes: &[200, 302, 500],
             container_prefix: "wp-",
             data_root: "/srv/enola-wordpress",
-            http_port_range: (8000, 9999),
+            http_port_range: (8080, 9000),
         };
         assert!(d.requires_db());
 
@@ -264,7 +264,7 @@ mod tests {
             setup_wizard_status_codes: &[200, 302],
             container_prefix: "ghost-",
             data_root: "/srv/enola-ghost",
-            http_port_range: (8000, 9999),
+            http_port_range: (8080, 9000),
         };
         assert!(!static_site.requires_db());
     }
@@ -372,7 +372,7 @@ mod tests {
             setup_wizard_status_codes: &[],
             container_prefix: "ghost-",
             data_root: "/srv/enola-ghost",
-            http_port_range: (8000, 9999),
+            http_port_range: (8080, 9000),
         };
         assert!(!d.requires_db());
     }
@@ -387,7 +387,7 @@ mod tests {
             setup_wizard_status_codes: &[200],
             container_prefix: "strapi-",
             data_root: "/srv/enola-strapi",
-            http_port_range: (8000, 9999),
+            http_port_range: (8080, 9000),
         };
         assert!(d.requires_db());
     }

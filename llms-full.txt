@@ -66,7 +66,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `wp` — WordPress. Extra: `restart`, `update` (with backup), `config`, `edit [--http-port] [--https-port] [--ssl] [--auto-ports]`. Port range 8080-9000 (auto).
 - `drupal` — drupal:10-apache + mariadb:10.11. Extra: `edit --http-port` (atomic container recreation).
 - `ghost` — ghost:5-alpine + embedded SQLite, container port 2368. Extra: `edit --http-port`.
-- `magnolia` — ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2 DB. Needs ≥4 GB RAM.
+- `magnolia` — ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2 DB. Minimum 1.5 GB RAM (warns if <1536 MB); 4 GB recommended for comfortable operation.
 - `strapi` — Node + postgres:16-alpine. 6 per-instance secrets (db_password, app_keys, api_token_salt, admin_jwt_secret, jwt_secret, transfer_token_salt). Extra: `build-image [--force]` (build production image once before first create).
 - `wagtail` — wagtail/bakerydemo:latest (demo site) + postgres:16-alpine, container port 8000.
 
@@ -130,6 +130,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `quickref` — Docker ↔ Enola equivalence table
 - `web [--port 8090]` — local web dashboard, binds to 127.0.0.1, token-protected
 - `config-show [--json]` / `config-validate [--reachable] [--json]` — centralized config (`~/.enola/config.toml`), priority: CLI flag > env var > file > default
+- `plan wp create -n <name> [--http-port <p>]` / `plan git create -n <name> [--ssl] [--http-port] [--ssh-port]` / `plan tor create -n <name> [-s web|static|files|raw] [-p <virtual-port>] [-t <target-port>] [--ssl]` — dry-run: shows the change plan (ports, containers, paths, UFW rules, AppArmor profile, risk level) WITHOUT executing anything. 0 side effects. Output: text or `--format json`.
 
 ## Key concepts
 

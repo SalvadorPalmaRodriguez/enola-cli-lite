@@ -33,7 +33,7 @@ impl CmsAdapter for WordPressCmsAdapter {
             setup_wizard_status_codes: &[200, 301, 302, 304, 500],
             container_prefix: "wp-",
             data_root: "/srv/enola-wordpress",
-            http_port_range: (8000, 9999),
+            http_port_range: (8080, 9000),
         }
     }
 }
@@ -49,7 +49,7 @@ mod tests {
         assert_eq!(d.kind.slug(), "wordpress");
         assert_eq!(d.container_prefix, "wp-");
         assert_eq!(d.data_root, "/srv/enola-wordpress");
-        assert_eq!(d.http_port_range, (8000, 9999));
+        assert_eq!(d.http_port_range, (8080, 9000));
         assert_eq!(d.db_stack, DbStack::MariaDB);
         assert!(d.requires_db());
     }

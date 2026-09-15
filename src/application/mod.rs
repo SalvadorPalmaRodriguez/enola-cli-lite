@@ -23,6 +23,7 @@ pub mod git_registration_toggle; // Added GitRegistrationToggle
 pub mod list_tor_services;
 pub mod manage_client_auth;
 pub mod nginx_status_checker;
+pub mod plan_service; // Tarea 3 — `enola plan` dry-run use case
 pub mod port_validator; // PORTS-001 (175)
 pub mod release_verify; // RELEASE-VERIFY (PQC-030): verificación de releases (ML-DSA-65 + SHA-256) desde enola-cli
 pub mod remove_tor_service;

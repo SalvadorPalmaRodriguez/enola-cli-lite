@@ -460,7 +460,16 @@ struct WpCreateRequest {
 }
 
 async fn api_wp_create(Json(req): Json<WpCreateRequest>) -> ApiResult<String> {
-    let result = commands::wordpress::create(&req.name, req.http_port)
+    use crate::adapters::infra::port_checker::PortCheckerAdapter;
+    use crate::application::port_validator::{PortRanges, PortValidator};
+    let validator = PortValidator::new(std::sync::Arc::new(PortCheckerAdapter::new()));
+    let http_port = validator
+        .resolve_port(req.http_port, PortRanges::WORDPRESS_BACKEND, "http-port")
+        .map_err(|e| ApiError {
+            error: format!("{}", e),
+            code: 400,
+        })?;
+    let result = commands::wordpress::create(&req.name, Some(http_port))
         .await
         .map_err(ApiError::from)?;
     Ok(Json(result))

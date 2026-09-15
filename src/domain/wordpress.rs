@@ -18,8 +18,8 @@ pub struct WordPressPortManager;
 impl WordPressPortManager {
     // Port ranges for WordPress sites
     // Using high ports to avoid conflicts with system services
-    const HTTP_PORT_START: u16 = 8000;
-    const HTTP_PORT_END: u16 = 9999;
+    const HTTP_PORT_START: u16 = 8080;
+    const HTTP_PORT_END: u16 = 9000;
 
     const DB_PORT_START: u16 = 33060;
     const DB_PORT_END: u16 = 34000;

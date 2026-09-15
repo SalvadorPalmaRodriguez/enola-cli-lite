@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands.md`
-> **Version:** 3.3 | **Updated:** 2026-08-08
+> **Version:** 3.4 | **Updated:** 2026-09-15
 > **Status:** ✅ **CURRENT — Command Index**
 > **Spanish original:** [`docs/user/general/commands.md`](../user/general/commands.md)
 > **References:** commands.md
@@ -32,7 +32,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | WordPress | `wp` | WordPress sites + MariaDB | [wp/commands-wp.md](../user/wp/commands-wp.md) |
 | Drupal | `drupal` | Drupal sites + MariaDB | [drupal/commands-drupal.md](../user/drupal/commands-drupal.md) |
 | Ghost | `ghost` | Ghost blogs + SQLite (1 container, ~256 MB) | [ghost/commands-ghost.md](../user/ghost/commands-ghost.md) |
-| Magnolia | `magnolia` | Magnolia Java CMS (Tomcat, ≥4 GB RAM) | [magnolia/commands-magnolia.md](../user/magnolia/commands-magnolia.md) |
+| Magnolia | `magnolia` | Magnolia Java CMS (Tomcat, min 1.5 GB RAM, 4 GB recommended) | [magnolia/commands-magnolia.md](../user/magnolia/commands-magnolia.md) |
 | Strapi | `strapi` | Strapi headless CMS (Node + Postgres) | [strapi/commands-strapi.md](../user/strapi/commands-strapi.md) |
 | Wagtail | `wagtail` | Wagtail CMS (Python/Django + Postgres) | [wagtail/commands-wagtail.md](../user/wagtail/commands-wagtail.md) |
 | Files | `files` | Anonymous file servers via Tor | [files/commands-files.md](../user/files/commands-files.md) |
@@ -46,6 +46,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | Firewall | `firewall` | UFW management (setup, status, allow, deny) | [firewall/commands-firewall.md](../user/firewall/commands-firewall.md) |
 | AppArmor | `apparmor` | Process sandboxing (setup, status, mode) | [apparmor/commands-apparmor.md](../user/apparmor/commands-apparmor.md) |
 | VPN | `vpn` | WireGuard tunnels (create, peer, status) | [vpn/commands-vpn.md](../user/vpn/commands-vpn.md) |
+| SSH | `ssh` | SSH access (add-key, deploy-hidden over Tor) | [ssh/commands-ssh.md](../user/ssh/commands-ssh.md) |
 | Ports | `ports` | View ports used by all services | [ports/commands-ports.md](../user/ports/commands-ports.md) |
 
 ---
@@ -63,6 +64,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | Update | `update` | Advisory feed and binary updates | [update/commands-update.md](../user/update/commands-update.md) |
 | Test | `test` | System tests (run, list, benchmark) | [test/commands-test.md](../user/test/commands-test.md) |
 | Docs | `docs` | Documentation embedded in binary (offline) | [commands-simple.md](../user/general/commands-simple.md#docs) |
+| Plan | `plan` | Dry-run: change plan without executing (wp/tor/git) | [commands-plan.md](../user/general/commands-plan.md) |
 
 ---
 

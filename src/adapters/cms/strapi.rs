@@ -187,7 +187,7 @@ pub(crate) fn strapi_descriptor() -> CmsDescriptor {
         setup_wizard_status_codes: &[200, 301, 302, 304, 500],
         container_prefix: "strapi-",
         data_root: "/srv/enola-strapi",
-        http_port_range: (8000, 9999),
+        http_port_range: (8080, 9000),
     }
 }
 
