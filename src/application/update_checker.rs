@@ -14,7 +14,7 @@
 use crate::domain::error::Result;
 use crate::infrastructure::config_loader;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CACHE_TTL_SECS: i64 = 86_400;
@@ -1160,6 +1160,23 @@ fn prune_download_residuals() {
     let _ = std::fs::remove_file(last_download_meta_path());
 }
 
+/// T1-vía-A (U2): mantiene `share_dir/cli.pqsig` en sync con el binario recién
+/// aplicado. Si existe un hermano `<bin>.pqsig` se instala; si no, se ELIMINA
+/// el `cli.pqsig` obsoleto (firma del binario anterior) para que
+/// `enola-cli verify <bin> --pqsig cli.pqsig` no dé un falso negativo.
+/// Best-effort: los fallos nunca abortan el update (misma no-fatalidad que
+/// cli.sha256; a diferencia de cli.sha256 —que siempre se reescribe— aquí se
+/// instala el hermano o se elimina el obsoleto).
+fn sync_installed_pqsig(bin_path: &str, share_dir: &Path) {
+    let dst = share_dir.join("cli.pqsig");
+    let src = format!("{}.pqsig", bin_path);
+    if std::path::Path::new(&src).exists() {
+        let _ = std::fs::copy(&src, &dst);
+    } else {
+        let _ = std::fs::remove_file(&dst);
+    }
+}
+
 /// Save metadata about the last download so `update apply` can find it.
 fn save_last_download(path: &str, sha256: &str, signature_verified: bool) {
     let meta = serde_json::json!({
@@ -1319,12 +1336,37 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
         }
     }
 
+    // T1-vía-A (U1): firma PQC del binario crudo, best-effort. Releases
+    // < v0.5.0 no publican .pqsig → 404 → se omite. minisign sigue siendo el
+    // trust anchor obligatorio del canal update; no hay verify PQC inline
+    // (coherente con la decisión de install.sh, plan B.2).
+    let pqsig_tmp = tmp.path().join("enola-cli-new.pqsig");
+    let mut pqsig_present = false;
+    if let Ok(resp) = client
+        .get(format!("{}.pqsig", dl_url))
+        .header("User-Agent", format!("enola-cli/{}", CURRENT_VERSION))
+        .send()
+        .await
+    {
+        if resp.status().is_success() {
+            if let Ok(content) = resp.text().await {
+                pqsig_present = std::fs::write(&pqsig_tmp, content).is_ok();
+            }
+        }
+    }
+
     // Persist binary to a stable location (not tempdir which gets cleaned up)
     let persist_dir = downloads_dir();
     std::fs::create_dir_all(&persist_dir).ok();
     let persist_path = persist_dir.join(format!("enola-cli-{}", report.latest_version));
     std::fs::copy(&binary_path, &persist_path).map_err(|e| format!("Persist binary: {}", e))?;
     let persist_str = persist_path.to_string_lossy().to_string();
+    // T1-vía-A (U1b): persistir el .pqsig como hermano del binario staged; el
+    // nombre enola-cli-<ver>.pqsig queda cubierto por el prefijo enola-cli- de
+    // prune_download_residuals (se limpia tras el apply).
+    if pqsig_present {
+        let _ = std::fs::copy(&pqsig_tmp, format!("{}.pqsig", persist_str));
+    }
 
     // MED-05: fail if signature was not verified, unless escape hatch is set.
     if !signature_verified {
@@ -1438,6 +1480,11 @@ pub fn apply_update(binary_path: Option<&str>) -> std::result::Result<DownloadRe
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(&sha256_path, format!("{}  enola-cli", expected_sha));
+
+    // T1-vía-A (U2): instalar el .pqsig del binario nuevo o eliminar el
+    // obsoleto — ANTES de prune_download_residuals, que borra el hermano
+    // persistido por U1b.
+    sync_installed_pqsig(&bin_path, &share_dir);
 
     // UPD-RESIDUE-001: clean up staged downloads now that the new binary is live.
     // The rollback backup (enola-cli.bak) is kept on purpose.
@@ -2520,5 +2567,105 @@ mod tests {
             signature: "sig".to_string(),
         };
         assert!(!verify_next_pubkey_signature(&empty_current, ""));
+    }
+
+    // ── T1-vía-A (Fase 2b / U3): sync_installed_pqsig ────────────────────
+    // TDD: definen el comportamiento esperado del helper nuevo del plan
+    // MEGAPLAN-T1-PQC (v1.9, J.1). Rojo esperado hasta implementar U2.
+
+    #[test]
+    fn sync_installed_pqsig_copies_sibling_pqsig() {
+        let (tmp, guard) = setup_test_home();
+        let share = tmp.path().join("share");
+        std::fs::create_dir_all(&share).expect("create share dir");
+        let bin = tmp.path().join("enola-cli-1.5.0");
+        std::fs::write(&bin, b"bin").expect("write bin");
+        std::fs::write(format!("{}.pqsig", bin.to_string_lossy()), b"PQSIG-NEW")
+            .expect("write sibling pqsig");
+
+        sync_installed_pqsig(&bin.to_string_lossy(), &share);
+
+        let dst = share.join("cli.pqsig");
+        assert!(dst.exists(), "cli.pqsig debe instalarse desde el hermano");
+        assert_eq!(std::fs::read(&dst).expect("read cli.pqsig"), b"PQSIG-NEW");
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn sync_installed_pqsig_removes_stale_when_no_sibling() {
+        let (tmp, guard) = setup_test_home();
+        let share = tmp.path().join("share");
+        std::fs::create_dir_all(&share).expect("create share dir");
+        let bin = tmp.path().join("enola-cli-1.5.0");
+        std::fs::write(&bin, b"bin").expect("write bin");
+        // Sin hermano <bin>.pqsig; queda un cli.pqsig de la versión anterior.
+        let dst = share.join("cli.pqsig");
+        std::fs::write(&dst, b"PQSIG-OLD").expect("write stale cli.pqsig");
+
+        sync_installed_pqsig(&bin.to_string_lossy(), &share);
+
+        assert!(
+            !dst.exists(),
+            "cli.pqsig obsoleto debe eliminarse (falso negativo en verify)"
+        );
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn sync_installed_pqsig_noop_when_nothing_exists() {
+        let (tmp, guard) = setup_test_home();
+        let share = tmp.path().join("share");
+        std::fs::create_dir_all(&share).expect("create share dir");
+        let bin = tmp.path().join("enola-cli-1.5.0");
+        std::fs::write(&bin, b"bin").expect("write bin");
+
+        // Ni hermano ni cli.pqsig previo: no-op sin error.
+        sync_installed_pqsig(&bin.to_string_lossy(), &share);
+
+        assert!(!share.join("cli.pqsig").exists());
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn sync_installed_pqsig_overwrites_stale_cli_pqsig() {
+        let (tmp, guard) = setup_test_home();
+        let share = tmp.path().join("share");
+        std::fs::create_dir_all(&share).expect("create share dir");
+        let bin = tmp.path().join("enola-cli-1.6.0");
+        std::fs::write(&bin, b"bin").expect("write bin");
+        std::fs::write(format!("{}.pqsig", bin.to_string_lossy()), b"PQSIG-NEW")
+            .expect("write sibling pqsig");
+        let dst = share.join("cli.pqsig");
+        std::fs::write(&dst, b"PQSIG-OLD").expect("write stale cli.pqsig");
+
+        sync_installed_pqsig(&bin.to_string_lossy(), &share);
+
+        assert_eq!(
+            std::fs::read(&dst).expect("read cli.pqsig"),
+            b"PQSIG-NEW",
+            "cli.pqsig debe reescribirse con el hermano (overwrite)"
+        );
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn prune_download_residuals_removes_staged_pqsig() {
+        // T1-vía-A: el .pqsig persistido por U1b (enola-cli-<ver>.pqsig) debe
+        // quedar cubierto por el prefijo enola-cli- de la poda. Si alguien
+        // estrecha ese prefijo, este test lo detecta.
+        let (tmp, guard) = setup_test_home();
+        let dir = downloads_dir();
+        std::fs::create_dir_all(&dir).expect("create downloads dir");
+        std::fs::write(dir.join("enola-cli-1.5.0"), b"bin").expect("write bin");
+        std::fs::write(dir.join("enola-cli-1.5.0.pqsig"), b"sig").expect("write pqsig");
+
+        prune_download_residuals();
+
+        assert!(
+            !dir.join("enola-cli-1.5.0.pqsig").exists(),
+            "el .pqsig staged debe podarse con el prefijo enola-cli-"
+        );
+        assert!(!dir.exists(), "downloads dir vacío debe eliminarse");
+        teardown_test_home(tmp, guard);
     }
 }

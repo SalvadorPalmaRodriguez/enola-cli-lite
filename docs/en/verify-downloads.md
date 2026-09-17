@@ -361,6 +361,34 @@ echo ""
 echo "✅ Verification complete"
 ```
 
+### Post-install verification (already-installed binary)
+
+Both `install.sh` (remote download) and `enola-cli update` install the
+post-quantum signature of the raw binary as `cli.pqsig` in the data directory:
+
+- **as root**: `/usr/local/share/enola/cli.pqsig`
+- **without root**: `~/.local/share/enola/cli.pqsig`
+
+With it you can re-verify the installed binary at any time:
+
+```bash
+# as root
+enola-cli verify /usr/local/bin/enola-cli --pqsig /usr/local/share/enola/cli.pqsig
+
+# without root
+enola-cli verify ~/.local/bin/enola-cli --pqsig ~/.local/share/enola/cli.pqsig
+```
+
+If you install or update from an older release that did not publish a `.pqsig`,
+the installer/updater **removes** the stale `cli.pqsig` so verification does not
+produce a false negative on the new binary.
+
+The asset can also be downloaded manually from each release:
+
+```bash
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/download/vX.Y.Z/enola-cli-vX.Y.Z-x86_64-linux.pqsig
+```
+
 ---
 
 ## What to do if verification fails?

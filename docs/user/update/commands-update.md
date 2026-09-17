@@ -90,6 +90,12 @@ Descarga el último binario del update feed.
 
 Verifica SHA256 y **firma minisign obligatoria**. El binario se guarda en un directorio temporal.
 
+Además descarga la **firma post-cuántica** del binario crudo (`<url>.pqsig`)
+en modo *best-effort*: si la release la publica, queda staged como hermano
+`<binario>.pqsig` en `~/.enola/downloads/`; si no (releases antiguas), se omite
+sin error. minisign sigue siendo el trust anchor obligatorio — el `.pqsig` no
+se verifica inline.
+
 > **Importante:** Si la firma minisign no verifica (o minisign no está instalado),
 > la descarga se **rechaza** con error. El binario se guarda para inspección
 > pero no se aplica automáticamente. Usar `--allow-unsigned` solo en testing.
@@ -115,6 +121,16 @@ Aplica un update descargado previamente.
 Reemplaza el binario actual atómicamente: hace backup del binario antiguo a
 `/usr/local/share/enola/enola-cli.bak`, mueve el nuevo binario, y actualiza
 `cli.sha256`. Requiere root.
+
+También sincroniza la firma post-cuántica instalada
+(`/usr/local/share/enola/cli.pqsig`):
+
+- Si el binario aplicado tiene un hermano `<binario>.pqsig` (staged por
+  `update download`, o junto al path de `--binary`), se instala como
+  `cli.pqsig`.
+- Si no existe hermano (release antigua sin `.pqsig`), se **elimina** el
+  `cli.pqsig` obsoleto — una firma del binario anterior haría fallar
+  `enola-cli verify --pqsig` con un falso negativo.
 
 > **Importante:** Si el binario descargado no fue verificado con minisign
 > (metadata `signature_verified: false`), `apply` se **rechaza**.

@@ -5,7 +5,8 @@
 #   2. cargo fmt --check
 #   3. Coherencia de archivos de contexto IA (check 18)
 #   4. Anti-leak operator en blobs staged (DOC-SEC-005)
-#   5. Aviso temprano de advisories (cargo audit --no-fetch, NO bloqueante)
+#   5. Rutas privadas en el índice + .gitignore staged íntegro
+#   6. Aviso temprano de advisories (cargo audit --no-fetch, NO bloqueante)
 #
 # Instalar:
 #   bash scripts/git/install-hooks.sh
@@ -108,7 +109,80 @@ if [[ "$FOUND_LEAKS" -ne 0 ]]; then
     exit 1
 fi
 
-# ─── 5. Aviso temprano de advisories (NO bloqueante) ───────────────────
+# ─── 5. Rutas privadas en el índice + .gitignore staged íntegro ────────
+# Defensa estructural anti-leak: si .gitignore se relaja alguna vez (p.ej.
+# para un workflow puntual) o se usa `git add -f`/`git add -A`, rutas que
+# JAMÁS deben publicarse podrían quedar staged. Este check bloquea el
+# commit si CUALQUIER ruta staged casa con la lista canónica de privados —
+# independiente del estado de .gitignore. La lista duplica la del check 23
+# de la auditoría (docs/dev/audit/checks/23_private_paths.sh).
+PRIVATE_GLOBS=(
+    'NOTES.md'
+    'MEGAPLAN-*.md'
+    'AGENTS.md'
+    '*/AGENTS.md'
+    '.agents/*'
+    'CLAUDE.md'
+    '.claude/*'
+    'docs/dev/*'
+    'scripts/dev/*'
+    'tests/*'
+    'feed/minisign.key'
+    'security-audit/*'
+    '.forgejo/*'
+    'PROJECT_CONTEXT.md'
+    '.ai_context/*'
+    '.cargo/config.toml'
+    '.devinignore'
+    '.codeiumignore'
+    '.windsurfignore'
+)
+
+PRIVATE_STAGED=0
+while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    # Las dos plantillas .yml de ISSUE_TEMPLATE son públicas a propósito.
+    if [[ "$file" == .github/ISSUE_TEMPLATE/* ]]; then
+        [[ "$file" == ".github/ISSUE_TEMPLATE/bug_report.yml" \
+        || "$file" == ".github/ISSUE_TEMPLATE/config.yml" ]] && continue
+        echo "❌ RUTA PRIVADA staged: $file (plantilla de issue interna)" >&2
+        PRIVATE_STAGED=1
+        continue
+    fi
+    for glob in "${PRIVATE_GLOBS[@]}"; do
+        if [[ "$file" == $glob ]]; then
+            echo "❌ RUTA PRIVADA staged: $file (casa con '$glob')" >&2
+            PRIVATE_STAGED=1
+            break
+        fi
+    done
+done <<< "$STAGED_FILES"
+
+# Si .gitignore está staged, verificar que el BLOB staged conserva los
+# patrones privados (el worktree podría estar restaurado pero el índice no).
+if printf '%s\n' "$STAGED_FILES" | grep -qx '.gitignore'; then
+    STAGED_GI="$(git show ':.gitignore' 2>/dev/null || true)"
+    for pat in 'NOTES.md' 'MEGAPLAN-*.md' '**/AGENTS.md' '.agents/' \
+               'CLAUDE.md' '.claude/' 'docs/dev/' 'scripts/dev/' 'tests/' \
+               'feed/minisign.key' 'security-audit/' '.forgejo/' \
+               '.cargo/config.toml' '.github/ISSUE_TEMPLATE/*' '.devinignore'; do
+        if ! printf '%s\n' "$STAGED_GI" | grep -Fxq "$pat"; then
+            echo "❌ .gitignore staged elimina el patrón privado: '$pat'" >&2
+            PRIVATE_STAGED=1
+        fi
+    done
+fi
+
+if [[ "$PRIVATE_STAGED" -ne 0 ]]; then
+    echo "" >&2
+    echo "  Rutas privadas no se publican NUNCA. Para sacar del índice:" >&2
+    echo "    git rm --cached <ruta>" >&2
+    echo "  Si la publicación es deliberada (raro): git commit --no-verify" >&2
+    exit 1
+fi
+echo "  ✅ Sin rutas privadas en el índice"
+
+# ─── 6. Aviso temprano de advisories (NO bloqueante) ───────────────────
 # El gate autoritativo es `pre-push` (run_all.sh --strict, check 14), que
 # hace fetch completo de la advisory DB. Aquí solo se avisa pronto usando
 # la DB ya cacheada (--no-fetch): sin red y sin latencia en cada commit.

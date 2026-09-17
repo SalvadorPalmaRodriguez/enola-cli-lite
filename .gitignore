@@ -42,6 +42,15 @@ desktop.ini
 # Notas personales del desarrollador
 NOTES.md
 
+# Planes de implementación privados (no versionados)
+MEGAPLAN-*.md
+
+# Ignore-files de agentes IA (contienen negaciones que des-ignoran
+# ficheros privados para las tools; no deben versionarse)
+.devinignore
+.codeiumignore
+.windsurfignore
+
 /PROJECT_CONTEXT.md
 .ai_context/
 

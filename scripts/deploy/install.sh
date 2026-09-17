@@ -8,11 +8,12 @@
 # DISEO (no toca el portátil del operador, ejecuta TODO en la mquina del usuario):
 #   1. Detecta SO (Linux) + arquitectura (x86_64 / aarch64).
 #   2. Resuelve URL base de releases (override por env var, default placeholder).
-#   3. Descarga 3 ficheros: binario, .sha256, .minisig.
+#   3. Descarga: binario + .sha256 + .pqsig (best-effort, v0.5.0+); .minisig salvo ENOLA_INSTALL_NO_VERIFY=1.
 #   4. Verifica SHA256 (siempre, sin minisign instalado tambin sirve).
 #   5. Verifica firma minisign si est disponible (recomendado).
 #   6. Instala en /usr/local/bin/enola-cli (root) o ~/.local/bin (sin sudo).
 #   7. Genera /usr/local/share/enola/cli.sha256 para INT-008.
+#   7b. Instala /usr/local/share/enola/cli.pqsig (firma PQC, best-effort, v0.5.0+).
 #   8. Verifica que `enola-cli --help` arranca.
 #
 # USO RPIDO (Ubuntu / Debian / RHEL / Arch):
@@ -176,6 +177,11 @@ if [ "$OFFLINE" = "1" ]; then
     VERSION="$("$LOCAL_BIN" --version 2>/dev/null | awk '{print $NF}')"
     VERSION="${VERSION:-local}"
     ok "Binario local: $LOCAL_BIN (versin: $VERSION)"
+    # T1-via-A (D3): el .pqsig del binario crudo es un asset de release, no va
+    # en el tarball — la autenticidad PQC la aporta la firma del tarball
+    # (*.tar.gz.pqsig), verificada ANTES de extraer.
+    log "Modo local: el .pqsig del binario crudo es un asset de release, no parte del tarball."
+    log "  La autenticidad PQC la aporta la firma del tarball (*.tar.gz.pqsig), verificada antes de extraer."
 fi
 
 # ── 3. Resolver URL de descarga ────────────────────────────────────────────
@@ -197,10 +203,12 @@ BIN_NAME="enola-cli-${VERSION}-${ARCH_TAG}"
 BIN_URL="${BASE_URL}/${BIN_NAME}"
 SHA_URL="${BIN_URL}.sha256"
 SIG_URL="${BIN_URL}.minisig"
+PQSIG_URL="${BIN_URL}.pqsig"
 
 log "Binario:  $BIN_URL"
 log "SHA256:   $SHA_URL"
 log "Firma:    $SIG_URL"
+log "PQC:      $PQSIG_URL"
 fi  # OFFLINE (resolución remota)
 
 # ── 4. Descargar a un temporal ─────────────────────────────────────────────
@@ -213,6 +221,18 @@ if [ "$NO_VERIFY" != "1" ]; then
     curl -fSL --silent "$SIG_URL" -o "$TMP/enola-cli.minisig" || { err "Descarga .minisig fall"; exit 1; }
 fi
 ok "Descargados $(du -h "$TMP/enola-cli" | awk '{print $1}') de binario"
+# T1-via-A (D2): firma PQC del binario crudo, best-effort — releases < v0.5.0
+# no publican .pqsig → 404 → warn y continuar (minisign+SHA256 siguen siendo
+# el trust anchor). Fuera del guard NO_VERIFY a proposito: ese flag salta la
+# verificacion, no la entrega de artefactos.
+if curl -fSL --silent "$PQSIG_URL" -o "$TMP/enola-cli.pqsig" 2>/dev/null; then
+    ok "Firma PQC descargada (.pqsig)"
+else
+    warn "No se pudo descargar .pqsig (release anterior a v0.5.0?)."
+    warn "  La verificacion post-cuantica del binario no estara disponible."
+    warn "  minisign + SHA256 siguen protegiendo esta instalacion."
+    rm -f "$TMP/enola-cli.pqsig"
+fi
 fi  # OFFLINE
 
 # ── 5. Verificar SHA256 ────────────────────────────────────────────────────
@@ -273,6 +293,18 @@ ok "Binario instalado: $INSTALL_PATH"
 echo "$EXPECTED_SHA" > "$SHARE_DIR/cli.sha256"
 chmod 0644 "$SHARE_DIR/cli.sha256"
 ok "Hash de integridad: $SHARE_DIR/cli.sha256"
+
+# T1-via-A (D4): firma PQC del binario crudo junto a cli.sha256. Si no hay
+# .pqsig nuevo (release < v0.5.0, descarga fallida o modo offline), se ELIMINA
+# el cli.pqsig obsoleto — una firma del binario anterior daria falso negativo
+# en `enola-cli verify --pqsig` (mismo invariante que U2 en update_checker).
+if [ -f "$TMP/enola-cli.pqsig" ]; then
+    install -m 0644 "$TMP/enola-cli.pqsig" "$SHARE_DIR/cli.pqsig"
+    ok "Firma PQC instalada: $SHARE_DIR/cli.pqsig"
+    log "  Verifica post-instalacion: enola-cli verify $INSTALL_PATH --pqsig $SHARE_DIR/cli.pqsig"
+else
+    rm -f "$SHARE_DIR/cli.pqsig"
+fi
 
 # UNINSTALL-FIX-001: instalar script de desinstalacion
 # Tarball extrado (plano): $SCRIPT_DIR/uninstall.sh
@@ -393,5 +425,11 @@ cat <<EOF
   Verificar firma: ${BASE_URL%/*}/verify
 
 EOF
+# T1-via-A (D6): solo anunciar el verify PQC si cli.pqsig se instalo (en modo
+# offline no se instala → no anunciar un comando que apunta a nada).
+if [ -f "$SHARE_DIR/cli.pqsig" ]; then
+    printf "  Verificar PQC:   enola-cli verify %s --pqsig %s/cli.pqsig
+"         "$INSTALL_PATH" "$SHARE_DIR"
+fi
 exit 0
 

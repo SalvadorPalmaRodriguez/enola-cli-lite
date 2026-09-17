@@ -110,7 +110,7 @@ El instalador descarga el binario, verifica SHA256 + firma minisign, e instala t
 
 **Modo offline / tarball:** el asset `*-client.tar.gz` es autocontenido (binario + `install.sh` + `uninstall.sh` + `enola-cli.sha256`). Tras verificar el `.minisig` del tarball y extraerlo, ejecuta `sudo bash install.sh` dentro del directorio — instala desde el binario incluido sin descargar nada. Usa `ENOLA_INSTALL_FORCE_DOWNLOAD=1` para forzar la descarga remota.
 
-Para verificar la **firma post-cuántica** (ML-DSA-65, FIPS 204) de tu descarga, ejecuta `enola-cli verify` sobre el **tarball** que descargaste (no sobre el binario instalado — el `.pqsig` se publica junto al tarball del release, no junto al fichero instalado):
+Para verificar la **firma post-cuántica** (ML-DSA-65, FIPS 204) de tu descarga, ejecuta `enola-cli verify` sobre el **tarball** que descargaste:
 
 ```bash
 # Descarga el tarball cliente y su firma post-cuántica
@@ -119,6 +119,16 @@ wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/do
 
 # Verifica (usa la clave pública ML-DSA-65 embebida en enola-cli y el .sha256 hermano)
 enola-cli verify enola-cli-vX.Y.Z-x86_64-linux-client.tar.gz
+```
+
+El `.pqsig` del binario crudo también se publica y lo instalan `install.sh`/`enola-cli update`, así que puedes re-verificar el binario instalado en cualquier momento:
+
+```bash
+# instalación con root
+enola-cli verify /usr/local/bin/enola-cli --pqsig /usr/local/share/enola/cli.pqsig
+
+# instalación sin root
+enola-cli verify ~/.local/bin/enola-cli --pqsig ~/.local/share/enola/cli.pqsig
 ```
 
 Ver guía completa: [verify-downloads.md](docs/user/verify/verify-downloads.md)

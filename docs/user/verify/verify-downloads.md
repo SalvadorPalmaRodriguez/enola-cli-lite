@@ -361,6 +361,34 @@ echo ""
 echo "✅ Verificación completada"
 ```
 
+### Verificación post-instalación (binario ya instalado)
+
+Tanto `install.sh` (descarga remota) como `enola-cli update` instalan la firma
+post-cuántica del binario crudo como `cli.pqsig` en el directorio de datos:
+
+- **con root**: `/usr/local/share/enola/cli.pqsig`
+- **sin root**: `~/.local/share/enola/cli.pqsig`
+
+Con ella puedes re-verificar el binario instalado en cualquier momento:
+
+```bash
+# con root
+enola-cli verify /usr/local/bin/enola-cli --pqsig /usr/local/share/enola/cli.pqsig
+
+# sin root
+enola-cli verify ~/.local/bin/enola-cli --pqsig ~/.local/share/enola/cli.pqsig
+```
+
+Si instalas o actualizas desde una release antigua que no publicaba `.pqsig`,
+el instalador/updater **eliminan** el `cli.pqsig` obsoleto para que la
+verificación no dé un falso negativo sobre el binario nuevo.
+
+El asset también puede descargarse manualmente desde cada release:
+
+```bash
+wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/download/vX.Y.Z/enola-cli-vX.Y.Z-x86_64-linux.pqsig
+```
+
 ---
 
 ## ¿Qué hacer si la verificación falla?

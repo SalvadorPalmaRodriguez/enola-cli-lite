@@ -2,8 +2,8 @@
   "schema_version": "1",
   "latest": "0.4.0-alpha",
   "min_supported": "0.1.0-alpha",
-  "download_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/enola-cli",
-  "published_at": "2026-09-13T15:43:12Z",
+  "download_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/download/v0.4.0-alpha/enola-cli-v0.4.0-alpha-x86_64-linux",
+  "published_at": "2026-09-17T11:08:21Z",
   "docs_url": "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite#readme",
   "severity_summary": {
     "critical": 0,
