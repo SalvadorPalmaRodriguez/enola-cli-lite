@@ -6,7 +6,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- _Sin cambios pendientes._
+- **Configurable backup retention** — `maintenance backup-config [--max-backups N]`
+  shows or persists the retention policy to `~/.enola/config.toml` (`[backup].max_backups`),
+  and `maintenance backup --keep N` overrides it for a single run.
+  Resolution order: `--keep` > `ENOLA_MAX_BACKUPS` > config.toml > default (5).
+
+### Fixed
+- **Backup rotation now applies to archive backups** — `maintenance backup` and
+  archive-based backups previously never rotated, so `*.tar.gz` archives
+  accumulated unbounded in `/var/backups/enola-server/`.
+- **System backup preserves absolute paths** — multi-path backups are archived
+  relative to `/` so restores land each entry back at its original location.
+- **Config resolution under sudo** — `~/.enola/config.toml` now resolves to the
+  invoking user's home (`SUDO_USER`) instead of `/root/.enola/`, and files
+  written as root are chowned back to the invoking user.
 
 ## [0.4.0-alpha] — 2026-09-13
 

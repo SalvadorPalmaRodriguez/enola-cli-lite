@@ -100,6 +100,12 @@
     "magnolia.delete": [
       "--force"
     ],
+    "maintenance.backup": [
+      "--keep"
+    ],
+    "maintenance.backup-config": [
+      "--max-backups"
+    ],
     "maintenance.cleanup": [
       "--target",
       "--dry-run",
@@ -379,6 +385,7 @@
       "ssh-config",
       "ssh-harden-pqc",
       "backup",
+      "backup-config",
       "cleanup"
     ],
     "plan": [

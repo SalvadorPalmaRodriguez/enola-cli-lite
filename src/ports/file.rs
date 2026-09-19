@@ -1,6 +1,6 @@
 use crate::domain::error::Result;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[async_trait::async_trait]
 pub trait FileManagerPort {
@@ -33,6 +33,12 @@ pub trait FileManagerPort {
 
     /// Create a tar.gz archive from source_dir into dest_file
     async fn create_archive(&self, source_dir: &Path, dest_file: &Path) -> Result<()>;
+
+    /// Create a tar.gz archive containing multiple absolute paths,
+    /// preserving their directory structure relative to `/` so that
+    /// `extract_archive(.., "/")` restores them to their original locations.
+    /// Each path must be absolute and fully normalized (no `.`/`..` components).
+    async fn create_archive_multi(&self, paths: &[PathBuf], dest_file: &Path) -> Result<()>;
 
     /// Extract a tar.gz archive into dest_dir
     async fn extract_archive(&self, archive: &Path, dest_dir: &Path) -> Result<()>;
@@ -77,6 +83,7 @@ mockall::mock! {
         async fn set_ownership(&self, path: &Path, user: &str, group: &str) -> Result<()>;
         async fn set_permissions(&self, path: &Path, mode: u32) -> Result<()>;
         async fn create_archive(&self, source_dir: &Path, dest_file: &Path) -> Result<()>;
+        async fn create_archive_multi(&self, paths: &[PathBuf], dest_file: &Path) -> Result<()>;
         async fn extract_archive(&self, archive: &Path, dest_dir: &Path) -> Result<()>;
     }
 }

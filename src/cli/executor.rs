@@ -2162,9 +2162,13 @@ async fn execute_maintenance(cmd: MaintenanceCommands, format: &str) -> CliResul
             let result = commands::maintenance::ssh_harden_pqc(force, dry_run).await?;
             Ok(result)
         }
-        MaintenanceCommands::Backup => {
+        MaintenanceCommands::Backup { keep } => {
             println!("💾 Creating system backup...");
-            let result = commands::maintenance::backup().await?;
+            let result = commands::maintenance::backup(keep).await?;
+            Ok(result)
+        }
+        MaintenanceCommands::BackupConfig { max_backups } => {
+            let result = commands::maintenance::backup_config(max_backups).await?;
             Ok(result)
         }
         MaintenanceCommands::Cleanup {

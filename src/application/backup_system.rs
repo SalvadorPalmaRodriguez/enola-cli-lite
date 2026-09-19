@@ -1,3 +1,4 @@
+use crate::domain::app_config::BackupSettings;
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::file::FileManagerPort;
 use chrono::Local;
@@ -15,7 +16,7 @@ impl BackupSystem {
         Self {
             file_manager,
             backup_root: PathBuf::from("/var/backups/enola-server"),
-            max_backups: 5,
+            max_backups: BackupSettings::load().max_backups,
         }
     }
 
@@ -27,8 +28,14 @@ impl BackupSystem {
         Self {
             file_manager,
             backup_root,
-            max_backups: 5,
+            max_backups: BackupSettings::load().max_backups,
         }
+    }
+
+    /// Override the retention policy (max backups kept per identifier).
+    pub fn with_max_backups(mut self, max_backups: usize) -> Self {
+        self.max_backups = max_backups.max(1);
+        self
     }
 
     pub async fn create_backup(&self, target_path: &Path, identifier: &str) -> Result<PathBuf> {
@@ -76,12 +83,8 @@ impl BackupSystem {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 let is_backup_file = name.ends_with(".bak") || name.ends_with(".tar.gz");
 
-                let matches_identifier = if identifier.is_empty() {
-                    is_backup_file
-                } else {
-                    name.contains(&format!("_{}_", identifier))
-                        || name.contains(&format!("{}_{}", identifier, "_full"))
-                };
+                let matches_identifier =
+                    identifier.is_empty() || Self::name_matches_identifier(name, identifier);
 
                 if matches_identifier && is_backup_file {
                     backups.push(path);
@@ -145,7 +148,8 @@ impl BackupSystem {
     }
 
     /// Create backup of specific paths (for testing or custom backups)
-    /// Archives all existing paths into a single tar.gz by staging them in a temp directory.
+    /// Archives all existing paths into a single tar.gz preserving their
+    /// absolute layout, so `restore_full_backup()` restores them in place.
     pub async fn create_backup_of_paths(
         &self,
         identifier: &str,
@@ -158,41 +162,21 @@ impl BackupSystem {
         let backup_path = self.backup_root.join(&backup_name);
 
         // Collect existing paths
-        let existing: Vec<&PathBuf> = paths.iter().filter(|p| p.exists()).collect();
+        let existing: Vec<PathBuf> = paths.iter().filter(|p| p.exists()).cloned().collect();
 
         if existing.is_empty() {
             // No paths to archive — return path anyway (empty backup)
             return Ok(backup_path);
         }
 
-        if existing.len() == 1 {
-            // Single path — archive directly
-            self.file_manager
-                .create_archive(existing[0], &backup_path)
-                .await?;
-        } else {
-            // Multiple paths — stage into a temp directory, then archive
-            let temp_dir =
-                std::env::temp_dir().join(format!("enola_backup_{}_{}", timestamp, identifier));
-            self.file_manager.ensure_dir(&temp_dir).await?;
+        // Archive all paths preserving their absolute layout (members relative
+        // to /), so restore_full_backup() extracting into / lands every entry
+        // back at its original location. Works for files and directories alike.
+        self.file_manager
+            .create_archive_multi(&existing, &backup_path)
+            .await?;
 
-            for path in &existing {
-                let dest_name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                let dest = temp_dir.join(&dest_name);
-                self.file_manager.copy_file(path, &dest).await?;
-            }
-
-            self.file_manager
-                .create_archive(&temp_dir, &backup_path)
-                .await?;
-
-            // Cleanup temp directory
-            let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-        }
+        self.rotate_backups(identifier, "").await?;
 
         Ok(backup_path)
     }
@@ -240,6 +224,8 @@ impl BackupSystem {
             .create_archive(source_dir, &backup_path)
             .await?;
 
+        self.rotate_backups(identifier, "").await?;
+
         Ok(backup_path)
     }
 
@@ -261,20 +247,36 @@ impl BackupSystem {
             .await
     }
 
-    async fn rotate_backups(&self, identifier: &str, _filename: &str) -> Result<()> {
-        let pattern_check = format!("_{}", identifier); // Generic check for identifier
+    /// Whether a backup filename belongs to `identifier`.
+    /// Names are "<ts>_<identifier>_<rest>" where the timestamp is a fixed
+    /// 19 chars (`YYYY-MM-DD_HH-MM-SS`), so the identifier is anchored at
+    /// byte 20 and must be followed by `_`. Anchoring avoids substring
+    /// collisions between identifiers like `system` and `old_system`.
+    fn name_matches_identifier(name: &str, identifier: &str) -> bool {
+        const TS_PREFIX_LEN: usize = 20; // 19-char timestamp + '_'
+        name.get(TS_PREFIX_LEN..)
+            .map(|rest| rest.starts_with(&format!("{}_", identifier)))
+            .unwrap_or(false)
+    }
 
+    async fn rotate_backups(&self, identifier: &str, _filename: &str) -> Result<()> {
         let mut matching_backups = Vec::new();
 
-        let mut entries = tokio::fs::read_dir(&self.backup_root).await.map_err(|e| {
-            EnolaError::InfrastructureError(format!("Read backup dir failed: {}", e))
-        })?;
+        let mut entries = match tokio::fs::read_dir(&self.backup_root).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => {
+                return Err(EnolaError::InfrastructureError(format!(
+                    "Read backup dir failed: {}",
+                    e
+                )))
+            }
+        };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                // Modified loose matching for full system backups too
-                if name.contains(&pattern_check)
+                if Self::name_matches_identifier(name, identifier)
                     && (name.ends_with(".bak") || name.ends_with(".tar.gz"))
                 {
                     matching_backups.push(path);
@@ -309,7 +311,9 @@ mod tests {
         let mut mock = mock_file_manager();
         mock.expect_ensure_dir().returning(|_| Ok(()));
         let system = BackupSystem::new(Arc::new(mock));
-        assert_eq!(system.max_backups, 5);
+        // max_backups comes from the real config chain (env > file > default);
+        // the test only requires it to be a usable value.
+        assert!(system.max_backups >= 1);
         assert!(system.backup_root.to_string_lossy().contains("backups"));
     }
 
@@ -417,7 +421,7 @@ mod tests {
         // Create fake .bak files matching and non-matching
         std::fs::write(tmp.path().join("2026-01-01_12-00-00_mysvc_file.bak"), "").unwrap(); // unwrap: test-only
         std::fs::write(tmp.path().join("2026-01-01_12-00-00_othersvc_file.bak"), "").unwrap(); // unwrap: test-only
-        std::fs::write(tmp.path().join("2026-01-01_mysvc__full.tar.gz"), "").unwrap(); // unwrap: test-only
+        std::fs::write(tmp.path().join("2026-01-02_12-00-00_mysvc_full.tar.gz"), "").unwrap(); // unwrap: test-only
         std::fs::write(tmp.path().join("not_a_backup.txt"), "").unwrap(); // unwrap: test-only
 
         let result = system.list_backups(id).await.unwrap(); // unwrap: test-only
@@ -447,9 +451,8 @@ mod tests {
 
     #[test]
     fn test_max_backups_default_is_five() {
-        let mock = mock_file_manager();
-        let system = BackupSystem::new(Arc::new(mock));
-        assert_eq!(system.max_backups, 5);
+        // Default is a pure constant — independent of env/config file.
+        assert_eq!(BackupSettings::default().max_backups, 5);
     }
 
     #[tokio::test]
@@ -495,7 +498,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_multi_path_backup_stages_all_paths() {
+    async fn test_multi_path_backup_archives_all_paths() {
         let tmp = tempfile::tempdir().unwrap();
         let backup_root = tmp.path().join("backups");
 
@@ -507,14 +510,94 @@ mod tests {
 
         let mut mock = MockFileManagerPort::new();
         mock.expect_ensure_dir().returning(|_| Ok(()));
-        // For multi-path: copy_file called for each path (2), then create_archive once
-        mock.expect_copy_file().times(2).returning(|_, _| Ok(()));
-        mock.expect_create_archive()
+        // Multi-path: a single create_archive_multi preserving absolute layout
+        mock.expect_create_archive_multi()
             .times(1)
             .returning(|_, _| Ok(()));
 
         let system = BackupSystem::with_backup_root(Arc::new(mock), backup_root);
         let result = system.create_backup_of_paths("test", &[file1, file2]).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_multi_path_backup_rotates_old_archives() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backup_root = tmp.path().join("backups");
+        std::fs::create_dir_all(&backup_root).unwrap();
+
+        // 3 archivos viejos del mismo identificador + 1 de otro
+        for i in 1..=3 {
+            std::fs::write(
+                backup_root.join(format!("2026-01-0{}_10-00-00_mysvc_full.tar.gz", i)),
+                "old",
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            backup_root.join("2026-01-09_10-00-00_other_full.tar.gz"),
+            "keep",
+        )
+        .unwrap();
+
+        let src = tmp.path().join("src.txt");
+        std::fs::write(&src, "data").unwrap();
+
+        let mut mock = MockFileManagerPort::new();
+        mock.expect_ensure_dir().returning(|_| Ok(()));
+        // El mock simula el archive creando el fichero destino para que la
+        // rotación lo contabilice.
+        mock.expect_create_archive_multi()
+            .times(1)
+            .returning(|_, dest| {
+                let _ = std::fs::write(dest, "new");
+                Ok(())
+            });
+        // max_backups = 2 → el nuevo + 1 viejo quedan; se borran 2 de mysvc
+        // (el fichero "_other" no coincide con el identificador y se conserva)
+        mock.expect_delete_file().times(2).returning(|_| Ok(()));
+
+        let system =
+            BackupSystem::with_backup_root(Arc::new(mock), backup_root).with_max_backups(2);
+        let result = system.create_backup_of_paths("mysvc", &[src]).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_with_max_backups_clamps_to_minimum_one() {
+        let mock = mock_file_manager();
+        let system = BackupSystem::new(Arc::new(mock)).with_max_backups(0);
+        assert_eq!(system.max_backups, 1);
+    }
+
+    #[test]
+    fn test_identifier_matching_no_substring_collision() {
+        // "system" must not match backups of "old_system" / "system2"
+        assert!(BackupSystem::name_matches_identifier(
+            "2026-09-19_17-00-00_system_full.tar.gz",
+            "system"
+        ));
+        assert!(BackupSystem::name_matches_identifier(
+            "2026-09-19_17-00-00_system_file.bak",
+            "system"
+        ));
+        assert!(!BackupSystem::name_matches_identifier(
+            "2026-09-19_17-00-00_old_system_full.tar.gz",
+            "system"
+        ));
+        assert!(!BackupSystem::name_matches_identifier(
+            "2026-09-19_17-00-00_system2_full.tar.gz",
+            "system"
+        ));
+        // Identifiers containing '_' still match
+        assert!(BackupSystem::name_matches_identifier(
+            "2026-09-19_17-00-00_wp_site_full.tar.gz",
+            "wp_site"
+        ));
+        // Malformed names (short/missing timestamp) never match
+        assert!(!BackupSystem::name_matches_identifier(
+            "2026-01-01_mysvc__full.tar.gz",
+            "mysvc"
+        ));
     }
 }

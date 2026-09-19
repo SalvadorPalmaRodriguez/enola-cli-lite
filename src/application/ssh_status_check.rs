@@ -208,6 +208,13 @@ mod tests {
         async fn create_archive(&self, _source_dir: &Path, _dest_file: &Path) -> Result<()> {
             Ok(())
         }
+        async fn create_archive_multi(
+            &self,
+            _paths: &[std::path::PathBuf],
+            _dest_file: &Path,
+        ) -> Result<()> {
+            Ok(())
+        }
         async fn extract_archive(&self, _archive: &Path, _dest_dir: &Path) -> Result<()> {
             Ok(())
         }

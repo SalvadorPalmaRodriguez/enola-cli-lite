@@ -3,7 +3,7 @@
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Documento: config.example.toml
-# Versión: 2.1 | Actualizado: 2026-08-02
+# Versión: 2.2 | Actualizado: 2026-09-19
 # Referencias: CONFIG-001..009, QUAL-001, QUAL-003
 #
 # Copia este fichero a `~/.enola/config.toml` y ajústalo a tu entorno.
@@ -87,8 +87,22 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # tor_socks_proxy = "socks5h://10.0.0.5:9050"
 
 
+# ── 5. Backups del sistema ─────────────────────────────────────────────────
+# Env-var equivalente: ENOLA_MAX_BACKUPS
+#
+# Cuántos backups se conservan por servicio antes de rotar los más
+# antiguos. Aplica a `maintenance backup` (system_full) y a los backups
+# previos a `wp update`, restauraciones, etc. Mínimo: 1.
+#
+# Prioridad: `maintenance backup --keep N` > ENOLA_MAX_BACKUPS > este valor
+# > default (5). Para cambiarlo sin editar el archivo:
+#   sudo enola-cli maintenance backup-config --max-backups 3
+[backup]
+# max_backups = 5
+
+
 # ══════════════════════════════════════════════════════════════════════════
-# REFERENCIAS CRUZADAS (sincronización 2026-08-02)
+# REFERENCIAS CRUZADAS (sincronización 2026-09-19)
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Este archivo de configuración es consumido por los siguientes módulos:
@@ -97,7 +111,9 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # ---------------------------------------|-------------------|------------------
 # infrastructure/config_loader.rs       | Todas             | CONFIG-001..002
 # infrastructure/http.rs                | [http]            | QUAL-003
-# domain/app_config.rs                  | [web], [dist]     | CONFIG-001..008
+# domain/app_config.rs                  | [web], [dist],    | CONFIG-001..008
+#                                       | [backup]          |
+# application/backup_system.rs          | [backup]          | retención
 # application/update_checker.rs          | [update]          | UPD-CLI-001
 # application/config_inspector.rs       | Todas (catálogo)  | CONFIG-001..009
 #

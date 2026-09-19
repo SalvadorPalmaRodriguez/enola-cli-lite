@@ -4,7 +4,7 @@
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::file::{AtomicFilePort, FileManagerPort};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
 pub struct EnolaFileAdapter;
@@ -175,6 +175,70 @@ impl FileManagerPort for EnolaFileAdapter {
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| ".".to_string()),
             ])
+            .output()
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("tar create failed: {}", e)))?;
+
+        // tar exit code 0 = success, 1 = file changed during archive (warning, not fatal)
+        if output.status.success() || output.status.code() == Some(1) {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(EnolaError::InfrastructureError(format!(
+                "tar -czf failed for {:?}: {}",
+                dest_file, stderr
+            )))
+        }
+    }
+
+    async fn create_archive_multi(&self, paths: &[PathBuf], dest_file: &Path) -> Result<()> {
+        if paths.is_empty() {
+            return Err(EnolaError::ValidationError(
+                "create_archive_multi: empty path list".to_string(),
+            ));
+        }
+        // Members stored relative to / so that extracting into / restores
+        // each path to its original absolute location.
+        let mut args: Vec<String> = vec![
+            "-czf".to_string(),
+            dest_file.to_string_lossy().to_string(),
+            "-C".to_string(),
+            "/".to_string(),
+        ];
+        for p in paths {
+            let rel = p.strip_prefix("/").map_err(|_| {
+                EnolaError::ValidationError(format!(
+                    "create_archive_multi: path must be absolute: {:?}",
+                    p
+                ))
+            })?;
+
+            // Rebuild the member from Normal components only: '.' and '..'
+            // would corrupt the archive layout (GNU tar refuses to extract
+            // members containing '..').
+            let mut member = PathBuf::new();
+            for comp in rel.components() {
+                match comp {
+                    Component::Normal(part) => member.push(part),
+                    _ => {
+                        return Err(EnolaError::ValidationError(format!(
+                            "create_archive_multi: path must not contain '.'/'..' components: {:?}",
+                            p
+                        )));
+                    }
+                }
+            }
+            if member.as_os_str().is_empty() {
+                return Err(EnolaError::ValidationError(format!(
+                    "create_archive_multi: path must point below '/': {:?}",
+                    p
+                )));
+            }
+            args.push(member.to_string_lossy().to_string());
+        }
+
+        let output = tokio::process::Command::new("tar")
+            .args(&args)
             .output()
             .await
             .map_err(|e| EnolaError::InfrastructureError(format!("tar create failed: {}", e)))?;
@@ -480,5 +544,80 @@ mod tests {
         assert!(path.exists());
         adapter.delete_safe(&path).await.unwrap();
         assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_create_archive_multi_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+
+        // Two absolute paths: a directory with a file and a standalone file
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("inner.txt"), "inner").unwrap();
+        let file = dir.path().join("top.txt");
+        std::fs::write(&file, "top").unwrap();
+
+        let archive = dir.path().join("backup.tar.gz");
+        adapter
+            .create_archive_multi(&[sub.clone(), file.clone()], &archive)
+            .await
+            .unwrap();
+        assert!(archive.exists());
+
+        // Members are stored relative to / — extracting into a staging dir
+        // must preserve the absolute layout.
+        let extract_dir = dir.path().join("extract");
+        adapter
+            .extract_archive(&archive, &extract_dir)
+            .await
+            .unwrap();
+
+        let rel_sub = sub.strip_prefix("/").unwrap();
+        let rel_file = file.strip_prefix("/").unwrap();
+        assert!(extract_dir.join(rel_sub).join("inner.txt").exists());
+        assert!(extract_dir.join(rel_file).exists());
+    }
+
+    #[tokio::test]
+    async fn test_create_archive_multi_empty_list() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let archive = dir.path().join("out.tar.gz");
+        let result = adapter.create_archive_multi(&[], &archive).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_archive_multi_rejects_relative_path() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let archive = dir.path().join("out.tar.gz");
+        let result = adapter
+            .create_archive_multi(&[PathBuf::from("etc/nginx")], &archive)
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_archive_multi_rejects_parent_component() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let archive = dir.path().join("out.tar.gz");
+        let result = adapter
+            .create_archive_multi(&[PathBuf::from("/opt/../etc")], &archive)
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_archive_multi_rejects_root() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let archive = dir.path().join("out.tar.gz");
+        let result = adapter
+            .create_archive_multi(&[PathBuf::from("/")], &archive)
+            .await;
+        assert!(result.is_err());
     }
 }

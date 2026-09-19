@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.0 | **Actualizado:** 2026-08-08
+> **Versión:** 1.1 | **Actualizado:** 2026-09-19
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -104,6 +104,26 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 
 ---
 
+## Sección `[backup]`
+
+Política de retención de backups del sistema (`maintenance backup`, backups
+previos a `wp update`, etc.).
+
+| Clave | Tipo | Default | Env var | Descripción |
+|-------|------|---------|---------|-------------|
+| `max_backups` | Integer | `5` | `ENOLA_MAX_BACKUPS` | Backups conservados por servicio (mínimo 1) |
+
+```toml
+[backup]
+max_backups = 5
+```
+
+> También se puede fijar sin editar el archivo:
+> `sudo enola-cli maintenance backup-config --max-backups 3`
+> o sobrescribir por ejecución: `maintenance backup --keep N`.
+
+---
+
 ## Ejemplo completo
 
 ```toml
@@ -119,6 +139,9 @@ feed_url = "https://example.com/releases/advisories.json"
 
 [http]
 tor_socks_proxy = "socks5h://127.0.0.1:9050"
+
+[backup]
+max_backups = 5
 ```
 
 ---

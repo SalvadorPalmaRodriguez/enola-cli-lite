@@ -132,6 +132,14 @@ const KNOWN_KEYS: &[ConfigKeySpec] = &[
         alias: None,
         redact: false,
     },
+    ConfigKeySpec {
+        section: "backup",
+        key: "max_backups",
+        env_var: "ENOLA_MAX_BACKUPS",
+        default_value: "5",
+        alias: None,
+        redact: false,
+    },
 ];
 
 /// Devuelve `true` si una clave parece sensible por su nombre.

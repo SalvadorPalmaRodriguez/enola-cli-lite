@@ -130,6 +130,56 @@ impl WebSettings {
     }
 }
 
+/// Política de retención de backups del sistema (`maintenance backup`,
+/// `wp update`, …).
+///
+/// Fuentes de configuración (prioridad de mayor a menor):
+/// 1. Flag CLI (`maintenance backup --keep N`) — resuelto en executor.rs
+/// 2. Variable de entorno `ENOLA_MAX_BACKUPS`
+/// 3. Archivo `~/.enola/config.toml` → sección `[backup]`, clave `max_backups`
+/// 4. Default [`BackupSettings::DEFAULT_MAX_BACKUPS`]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct BackupSettings {
+    /// Número máximo de backups conservados por identificador. Mínimo 1.
+    pub max_backups: usize,
+}
+
+impl Default for BackupSettings {
+    fn default() -> Self {
+        Self {
+            max_backups: Self::DEFAULT_MAX_BACKUPS,
+        }
+    }
+}
+
+impl BackupSettings {
+    /// Retención por defecto si el usuario no configura nada.
+    pub const DEFAULT_MAX_BACKUPS: usize = 5;
+
+    /// Carga la configuración aplicando la cadena: env > archivo > default.
+    /// Un valor inválido en una fuente no enmascara a las inferiores.
+    pub fn load() -> Self {
+        let file = crate::infrastructure::config_loader::load_section("backup");
+        let max_backups = std::env::var("ENOLA_MAX_BACKUPS")
+            .ok()
+            .and_then(|v| Self::parse_max_backups(&v))
+            .or_else(|| {
+                file.get("max_backups")
+                    .and_then(|v| Self::parse_max_backups(v))
+            })
+            .unwrap_or(Self::DEFAULT_MAX_BACKUPS);
+        Self { max_backups }
+    }
+
+    /// Parsea un valor de retención. Devuelve `None` si no es un entero >= 1.
+    fn parse_max_backups(v: &str) -> Option<usize> {
+        match v.trim().parse::<usize>() {
+            Ok(n) if n >= 1 => Some(n),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +357,42 @@ mod tests {
         };
         assert!(!d.binary_base_url.is_empty());
         assert!(d.minisign_pubkey_url.is_empty());
+    }
+
+    // ── BackupSettings ──
+
+    static BACKUP_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn backup_settings_default_is_five() {
+        assert_eq!(BackupSettings::default().max_backups, 5);
+        assert_eq!(BackupSettings::DEFAULT_MAX_BACKUPS, 5);
+    }
+
+    #[test]
+    fn backup_settings_load_respects_env_override() {
+        let _g = BACKUP_ENV_LOCK.lock().unwrap();
+        std::env::set_var("ENOLA_MAX_BACKUPS", "3");
+        let b = BackupSettings::load();
+        assert_eq!(b.max_backups, 3);
+        std::env::remove_var("ENOLA_MAX_BACKUPS");
+    }
+
+    #[test]
+    fn backup_settings_load_rejects_invalid_env() {
+        let _g = BACKUP_ENV_LOCK.lock().unwrap();
+        for bad in ["0", "-1", "abc", ""] {
+            std::env::set_var("ENOLA_MAX_BACKUPS", bad);
+            let b = BackupSettings::load();
+            // Valores inválidos caen al default (5) o al config.toml del dev;
+            // nunca a 0 ni panic.
+            assert!(
+                b.max_backups >= 1,
+                "valor {:?} produjo {}",
+                bad,
+                b.max_backups
+            );
+        }
+        std::env::remove_var("ENOLA_MAX_BACKUPS");
     }
 }

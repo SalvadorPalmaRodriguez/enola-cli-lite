@@ -631,8 +631,11 @@ sudo enola-cli maintenance ssh-config
 # Harden SSH with post-quantum-safe algorithms (OpenSSH 9.0+)
 sudo enola-cli maintenance ssh-harden-pqc [--dry-run] [--force]
 
-# Create a system backup
-sudo enola-cli maintenance backup
+# Create a system backup (keeps the last N per service; --keep overrides once)
+sudo enola-cli maintenance backup [--keep N]
+
+# Show or set the backup retention policy
+sudo enola-cli maintenance backup-config [--max-backups N]
 
 # Clean temporary files and residual data
 sudo enola-cli maintenance cleanup [--target all|logs|docker] [--dry-run] [--force] [--keep-days 7]

@@ -1732,7 +1732,20 @@ pub enum MaintenanceCommands {
     },
 
     /// Create system backup
-    Backup,
+    Backup {
+        /// Override retention for this run: keep at most N backups per service
+        /// (overrides ENOLA_MAX_BACKUPS and config.toml [backup].max_backups)
+        #[arg(long)]
+        keep: Option<usize>,
+    },
+
+    /// Show or set the backup retention policy (persisted in config.toml [backup])
+    BackupConfig {
+        /// Maximum number of backups kept per service (min 1). Omit to show the
+        /// current value.
+        #[arg(long)]
+        max_backups: Option<usize>,
+    },
 
     /// Cleanup temporary files and residual data
     Cleanup {

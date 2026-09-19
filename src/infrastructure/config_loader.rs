@@ -28,8 +28,39 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 /// Devuelve la ruta por defecto al `config.toml` del usuario.
+///
+/// Bajo `sudo` (euid 0 + `SUDO_USER`), resuelve el home del usuario
+/// invocador: el CLI exige root para operar servicios, pero la config es
+/// del usuario. Así `sudo enola-cli …` y `sudo -E enola-cli …` leen y
+/// escriben el mismo `~/.enola/config.toml` en lugar de `/root/.enola/`.
 pub fn config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".enola").join("config.toml"))
+    effective_home().map(|h| h.join(".enola").join("config.toml"))
+}
+
+/// Home efectivo para la configuración: el del invocador bajo sudo;
+/// si no, el del proceso.
+fn effective_home() -> Option<PathBuf> {
+    let euid = unsafe { libc::geteuid() };
+    if euid == 0 {
+        if let Ok(user) = std::env::var("SUDO_USER") {
+            if !user.is_empty() && user != "root" {
+                if let Some(home) = home_of(&user) {
+                    return Some(home);
+                }
+            }
+        }
+    }
+    dirs::home_dir()
+}
+
+/// Resuelve el home de `user` leyendo `/etc/passwd` (sin deps extra).
+fn home_of(user: &str) -> Option<PathBuf> {
+    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
+    passwd
+        .lines()
+        .find(|l| l.split(':').next() == Some(user))
+        .and_then(|l| l.split(':').nth(5))
+        .map(PathBuf::from)
 }
 /// Lee una sección concreta del `config.toml` y devuelve sus pares clave-valor.
 ///
@@ -76,6 +107,96 @@ pub fn parse_section(content: &str, section: &str) -> HashMap<String, String> {
     }
     out
 }
+/// Inserta o actualiza `key` en la sección `section` del `~/.enola/config.toml`.
+///
+/// Contrato:
+/// - Crea el archivo, el directorio `~/.enola` y las sub-secciones si faltan.
+/// - `section` admite dot-path (`"a.b"`), igual que [`load_section`].
+/// - Si `value` parsea como entero se guarda como entero TOML; si no, como
+///   string TOML.
+/// - Si el archivo existente tiene TOML inválido, devuelve error y NO lo toca.
+/// - Escritura atómica (tmp + rename) y permisos 0600 (ver config.example.toml).
+pub fn set_key(section: &str, key: &str, value: &str) -> Result<(), String> {
+    let path = config_path().ok_or_else(|| "no se pudo resolver HOME".to_string())?;
+    set_key_in_path(&path, section, key, value)
+}
+
+fn set_key_in_path(
+    path: &std::path::Path,
+    section: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let mut root: toml::Value = if content.trim().is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        toml::from_str(&content).map_err(|e| format!("config.toml inválido: {}", e))?
+    };
+
+    let mut table = root
+        .as_table_mut()
+        .ok_or_else(|| "config.toml: la raíz no es una tabla".to_string())?;
+    for part in section.split('.') {
+        table = table
+            .entry(part)
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+            .as_table_mut()
+            .ok_or_else(|| format!("config.toml: '{}' no es una tabla", part))?;
+    }
+    let parsed = value
+        .trim()
+        .parse::<i64>()
+        .map(toml::Value::Integer)
+        .unwrap_or_else(|_| toml::Value::String(value.to_string()));
+    table.insert(key.to_string(), parsed);
+
+    let rendered = toml::to_string_pretty(&root)
+        .map_err(|e| format!("no se pudo serializar config.toml: {}", e))?;
+
+    let mut created_dir = None;
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            created_dir = Some(parent.to_path_buf());
+        }
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("no se pudo crear {:?}: {}", parent, e))?;
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, rendered).map_err(|e| format!("escribir {:?}: {}", tmp, e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    std::fs::rename(&tmp, path).map_err(|e| format!("renombrar {:?}: {}", tmp, e))?;
+
+    // Si escribimos como root vía sudo, devolver la propiedad al invocador:
+    // si no, ~/.enola/config.toml quedaría root-owned y el usuario no podría
+    // ni leer su propia config.
+    if unsafe { libc::geteuid() } == 0 {
+        chown_sudo_user(path);
+        if let Some(dir) = created_dir {
+            chown_sudo_user(&dir);
+        }
+    }
+    Ok(())
+}
+
+/// `chown uid:gid` numérico según `SUDO_UID`/`SUDO_GID`. No-op fuera de sudo.
+fn chown_sudo_user(path: &std::path::Path) {
+    let (Ok(uid), Ok(gid)) = (std::env::var("SUDO_UID"), std::env::var("SUDO_GID")) else {
+        return;
+    };
+    if uid.parse::<u32>().is_err() || gid.parse::<u32>().is_err() {
+        return;
+    }
+    let _ = std::process::Command::new("chown")
+        .arg(format!("{}:{}", uid, gid))
+        .arg(path)
+        .status();
+}
+
 /// Convierte un `toml::Value` escalar a `String`.
 ///
 /// - `String` → su contenido sin comillas.
@@ -200,5 +321,62 @@ binary_base_url = "https://dl.example.com"  # inline
     fn load_section_from_none_path_returns_empty() {
         let m = load_section_from_path(None, "misc");
         assert!(m.is_empty());
+    }
+
+    #[test]
+    fn set_key_creates_file_and_section() {
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let path = tmp.path().join("sub").join("config.toml");
+        set_key_in_path(&path, "backup", "max_backups", "3").unwrap();
+        let m = load_section_from_path(Some(path), "backup");
+        assert_eq!(m.get("max_backups").unwrap(), "3");
+    }
+
+    #[test]
+    fn set_key_preserves_other_sections_and_keys() {
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let path = tmp.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[web]\nweb_public_url = \"https://x.dev\"\n[backup]\nother = \"keepme\"\n",
+        )
+        .unwrap();
+        set_key_in_path(&path, "backup", "max_backups", "7").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("https://x.dev"));
+        let m = load_section_from_path(Some(path), "backup");
+        assert_eq!(m.get("max_backups").unwrap(), "7");
+        assert_eq!(m.get("other").unwrap(), "keepme");
+    }
+
+    #[test]
+    fn set_key_refuses_invalid_toml_without_touching() {
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let path = tmp.path().join("config.toml");
+        let bad = "[misc\nkey = unquoted";
+        std::fs::write(&path, bad).unwrap();
+        let r = set_key_in_path(&path, "backup", "max_backups", "3");
+        assert!(r.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bad);
+    }
+
+    #[test]
+    fn home_of_root_resolves_from_etc_passwd() {
+        let h = home_of("root").expect("root existe siempre en /etc/passwd");
+        assert_eq!(h, PathBuf::from("/root"));
+    }
+
+    #[test]
+    fn home_of_unknown_user_returns_none() {
+        assert!(home_of("usuario_que_no_existe_xyz").is_none());
+    }
+
+    #[test]
+    fn set_key_stores_integers_unquoted() {
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let path = tmp.path().join("config.toml");
+        set_key_in_path(&path, "backup", "max_backups", "3").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("max_backups = 3"), "{}", content);
     }
 }

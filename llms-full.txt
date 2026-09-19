@@ -75,7 +75,9 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - Files served from `/srv/enola-files/<name>/` via Nginx autoindex over .onion.
 
 ### maintenance
-- `maintenance status|smoke-test|enable-checks|disable-checks|timer-status|ssh-config|backup`
+- `maintenance status|smoke-test|enable-checks|disable-checks|timer-status|ssh-config`
+- `maintenance backup [--keep N]` — system backup; `--keep` overrides retention for this run
+- `maintenance backup-config [--max-backups N]` — show or persist retention ([backup].max_backups, env ENOLA_MAX_BACKUPS, default 5)
 - `maintenance ssh-harden-pqc [--dry-run] [--force]` — post-quantum SSH KEX (sntrup761x25519-sha512)
 - `maintenance cleanup [--target all|logs|docker] [--dry-run] [--force] [--keep-days N]`
 

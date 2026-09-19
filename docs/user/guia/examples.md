@@ -207,7 +207,8 @@ sudo enola-cli git user create mi-repo --username admin --email admin@example.on
 Respaldo y restauración manual de servicios:
 
 ```bash
-# 1. Crear backup del sistema
+# 1. Crear backup del sistema (se conservan los últimos N por servicio;
+#    política configurable con `maintenance backup-config --max-backups N`)
 sudo enola-cli maintenance backup
 
 # 2. Los datos de cada servicio están en /srv/enola-{tipo}/{name}/

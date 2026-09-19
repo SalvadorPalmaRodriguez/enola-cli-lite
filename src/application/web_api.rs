@@ -2032,7 +2032,7 @@ async fn api_maintenance_ssh_harden_pqc(
 }
 
 async fn api_maintenance_backup() -> ApiResult<String> {
-    let result = commands::maintenance::backup()
+    let result = commands::maintenance::backup(None)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(strip_ansi(&result)))

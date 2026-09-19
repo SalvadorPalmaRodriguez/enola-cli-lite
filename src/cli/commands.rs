@@ -5494,13 +5494,17 @@ pub mod maintenance {
         Ok(report)
     }
 
-    /// Create system backup
-    pub async fn backup() -> CliResult<String> {
+    /// Create system backup. `keep` overrides the configured retention for
+    /// this run only (see `backup-config`).
+    pub async fn backup(keep: Option<usize>) -> CliResult<String> {
         use crate::application::backup_system::BackupSystem;
         use std::path::PathBuf;
 
         let file_adapter = Arc::new(EnolaFileAdapter::new());
-        let backup_system = BackupSystem::new(file_adapter);
+        let mut backup_system = BackupSystem::new(file_adapter);
+        if let Some(n) = keep {
+            backup_system = backup_system.with_max_backups(n);
+        }
 
         // Backup key directories
         let paths_to_backup = vec![
@@ -5523,6 +5527,47 @@ pub mod maintenance {
             .map_err(CliError::from)?;
 
         Ok(format!("✅ System backup created: {:?}", backup_path))
+    }
+
+    /// Show or persist the backup retention policy (`[backup].max_backups`).
+    ///
+    /// Resolution order: `maintenance backup --keep N` (runtime) >
+    /// `ENOLA_MAX_BACKUPS` > `~/.enola/config.toml` `[backup]` > default.
+    pub async fn backup_config(max_backups: Option<usize>) -> CliResult<String> {
+        use crate::domain::app_config::BackupSettings;
+
+        match max_backups {
+            None => {
+                let cfg = BackupSettings::load();
+                let path = crate::infrastructure::config_loader::config_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "~/.enola/config.toml".to_string());
+                Ok(format!(
+                    "Backup retention: {} backup(s) per service\n  \
+                     Resolution: --keep flag > ENOLA_MAX_BACKUPS > {} [backup].max_backups > default ({})",
+                    cfg.max_backups,
+                    path,
+                    BackupSettings::DEFAULT_MAX_BACKUPS
+                ))
+            }
+            Some(n) => {
+                if n < 1 {
+                    return Err(CliError::InvalidInput(
+                        "max-backups must be >= 1".to_string(),
+                    ));
+                }
+                crate::infrastructure::config_loader::set_key(
+                    "backup",
+                    "max_backups",
+                    &n.to_string(),
+                )
+                .map_err(CliError::Generic)?;
+                Ok(format!(
+                    "✅ Backup retention set to {} backup(s) per service ([backup].max_backups in ~/.enola/config.toml)",
+                    n
+                ))
+            }
+        }
     }
 }
 
