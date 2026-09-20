@@ -3,7 +3,7 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.5.0-alpha] — 2026-09-20
 
 ### Added
 - **`plan` dry-run command** — `plan <wp|git|tor> create` shows what a `create`
