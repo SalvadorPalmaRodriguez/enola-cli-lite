@@ -2439,16 +2439,16 @@ async fn execute_plan(cmd: PlanCommands, format: &str) -> CliResult<String> {
                 service_type,
                 virtual_port,
                 target_port,
-                ssl: _,
-            } => svc.plan_tor(&name, &service_type, virtual_port, target_port),
+                ssl,
+            } => svc.plan_tor(&name, &service_type, virtual_port, target_port, ssl),
         },
         PlanCommands::Git(sub) => match sub {
             PlanGitCommands::Create {
                 name,
-                ssl: _,
+                ssl,
                 http_port,
                 ssh_port,
-            } => svc.plan_git(&name, http_port, ssh_port),
+            } => svc.plan_git(&name, ssl, http_port, ssh_port),
         },
     }
     .map_err(|e| CliError::InvalidInput(e.to_string()))?;
@@ -2492,7 +2492,10 @@ fn render_plan_text(plan: &crate::domain::plan::ServicePlan) -> String {
                 out.push_str(&format!(" (host: {})", hp));
             }
             out.push('\n');
-            out.push_str(&format!("    network: {}\n", c.network));
+            match &c.network {
+                Some(n) => out.push_str(&format!("    network: {}\n", n)),
+                None => out.push_str("    network: (default bridge)\n"),
+            }
             for (host, container) in &c.volumes {
                 out.push_str(&format!("    volume: {} → {}\n", host, container));
             }
@@ -2519,11 +2522,18 @@ fn render_plan_text(plan: &crate::domain::plan::ServicePlan) -> String {
     }
 
     // AppArmor
-    out.push_str("\n🔒 AppArmor (NOT applied):\n");
-    out.push_str(&format!(
-        "  • profile: {} (mode: {})\n",
-        plan.apparmor.profile_name, plan.apparmor.mode
-    ));
+    match &plan.apparmor {
+        Some(aa) => {
+            out.push_str("\n🔒 AppArmor (NOT applied):\n");
+            out.push_str(&format!(
+                "  • profile: {} (mode: {})\n",
+                aa.profile_name, aa.mode
+            ));
+        }
+        None => out.push_str(
+            "\n🔒 AppArmor: (none — this command does not create a per-service profile)\n",
+        ),
+    }
 
     // Risk
     let risk_icon = match plan.risk {
@@ -2532,6 +2542,14 @@ fn render_plan_text(plan: &crate::domain::plan::ServicePlan) -> String {
         RiskLevel::High => "🔴",
     };
     out.push_str(&format!("\n⚠️  Risk: {} {}\n", risk_icon, plan.risk));
+
+    // Notes (e.g. CLI flags that `create` would silently ignore)
+    if !plan.notes.is_empty() {
+        out.push_str("\n📝 Notes:\n");
+        for note in &plan.notes {
+            out.push_str(&format!("  • {}\n", note));
+        }
+    }
 
     out.push_str("\n💡 This is a dry-run — nothing was executed.\n");
     out

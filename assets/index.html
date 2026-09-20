@@ -286,8 +286,14 @@
                     <button onclick="maintTimerStatus()">Timer Status</button>
                     <button onclick="maintEnableChecks()">Enable Checks</button>
                     <button onclick="maintDisableChecks()">Disable Checks</button>
+                    <input type="number" id="maint-keep" min="1" placeholder="config" title="Keep N backups (empty = configured policy)">
                     <button onclick="maintBackup()">Backup</button>
                     <button onclick="maintSmokeTest()" disabled title="Not available in enola-cli-lite">Smoke Test</button>
+                </div>
+                <div class="actions">
+                    <button onclick="maintBackupConfigShow()">Backup policy</button>
+                    <input type="number" id="maint-max-backups" min="1" placeholder="max backups" title="Backups kept per service">
+                    <button onclick="maintBackupConfigSet()">Set policy</button>
                 </div>
                 <div class="actions">
                     <button onclick="maintSshConfig()">SSH Config</button>
@@ -448,6 +454,9 @@
                         <option value="maintenance backup">maintenance backup</option>
                         <option value="maintenance backup --keep 3">maintenance backup --keep</option>
                         <option value="maintenance backup-config">maintenance backup-config</option>
+                        <option value="plan wp create --name blog">plan wp create</option>
+                        <option value="plan git create --name repo --ssl">plan git create</option>
+                        <option value="plan tor create --name svc --service-type files">plan tor create</option>
                         <option value="diag summary">diag summary</option>
                         <option value="test list">test list</option>
                         <option value="setup --all">setup --all</option>

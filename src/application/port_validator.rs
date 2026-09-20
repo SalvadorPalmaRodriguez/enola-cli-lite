@@ -16,6 +16,15 @@ pub struct PortRanges;
 impl PortRanges {
     /// Rango para puertos de escucha Nginx (interno, entre Tor y Nginx)
     pub const NGINX_LISTEN: (u16, u16) = (10000, 20000);
+    /// Rango para el puerto HTTP de Nginx en modo SSL (Tor web --ssl).
+    /// KEEP-IN-SYNC: tor::create (commands.rs) — find_available_port_with_lock(10000, 15000)
+    pub const NGINX_HTTP: (u16, u16) = (10000, 15000);
+    /// Rango para el puerto HTTPS de Nginx en modo SSL (Tor web --ssl).
+    /// KEEP-IN-SYNC: tor::create (commands.rs) — find_available_port_with_lock(15001, 20000)
+    pub const NGINX_HTTPS: (u16, u16) = (15001, 20000);
+    /// Rango para el puerto Nginx de servicios static/files.
+    /// KEEP-IN-SYNC: tor::create (commands.rs) — find_available_port_with_lock(20000, 30000)
+    pub const NGINX_STATIC: (u16, u16) = (20000, 30000);
     /// Rango para puertos backend WordPress
     pub const WORDPRESS_BACKEND: (u16, u16) = (8080, 9000);
     /// Rango para puertos HTTP de Git/Forgejo

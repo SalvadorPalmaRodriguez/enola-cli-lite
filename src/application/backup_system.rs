@@ -247,16 +247,38 @@ impl BackupSystem {
             .await
     }
 
-    /// Whether a backup filename belongs to `identifier`.
-    /// Names are "<ts>_<identifier>_<rest>" where the timestamp is a fixed
-    /// 19 chars (`YYYY-MM-DD_HH-MM-SS`), so the identifier is anchored at
-    /// byte 20 and must be followed by `_`. Anchoring avoids substring
-    /// collisions between identifiers like `system` and `old_system`.
+    /// A backup file belongs to `identifier` when its name is
+    /// `<timestamp>_<identifier>_<suffix>`, where `<timestamp>` may be the current
+    /// canonical form (`YYYY-MM-DD_HH-MM-SS`) or any legacy timestamp-only prefix
+    /// left over from earlier versions. Anchoring on a timestamp-like prefix avoids
+    /// substring collisions between identifiers such as `system` and `old_system`.
     fn name_matches_identifier(name: &str, identifier: &str) -> bool {
-        const TS_PREFIX_LEN: usize = 20; // 19-char timestamp + '_'
-        name.get(TS_PREFIX_LEN..)
-            .map(|rest| rest.starts_with(&format!("{}_", identifier)))
-            .unwrap_or(false)
+        if identifier.is_empty() {
+            return false;
+        }
+        let needle = format!("{}_", identifier);
+        for (idx, _) in name.match_indices(&needle) {
+            if idx == 0 {
+                continue; // sin prefijo de timestamp → no es nuestro
+            }
+            let prefix = &name[..idx];
+            if !prefix.ends_with('_') {
+                continue;
+            }
+            if Self::is_timestamp_like(&prefix[..prefix.len() - 1]) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// A timestamp prefix contains only digits and the separators used by the
+    /// current and legacy backup naming schemes.
+    fn is_timestamp_like(s: &str) -> bool {
+        !s.is_empty()
+            && s.chars().any(|c| c.is_ascii_digit())
+            && s.chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, '-' | '_' | 'T' | ':'))
     }
 
     async fn rotate_backups(&self, identifier: &str, _filename: &str) -> Result<()> {
@@ -594,10 +616,26 @@ mod tests {
             "2026-09-19_17-00-00_wp_site_full.tar.gz",
             "wp_site"
         ));
-        // Malformed names (short/missing timestamp) never match
-        assert!(!BackupSystem::name_matches_identifier(
+        // Legacy timestamp-only prefix is now swept (it is a real backup of
+        // "mysvc" left over from earlier versions).
+        assert!(BackupSystem::name_matches_identifier(
             "2026-01-01_mysvc__full.tar.gz",
             "mysvc"
+        ));
+        // Other legacy timestamp formats are swept too.
+        assert!(BackupSystem::name_matches_identifier(
+            "20260101-120000_mysvc_full.tar.gz",
+            "mysvc"
+        ));
+        // Names without a timestamp prefix never match.
+        assert!(!BackupSystem::name_matches_identifier(
+            "mysvc_full.tar.gz",
+            "mysvc"
+        ));
+        // An empty identifier never matches.
+        assert!(!BackupSystem::name_matches_identifier(
+            "2026-09-19_17-00-00_system_full.tar.gz",
+            ""
         ));
     }
 }

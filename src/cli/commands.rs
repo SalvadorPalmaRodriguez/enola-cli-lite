@@ -5500,6 +5500,10 @@ pub mod maintenance {
         use crate::application::backup_system::BackupSystem;
         use std::path::PathBuf;
 
+        if keep == Some(0) {
+            return Err(CliError::InvalidInput("keep must be >= 1".to_string()));
+        }
+
         let file_adapter = Arc::new(EnolaFileAdapter::new());
         let mut backup_system = BackupSystem::new(file_adapter);
         if let Some(n) = keep {

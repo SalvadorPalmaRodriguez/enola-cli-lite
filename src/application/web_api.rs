@@ -110,6 +110,10 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/files/{name}/delete", post(api_files_delete))
         .route("/files/{name}/edit", post(api_files_edit))
         .route("/files/{name}/fix-perms", post(api_files_fix_perms))
+        // Plan (dry-run)
+        .route("/plan/wp/create", post(api_plan_wp_create))
+        .route("/plan/git/create", post(api_plan_git_create))
+        .route("/plan/tor/create", post(api_plan_tor_create))
         // Ports
         .route("/ports", get(api_ports_list))
         // Doctor
@@ -159,6 +163,10 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             post(api_maintenance_ssh_harden_pqc),
         )
         .route("/maintenance/backup", post(api_maintenance_backup))
+        .route(
+            "/maintenance/backup-config",
+            get(api_maintenance_backup_config_show).post(api_maintenance_backup_config_set),
+        )
         .route("/maintenance/cleanup", post(api_maintenance_cleanup))
         // Diagnostics
         .route("/diag/summary", get(api_diag_summary))
@@ -1050,6 +1058,13 @@ struct ConsoleHelpResponse {
 }
 
 async fn api_console_help() -> ApiResult<ConsoleHelpResponse> {
+    // TODO[WEB-HELP-001]: Derive the command list from clap | This hardcoded
+    // list duplicates `Commands` in src/cli/defs.rs and drifts out of sync on
+    // every new command (it missed `plan` and `web`); derive it from
+    // `Cli::command().get_subcommands()` in a dedicated task | Pendiente |
+    // sin asignar | 2026-09-20 | The duplication already caused a stale
+    // /api/console/help response | Keeps the help list accurate automatically |
+    // Media
     let commands = vec![
         "tor",
         "git",
@@ -1060,6 +1075,7 @@ async fn api_console_help() -> ApiResult<ConsoleHelpResponse> {
         "strapi",
         "wagtail",
         "files",
+        "plan",
         "vpn",
         "firewall",
         "apparmor",
@@ -1073,6 +1089,7 @@ async fn api_console_help() -> ApiResult<ConsoleHelpResponse> {
         "quickref",
         "license",
         "uninstall",
+        "web",
         "config-show",
         "config-validate",
         "docs",
@@ -1717,6 +1734,100 @@ async fn api_files_fix_perms(Path(name): Path<String>) -> ApiResult<()> {
     Ok(Json(()))
 }
 
+// ── Plan (dry-run) ────────────────────────────────────────────────────────────
+//
+// Security note: `plan` has 0 side effects (it creates no containers, files,
+// or firewall rules; it only resolves ports in read-only mode), and the server
+// already exposes `POST /api/console/run`, which executes ANY CLI subcommand.
+// These endpoints are therefore strictly less powerful than what is already
+// exposed and do not widen the attack surface. Two caveats remain:
+// 1. Local topology leak: the response reveals paths, container names, and
+//    ports that WOULD be used. The GUI binds to 127.0.0.1 only (never
+//    0.0.0.0) and is token-protected, so the threat model is "whoever already
+//    has a local session" — do not promote these endpoints to a non-loopback
+//    bind without auth.
+// 2. Port probing: auto-assignment performs temporary `TcpListener::bind`
+//    calls. Idempotent and side-effect-free, but it is per-request work: if
+//    rate limiting is ever added to the GUI, these endpoints should be in it.
+
+/// Build the dry-run planner (read-only port checks via `PortValidator`).
+fn plan_service() -> crate::application::plan_service::PlanService {
+    use crate::adapters::infra::port_checker::PortCheckerAdapter;
+    use crate::application::plan_service::PlanService;
+    PlanService::new(Arc::new(PortCheckerAdapter::new()))
+}
+
+#[derive(Deserialize)]
+struct PlanWpRequest {
+    name: String,
+    http_port: Option<u16>,
+}
+
+/// `POST /api/plan/wp/create` — dry-run plan for `wp create`.
+///
+/// Returns the `ServicePlan` serialized as-is (the same JSON shape as
+/// `--format json` on the CLI), not a text rendering.
+async fn api_plan_wp_create(
+    Json(req): Json<PlanWpRequest>,
+) -> ApiResult<crate::domain::plan::ServicePlan> {
+    let plan = plan_service()
+        .plan_wordpress(&req.name, req.http_port)
+        .map_err(ApiError::from)?;
+    Ok(Json(plan))
+}
+
+#[derive(Deserialize)]
+struct PlanGitRequest {
+    name: String,
+    ssl: Option<bool>,
+    http_port: Option<u16>,
+    ssh_port: Option<u16>,
+}
+
+/// `POST /api/plan/git/create` — dry-run plan for `git create`.
+async fn api_plan_git_create(
+    Json(req): Json<PlanGitRequest>,
+) -> ApiResult<crate::domain::plan::ServicePlan> {
+    let plan = plan_service()
+        .plan_git(
+            &req.name,
+            req.ssl.unwrap_or(false),
+            req.http_port,
+            req.ssh_port,
+        )
+        .map_err(ApiError::from)?;
+    Ok(Json(plan))
+}
+
+#[derive(Deserialize)]
+struct PlanTorRequest {
+    name: String,
+    service_type: Option<String>,
+    virtual_port: Option<u16>,
+    target_port: Option<u16>,
+    ssl: Option<bool>,
+}
+
+/// `POST /api/plan/tor/create` — dry-run plan for `tor create`.
+///
+/// Defaults are identical to the CLI (`plan tor create` in
+/// `src/cli/defs.rs`): `service_type = "web"`, `virtual_port = 80`,
+/// `ssl = false`. An unknown `service_type` surfaces the same
+/// `EnolaError::ValidationError` the CLI produces.
+async fn api_plan_tor_create(
+    Json(req): Json<PlanTorRequest>,
+) -> ApiResult<crate::domain::plan::ServicePlan> {
+    // CLI defaults, kept in a single place (KEEP-IN-SYNC: cli/defs.rs
+    // `PlanTorCommands::Create`).
+    let service_type = req.service_type.as_deref().unwrap_or("web");
+    let virtual_port = req.virtual_port.unwrap_or(80);
+    let ssl = req.ssl.unwrap_or(false);
+    let plan = plan_service()
+        .plan_tor(&req.name, service_type, virtual_port, req.target_port, ssl)
+        .map_err(ApiError::from)?;
+    Ok(Json(plan))
+}
+
 // ── Firewall Complete ─────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -2031,8 +2142,58 @@ async fn api_maintenance_ssh_harden_pqc(
     Ok(Json(strip_ansi(&result)))
 }
 
-async fn api_maintenance_backup() -> ApiResult<String> {
-    let result = commands::maintenance::backup(None)
+#[derive(Deserialize)]
+struct MaintenanceBackupRequest {
+    keep: Option<usize>,
+}
+
+/// `POST /api/maintenance/backup` — create a system backup.
+///
+/// The body is optional: `{ "keep": N }` overrides the configured retention
+/// for this run only. The body is read as a raw string and parsed manually
+/// because the existing frontend POSTs with `Content-Type: application/json`
+/// but an EMPTY body — `Option<Json<T>>` would reject that with 400 (the
+/// content type is JSON, so the extractor attempts to parse and fails on
+/// EOF), which would break the "Backup" button.
+async fn api_maintenance_backup(body: String) -> ApiResult<String> {
+    let keep = if body.trim().is_empty() {
+        None
+    } else {
+        serde_json::from_str::<MaintenanceBackupRequest>(&body)
+            .map_err(|e| ApiError {
+                error: format!("Invalid JSON body: {}", e),
+                code: 400,
+            })?
+            .keep
+    };
+    let result = commands::maintenance::backup(keep)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(strip_ansi(&result)))
+}
+
+/// `GET /api/maintenance/backup-config` — show the effective backup
+/// retention policy and its resolution order (read-only).
+async fn api_maintenance_backup_config_show() -> ApiResult<String> {
+    let result = commands::maintenance::backup_config(None)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(strip_ansi(&result)))
+}
+
+#[derive(Deserialize)]
+struct MaintenanceBackupConfigSetRequest {
+    max_backups: usize,
+}
+
+/// `POST /api/maintenance/backup-config` — persist the retention policy to
+/// `[backup].max_backups` in `~/.enola/config.toml` of the invoking user
+/// (`config_loader` resolves `SUDO_USER`). The `n >= 1` validation lives in
+/// the command; it is not duplicated here.
+async fn api_maintenance_backup_config_set(
+    Json(req): Json<MaintenanceBackupConfigSetRequest>,
+) -> ApiResult<String> {
+    let result = commands::maintenance::backup_config(Some(req.max_backups))
         .await
         .map_err(ApiError::from)?;
     Ok(Json(strip_ansi(&result)))

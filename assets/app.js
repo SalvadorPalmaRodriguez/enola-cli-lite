@@ -1231,8 +1231,24 @@
         catch (e) { toast(e.message, true); }
     };
     window.maintBackup = async function () {
-        try { const result = await apiPostJson('/api/maintenance/backup'); document.getElementById('maintenance-output').textContent = result; toast('Backup done'); }
+        const keepRaw = document.getElementById('maint-keep').value.trim();
+        const body = keepRaw ? { keep: parseInt(keepRaw) } : undefined;
+        try { const result = await apiPostJson('/api/maintenance/backup', body); document.getElementById('maintenance-output').textContent = result; toast('Backup done'); }
         catch (e) { toast(e.message, true); }
+    };
+    window.maintBackupConfigShow = async function () {
+        try { const result = await apiGetJson('/api/maintenance/backup-config'); document.getElementById('maintenance-output').textContent = result; }
+        catch (e) { toast(e.message, true); }
+    };
+    window.maintBackupConfigSet = async function () {
+        const raw = document.getElementById('maint-max-backups').value.trim();
+        if (!raw) { toast('Enter a max-backups value', true); return; }
+        try {
+            const result = await apiPostJson('/api/maintenance/backup-config', { max_backups: parseInt(raw) });
+            document.getElementById('maintenance-output').textContent = result;
+            toast('Backup policy saved');
+            await maintBackupConfigShow();
+        } catch (e) { toast(e.message, true); }
     };
     window.maintSmokeTest = async function () {
         try { const result = await apiPostJson('/api/maintenance/smoke-test'); document.getElementById('maintenance-output').textContent = result; }

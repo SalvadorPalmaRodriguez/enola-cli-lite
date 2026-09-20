@@ -13,7 +13,7 @@
 // Constantes alineadas con el código existente:
 //   - container_prefix `wp-`           → §13.3 (naming) y `toggle_wordpress.rs`
 //   - data_root `/srv/enola-wordpress` → §13.2 (paths)  y `deploy_wordpress.rs`
-//   - http_port_range 8000-9999        → `domain/wordpress.rs::WordPressPortManager`
+//   - http_port_range 8080-9000        → `domain/wordpress.rs::WordPressPortManager`
 //   - setup_wizard codes 200/302/500   → §13.1 (HTTP 500 = wizard pendiente)
 
 use crate::domain::cms::{CmsDescriptor, CmsKind, DbStack};

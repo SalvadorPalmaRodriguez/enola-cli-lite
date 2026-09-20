@@ -100,8 +100,8 @@ pub struct PlannedContainer {
     pub host_port: Option<u16>,
     /// Bind-mount volumes: (host_path, container_path).
     pub volumes: Vec<(String, String)>,
-    /// Docker network name.
-    pub network: String,
+    /// Docker network name (`None` = default bridge).
+    pub network: Option<String>,
 }
 
 /// A UFW rule that would be applied (WITHOUT executing it).
@@ -149,6 +149,57 @@ impl std::fmt::Display for PlanKind {
     }
 }
 
+/// Tor service topology variant. Mirrors the dispatch in `tor::create`
+/// (src/cli/commands.rs) which accepts these aliases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TorServiceType {
+    /// Direct TCP connection (Tor → App).
+    Raw,
+    /// HTTP via Nginx reverse proxy (Tor → Nginx → App).
+    Web,
+    /// Static website served by Nginx.
+    Static,
+    /// File server via Nginx autoindex.
+    Files,
+}
+
+impl TorServiceType {
+    /// Parse a CLI service-type string (case-insensitive).
+    ///
+    /// KEEP-IN-SYNC: aliases accepted by `tor::create` in src/cli/commands.rs.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "raw" | "tcp" => Some(Self::Raw),
+            "web" | "proxy" | "http" => Some(Self::Web),
+            "static" => Some(Self::Static),
+            "files" | "fileserver" => Some(Self::Files),
+            _ => None,
+        }
+    }
+
+    /// Canonical name of the variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Web => "web",
+            Self::Static => "static",
+            Self::Files => "files",
+        }
+    }
+}
+
+/// Options that affect what a plan would create (mirrors CLI flags).
+#[derive(Debug, Clone, Default)]
+pub struct PlanOptions {
+    /// `--ssl`: create Nginx HTTPS reverse-proxy site and self-signed cert.
+    pub ssl: bool,
+    /// Only meaningful for `PlanKind::Tor` (`None` = CLI default: `web`).
+    pub tor_type: Option<TorServiceType>,
+    /// Extra warnings computed by the caller (e.g. ignored flags).
+    pub extra_notes: Vec<String>,
+}
+
 /// A port specification in a blueprint: (label, default range).
 #[derive(Debug, Clone, Copy)]
 pub struct PortSpec {
@@ -164,7 +215,9 @@ pub struct PortSpec {
 /// - Tor:       `src/application/deploy_tor_service.rs` + `src/adapters/tor.rs`
 pub struct ServiceBlueprint {
     pub kind: PlanKind,
-    pub apparmor_service_type: AppArmorServiceType,
+    /// Per-service AppArmor profile type (`None` when the real `create`
+    /// does not apply any profile).
+    pub apparmor_service_type: Option<AppArmorServiceType>,
     pub port_specs: &'static [PortSpec],
     /// Whether this service exposes SSH (affects risk level).
     pub exposes_ssh: bool,
@@ -179,11 +232,14 @@ pub struct ServicePlan {
     pub containers: Vec<PlannedContainer>,
     pub paths: Vec<PlannedPath>,
     pub firewall_rules: Vec<PlannedFirewallRule>,
-    pub apparmor: PlannedAppArmor,
+    /// Per-service AppArmor profile (`None` when `create` applies none, e.g. Tor).
+    pub apparmor: Option<PlannedAppArmor>,
     pub risk: RiskLevel,
     /// Whether this plan exposes SSH (used by RiskLevel::compute).
     #[serde(skip)]
     pub exposes_ssh: bool,
+    /// Plan warnings (e.g. CLI flags that `create` would silently ignore).
+    pub notes: Vec<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -195,7 +251,7 @@ pub fn blueprint_for(kind: PlanKind) -> ServiceBlueprint {
     match kind {
         PlanKind::WordPress => ServiceBlueprint {
             kind: PlanKind::WordPress,
-            apparmor_service_type: AppArmorServiceType::WordPress,
+            apparmor_service_type: Some(AppArmorServiceType::WordPress),
             // KEEP-IN-SYNC: PortRanges::WORDPRESS_BACKEND (8080, 9000)
             port_specs: &[PortSpec {
                 label: "http-port",
@@ -205,7 +261,7 @@ pub fn blueprint_for(kind: PlanKind) -> ServiceBlueprint {
         },
         PlanKind::Git => ServiceBlueprint {
             kind: PlanKind::Git,
-            apparmor_service_type: AppArmorServiceType::Git,
+            apparmor_service_type: Some(AppArmorServiceType::Git),
             // KEEP-IN-SYNC: PortRanges::GIT_HTTP (10000, 15000), GIT_SSH (30000, 35000)
             port_specs: &[
                 PortSpec {
@@ -221,7 +277,9 @@ pub fn blueprint_for(kind: PlanKind) -> ServiceBlueprint {
         },
         PlanKind::Tor => ServiceBlueprint {
             kind: PlanKind::Tor,
-            apparmor_service_type: AppArmorServiceType::Tor,
+            // KEEP-IN-SYNC: executor.rs — `tor create` does not call
+            // apparmor_apply_profile (only wp/git do).
+            apparmor_service_type: None,
             // KEEP-IN-SYNC: PortRanges::NGINX_LISTEN (10000, 20000)
             port_specs: &[PortSpec {
                 label: "target-port",
@@ -236,11 +294,16 @@ pub fn blueprint_for(kind: PlanKind) -> ServiceBlueprint {
 // Plan builders (pure functions — no I/O)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// A resolved port: (label, port, was_auto_assigned).
+/// A resolved port: (label, port, was_auto_assigned, range, firewall).
 pub struct ResolvedPort {
     pub label: &'static str,
     pub port: u16,
     pub auto_assigned: bool,
+    /// Range used when auto-assigning; `None` → look it up in the
+    /// blueprint's `port_specs` by label.
+    pub range: Option<(u16, u16)>,
+    /// Whether the real `create` registers this port in UFW.
+    pub firewall: bool,
 }
 
 impl ServiceBlueprint {
@@ -248,7 +311,7 @@ impl ServiceBlueprint {
     ///
     /// Pure function: no I/O, no side effects. The containers, paths,
     /// firewall rules, and AppArmor profile are derived declaratively.
-    pub fn build(&self, name: &str, resolved: &[ResolvedPort]) -> ServicePlan {
+    pub fn build(&self, name: &str, resolved: &[ResolvedPort], opts: &PlanOptions) -> ServicePlan {
         let ports: Vec<PlannedPort> = resolved
             .iter()
             .map(|rp| PlannedPort {
@@ -256,13 +319,14 @@ impl ServiceBlueprint {
                 port: rp.port,
                 bind_interface: "127.0.0.1".to_string(),
                 source: if rp.auto_assigned {
-                    let spec = self
-                        .port_specs
-                        .iter()
-                        .find(|s| s.label == rp.label)
-                        .map(|s| s.range)
-                        .unwrap_or((0, 0));
-                    format!("auto-assigned (range {}-{})", spec.0, spec.1)
+                    let (lo, hi) = rp.range.unwrap_or_else(|| {
+                        self.port_specs
+                            .iter()
+                            .find(|s| s.label == rp.label)
+                            .map(|s| s.range)
+                            .unwrap_or((0, 0))
+                    });
+                    format!("auto-assigned (range {}-{})", lo, hi)
                 } else {
                     "manual".to_string()
                 },
@@ -270,12 +334,16 @@ impl ServiceBlueprint {
             .collect();
 
         let containers = self.containers(name, resolved);
-        let paths = self.paths(name);
+        let (paths, mut notes) = self.paths(name, opts);
+        notes.extend(opts.extra_notes.iter().cloned());
         let firewall_rules = self.firewall_rules(resolved);
-        let apparmor = PlannedAppArmor {
-            profile_name: self.apparmor_service_type.profile_name(name),
-            mode: "complain".to_string(),
-        };
+        let apparmor = self
+            .apparmor_service_type
+            .as_ref()
+            .map(|t| PlannedAppArmor {
+                profile_name: t.profile_name(name),
+                mode: "complain".to_string(),
+            });
 
         let mut plan = ServicePlan {
             kind: self.kind,
@@ -287,6 +355,7 @@ impl ServiceBlueprint {
             apparmor,
             risk: RiskLevel::Low, // placeholder, computed below
             exposes_ssh: self.exposes_ssh,
+            notes,
         };
         plan.risk = RiskLevel::compute(&plan);
         plan
@@ -316,7 +385,7 @@ impl ServiceBlueprint {
                             format!("/srv/enola-wordpress/{}_wp", name),
                             "/var/www/html".to_string(),
                         )],
-                        network: network.clone(),
+                        network: Some(network.clone()),
                     },
                     PlannedContainer {
                         name: format!("db-{}", name),
@@ -327,7 +396,7 @@ impl ServiceBlueprint {
                             format!("/srv/enola-wordpress/{}_db", name),
                             "/var/lib/mysql".to_string(),
                         )],
-                        network,
+                        network: Some(network),
                     },
                 ]
             }
@@ -347,7 +416,9 @@ impl ServiceBlueprint {
                     internal_port: 3000,
                     host_port: Some(http_port),
                     volumes: vec![(format!("/srv/enola-git/{}", name), "/data".to_string())],
-                    network: format!("enola_net_{}", name),
+                    // KEEP-IN-SYNC: deploy_git_server.rs — ContainerConfig { network: None }
+                    // (default Docker bridge).
+                    network: None,
                 }]
             }
             PlanKind::Tor => {
@@ -357,46 +428,130 @@ impl ServiceBlueprint {
         }
     }
 
-    /// Filesystem paths that would be created.
-    fn paths(&self, name: &str) -> Vec<PlannedPath> {
+    /// Filesystem paths that would be created, plus builder-level notes.
+    fn paths(&self, name: &str, opts: &PlanOptions) -> (Vec<PlannedPath>, Vec<String>) {
         match self.kind {
-            PlanKind::WordPress => vec![
-                PlannedPath {
-                    path: format!("/srv/enola-wordpress/{}_wp", name),
-                    purpose: "WordPress files (bind mount -> /var/www/html)".to_string(),
-                },
-                PlannedPath {
-                    path: format!("/srv/enola-wordpress/{}_db", name),
-                    purpose: "MariaDB data (bind mount -> /var/lib/mysql)".to_string(),
-                },
-                PlannedPath {
-                    path: format!("/srv/enola-wordpress/{}_secrets", name),
-                    purpose: "Secrets directory (0700, root:root)".to_string(),
-                },
-            ],
-            PlanKind::Git => vec![PlannedPath {
-                path: format!("/srv/enola-git/{}", name),
-                purpose: "Forgejo data (bind mount -> /data, chown 1000:1000)".to_string(),
-            }],
-            PlanKind::Tor => vec![
-                PlannedPath {
-                    path: format!("/var/lib/tor/enola_{}", name),
-                    purpose: "Tor hidden service directory (debian-tor:debian-tor, 700)"
-                        .to_string(),
-                },
-                PlannedPath {
-                    path: format!("/etc/tor/enola.d/{}.conf", name),
-                    purpose: "Tor hidden service config (root:debian-tor, 640)".to_string(),
-                },
-            ],
+            PlanKind::WordPress => (
+                vec![
+                    PlannedPath {
+                        path: format!("/srv/enola-wordpress/{}_wp", name),
+                        purpose: "WordPress files (bind mount -> /var/www/html)".to_string(),
+                    },
+                    PlannedPath {
+                        path: format!("/srv/enola-wordpress/{}_db", name),
+                        purpose: "MariaDB data (bind mount -> /var/lib/mysql)".to_string(),
+                    },
+                    PlannedPath {
+                        path: format!("/srv/enola-wordpress/{}_secrets", name),
+                        purpose: "Secrets directory (0700, root:root)".to_string(),
+                    },
+                ],
+                vec![],
+            ),
+            PlanKind::Git => {
+                // KEEP-IN-SYNC: deploy_git_server.rs `if enable_ssl` block +
+                // NginxAdapter::generate_self_signed_cert (/etc/nginx/ssl/{name}.crt|.key)
+                let mut paths = vec![PlannedPath {
+                    path: format!("/srv/enola-git/{}", name),
+                    purpose: "Forgejo data (bind mount -> /data, chown 1000:1000)".to_string(),
+                }];
+                let mut notes = Vec::new();
+                if opts.ssl {
+                    paths.push(PlannedPath {
+                        path: format!("/etc/nginx/sites-available/proxy_{}", name),
+                        purpose: "Nginx HTTPS reverse-proxy site (symlinked into sites-enabled)"
+                            .to_string(),
+                    });
+                    paths.push(PlannedPath {
+                        path: format!("/etc/nginx/ssl/{}.crt", name),
+                        purpose: "Self-signed TLS certificate".to_string(),
+                    });
+                    paths.push(PlannedPath {
+                        path: format!("/etc/nginx/ssl/{}.key", name),
+                        purpose: "Self-signed TLS private key".to_string(),
+                    });
+                    notes.push(
+                        "`git create --ssl` does NOT register the HTTPS port in UFW \
+                         (only http-port and ssh-port are synced)."
+                            .to_string(),
+                    );
+                }
+                (paths, notes)
+            }
+            PlanKind::Tor => {
+                // KEEP-IN-SYNC: tor::create (src/cli/commands.rs) + adapters/tor.rs —
+                // hidden service dir is always /var/lib/tor/enola_{tor_name} and the
+                // conf /etc/tor/enola.d/{tor_name}.conf; tor_name varies by type.
+                let tor_type = opts.tor_type.unwrap_or(TorServiceType::Web);
+                let tor_name = match tor_type {
+                    TorServiceType::Raw | TorServiceType::Static => name.to_string(),
+                    TorServiceType::Web => format!("proxy_{}", name),
+                    TorServiceType::Files => format!("fileserver_{}", name),
+                };
+                let mut paths = vec![
+                    PlannedPath {
+                        path: format!("/var/lib/tor/enola_{}", tor_name),
+                        purpose: "Tor hidden service directory (debian-tor:debian-tor, 700)"
+                            .to_string(),
+                    },
+                    PlannedPath {
+                        path: format!("/etc/tor/enola.d/{}.conf", tor_name),
+                        purpose: "Tor hidden service config (root:debian-tor, 640)".to_string(),
+                    },
+                ];
+                match tor_type {
+                    TorServiceType::Raw => {}
+                    TorServiceType::Web => {
+                        paths.push(PlannedPath {
+                            path: format!("/etc/nginx/sites-available/proxy_{}", name),
+                            purpose: "Nginx reverse-proxy site (symlinked into sites-enabled)"
+                                .to_string(),
+                        });
+                        if opts.ssl {
+                            paths.push(PlannedPath {
+                                path: format!("/etc/nginx/ssl/{}.crt", name),
+                                purpose: "Self-signed TLS certificate".to_string(),
+                            });
+                            paths.push(PlannedPath {
+                                path: format!("/etc/nginx/ssl/{}.key", name),
+                                purpose: "Self-signed TLS private key".to_string(),
+                            });
+                        }
+                    }
+                    TorServiceType::Static => {
+                        paths.push(PlannedPath {
+                            path: format!("/etc/nginx/sites-available/{}", name),
+                            purpose: "Nginx static-site config".to_string(),
+                        });
+                        paths.push(PlannedPath {
+                            path: format!("/var/www/{}", name),
+                            purpose: "Document root for the static site".to_string(),
+                        });
+                    }
+                    TorServiceType::Files => {
+                        paths.push(PlannedPath {
+                            path: format!("/etc/nginx/sites-available/fileserver_{}", name),
+                            purpose: "Nginx file-server config (autoindex)".to_string(),
+                        });
+                        paths.push(PlannedPath {
+                            path: format!("/srv/enola-files/{}", name),
+                            purpose: "Shared folder (root:www-data, 0750)".to_string(),
+                        });
+                    }
+                }
+                (paths, vec![])
+            }
         }
     }
 
     /// UFW rules that would be applied (loopback only).
+    ///
+    /// Only ports whose real `create` registers them in UFW produce a rule
+    /// (e.g. `tor create` only registers an explicit `--target-port`).
     fn firewall_rules(&self, resolved: &[ResolvedPort]) -> Vec<PlannedFirewallRule> {
         resolved
             .iter()
-            .filter(|rp| rp.label != "virtual-port") // .onion ports are not real sockets
+            .filter(|rp| rp.firewall)
             .map(|rp| PlannedFirewallRule {
                 port: rp.port,
                 protocol: "tcp".to_string(),
@@ -414,11 +569,37 @@ impl ServiceBlueprint {
 mod tests {
     use super::*;
 
+    /// Port registered in UFW by the real `create` (firewall = true).
     fn resolved(label: &'static str, port: u16, auto: bool) -> ResolvedPort {
         ResolvedPort {
             label,
             port,
             auto_assigned: auto,
+            range: None,
+            firewall: true,
+        }
+    }
+
+    /// Port NOT registered in UFW (e.g. .onion virtual ports, nginx ports).
+    fn resolved_nf(label: &'static str, port: u16, auto: bool) -> ResolvedPort {
+        ResolvedPort {
+            label,
+            port,
+            auto_assigned: auto,
+            range: None,
+            firewall: false,
+        }
+    }
+
+    fn build(bp: &ServiceBlueprint, name: &str, resolved: &[ResolvedPort]) -> ServicePlan {
+        bp.build(name, resolved, &PlanOptions::default())
+    }
+
+    fn tor_opts(tor_type: TorServiceType, ssl: bool) -> PlanOptions {
+        PlanOptions {
+            ssl,
+            tor_type: Some(tor_type),
+            extra_notes: vec![],
         }
     }
 
@@ -427,14 +608,15 @@ mod tests {
     #[test]
     fn test_risk_low_wordpress_loopback() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("foo", &[resolved("http-port", 8090, false)]);
+        let plan = build(&bp, "foo", &[resolved("http-port", 8090, false)]);
         assert_eq!(plan.risk, RiskLevel::Low);
     }
 
     #[test]
     fn test_risk_medium_git_ssh_exposed() {
         let bp = blueprint_for(PlanKind::Git);
-        let plan = bp.build(
+        let plan = build(
+            &bp,
             "repo",
             &[
                 resolved("http-port", 10500, false),
@@ -449,7 +631,7 @@ mod tests {
     fn test_risk_medium_privileged_port() {
         let bp = blueprint_for(PlanKind::WordPress);
         // Port 25 is privileged and not 80/443 → Medium.
-        let plan = bp.build("foo", &[resolved("http-port", 25, false)]);
+        let plan = build(&bp, "foo", &[resolved("http-port", 25, false)]);
         assert_eq!(plan.risk, RiskLevel::Medium);
     }
 
@@ -457,10 +639,11 @@ mod tests {
     fn test_risk_low_port_80_allowed() {
         let bp = blueprint_for(PlanKind::Tor);
         // virtual-port 80 is .onion (not a real socket), target-port 15000 is fine.
-        let plan = bp.build(
+        let plan = build(
+            &bp,
             "svc",
             &[
-                resolved("virtual-port", 80, false),
+                resolved_nf("virtual-port", 80, false),
                 resolved("target-port", 15000, false),
             ],
         );
@@ -470,7 +653,7 @@ mod tests {
     #[test]
     fn test_risk_high_non_loopback_bind() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let mut plan = bp.build("foo", &[resolved("http-port", 8090, false)]);
+        let mut plan = build(&bp, "foo", &[resolved("http-port", 8090, false)]);
         // Simulate a non-loopback bind (defensive — should never happen in Enola).
         plan.ports[0].bind_interface = "0.0.0.0".to_string();
         assert_eq!(RiskLevel::compute(&plan), RiskLevel::High);
@@ -483,7 +666,7 @@ mod tests {
         // Regression guard: if deploy_wordpress.rs changes image/port/volumes,
         // this test fails, signaling the blueprint needs updating.
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("myblog", &[resolved("http-port", 8090, false)]);
+        let plan = build(&bp, "myblog", &[resolved("http-port", 8090, false)]);
         assert_eq!(plan.containers.len(), 2);
 
         let wp = &plan.containers[0];
@@ -491,6 +674,7 @@ mod tests {
         assert_eq!(wp.image, "wordpress:latest"); // KEEP-IN-SYNC deploy_wordpress.rs:191
         assert_eq!(wp.internal_port, 80); // KEEP-IN-SYNC deploy_wordpress.rs:160
         assert_eq!(wp.host_port, Some(8090));
+        assert_eq!(wp.network, Some("enola_net_myblog".to_string())); // KEEP-IN-SYNC deploy_wordpress.rs
         assert_eq!(
             wp.volumes[0],
             (
@@ -515,7 +699,7 @@ mod tests {
     #[test]
     fn test_blueprint_wp_paths() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("foo", &[resolved("http-port", 8090, false)]);
+        let plan = build(&bp, "foo", &[resolved("http-port", 8090, false)]);
         assert_eq!(plan.paths.len(), 3);
         assert!(plan
             .paths
@@ -534,15 +718,16 @@ mod tests {
     #[test]
     fn test_blueprint_wp_apparmor_profile() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("foo", &[resolved("http-port", 8090, false)]);
-        assert_eq!(plan.apparmor.profile_name, "enola-wp-foo");
-        assert_eq!(plan.apparmor.mode, "complain");
+        let plan = build(&bp, "foo", &[resolved("http-port", 8090, false)]);
+        let aa = plan.apparmor.as_ref().expect("wp create applies a profile");
+        assert_eq!(aa.profile_name, "enola-wp-foo");
+        assert_eq!(aa.mode, "complain");
     }
 
     #[test]
     fn test_blueprint_wp_firewall_one_rule() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("foo", &[resolved("http-port", 8090, false)]);
+        let plan = build(&bp, "foo", &[resolved("http-port", 8090, false)]);
         assert_eq!(plan.firewall_rules.len(), 1);
         assert_eq!(plan.firewall_rules[0].port, 8090);
         assert_eq!(plan.firewall_rules[0].scope, "loopback");
@@ -553,7 +738,8 @@ mod tests {
     #[test]
     fn test_blueprint_git_containers_match_deploy() {
         let bp = blueprint_for(PlanKind::Git);
-        let plan = bp.build(
+        let plan = build(
+            &bp,
             "repo",
             &[
                 resolved("http-port", 10500, false),
@@ -567,12 +753,15 @@ mod tests {
         assert_eq!(c.internal_port, 3000); // KEEP-IN-SYNC deploy_git_server.rs:128
         assert_eq!(c.host_port, Some(10500));
         assert_eq!(c.volumes[0], ("/srv/enola-git/repo".into(), "/data".into()));
+        // KEEP-IN-SYNC: deploy_git_server.rs — ContainerConfig { network: None }
+        assert_eq!(c.network, None);
     }
 
     #[test]
     fn test_blueprint_git_firewall_two_rules() {
         let bp = blueprint_for(PlanKind::Git);
-        let plan = bp.build(
+        let plan = build(
+            &bp,
             "repo",
             &[
                 resolved("http-port", 10500, false),
@@ -588,8 +777,13 @@ mod tests {
     #[test]
     fn test_blueprint_git_apparmor_profile() {
         let bp = blueprint_for(PlanKind::Git);
-        let plan = bp.build("repo", &[resolved("http-port", 10500, false)]);
-        assert_eq!(plan.apparmor.profile_name, "enola-git-repo");
+        let plan = build(&bp, "repo", &[resolved("http-port", 10500, false)]);
+        let aa = plan
+            .apparmor
+            .as_ref()
+            .expect("git create applies a profile");
+        assert_eq!(aa.profile_name, "enola-git-repo");
+        assert_eq!(aa.mode, "complain");
     }
 
     // ── Blueprint: Tor ──
@@ -597,10 +791,11 @@ mod tests {
     #[test]
     fn test_blueprint_tor_no_container() {
         let bp = blueprint_for(PlanKind::Tor);
-        let plan = bp.build(
+        let plan = build(
+            &bp,
             "svc",
             &[
-                resolved("virtual-port", 80, false),
+                resolved_nf("virtual-port", 80, false),
                 resolved("target-port", 15000, false),
             ],
         );
@@ -611,35 +806,121 @@ mod tests {
     }
 
     #[test]
-    fn test_blueprint_tor_paths() {
+    fn test_blueprint_tor_paths_raw() {
         let bp = blueprint_for(PlanKind::Tor);
-        let plan = bp.build("svc", &[resolved("target-port", 15000, false)]);
-        assert_eq!(plan.paths.len(), 2);
-        assert!(plan
-            .paths
-            .iter()
-            .any(|p| p.path == "/var/lib/tor/enola_svc"));
-        assert!(plan
-            .paths
-            .iter()
-            .any(|p| p.path == "/etc/tor/enola.d/svc.conf"));
+        // KEEP-IN-SYNC: tor::create "raw" → tor_name = {name}, no Nginx site.
+        let plan = bp.build(
+            "svc",
+            &[resolved("target-port", 15000, false)],
+            &tor_opts(TorServiceType::Raw, false),
+        );
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["/var/lib/tor/enola_svc", "/etc/tor/enola.d/svc.conf",]
+        );
     }
 
     #[test]
-    fn test_blueprint_tor_apparmor_no_suffix() {
+    fn test_blueprint_tor_paths_web() {
         let bp = blueprint_for(PlanKind::Tor);
-        let plan = bp.build("svc", &[resolved("target-port", 15000, false)]);
-        // Tor/Nginx/DockerBase profiles have no instance suffix.
-        assert_eq!(plan.apparmor.profile_name, "enola-tor");
+        // KEEP-IN-SYNC: tor::create "web" → tor_name = proxy_{name} + Nginx site.
+        let plan = bp.build(
+            "svc",
+            &[resolved_nf("nginx-port", 10000, true)],
+            &tor_opts(TorServiceType::Web, false),
+        );
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/var/lib/tor/enola_proxy_svc",
+                "/etc/tor/enola.d/proxy_svc.conf",
+                "/etc/nginx/sites-available/proxy_svc",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_blueprint_tor_paths_web_ssl() {
+        let bp = blueprint_for(PlanKind::Tor);
+        let plan = bp.build(
+            "svc",
+            &[resolved_nf("nginx-port", 10000, true)],
+            &tor_opts(TorServiceType::Web, true),
+        );
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/var/lib/tor/enola_proxy_svc",
+                "/etc/tor/enola.d/proxy_svc.conf",
+                "/etc/nginx/sites-available/proxy_svc",
+                "/etc/nginx/ssl/svc.crt",
+                "/etc/nginx/ssl/svc.key",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_blueprint_tor_paths_static() {
+        let bp = blueprint_for(PlanKind::Tor);
+        // KEEP-IN-SYNC: tor::create "static" → tor_name = {name} + static site.
+        let plan = bp.build(
+            "svc",
+            &[resolved_nf("nginx-port", 20000, true)],
+            &tor_opts(TorServiceType::Static, false),
+        );
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/var/lib/tor/enola_svc",
+                "/etc/tor/enola.d/svc.conf",
+                "/etc/nginx/sites-available/svc",
+                "/var/www/svc",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_blueprint_tor_paths_files() {
+        let bp = blueprint_for(PlanKind::Tor);
+        // KEEP-IN-SYNC: tor::create "files" → tor_name = fileserver_{name}.
+        let plan = bp.build(
+            "svc",
+            &[resolved_nf("nginx-port", 20000, true)],
+            &tor_opts(TorServiceType::Files, false),
+        );
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/var/lib/tor/enola_fileserver_svc",
+                "/etc/tor/enola.d/fileserver_svc.conf",
+                "/etc/nginx/sites-available/fileserver_svc",
+                "/srv/enola-files/svc",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_blueprint_tor_no_apparmor_profile() {
+        let bp = blueprint_for(PlanKind::Tor);
+        let plan = build(&bp, "svc", &[resolved("target-port", 15000, false)]);
+        // `tor create` never calls apparmor_apply_profile (only `wp create`
+        // and `git create` do) — the plan must not promise a profile.
+        assert!(plan.apparmor.is_none());
     }
 
     #[test]
     fn test_blueprint_tor_virtual_port_not_in_firewall() {
         let bp = blueprint_for(PlanKind::Tor);
-        let plan = bp.build(
+        let plan = build(
+            &bp,
             "svc",
             &[
-                resolved("virtual-port", 80, false),
+                resolved_nf("virtual-port", 80, false),
                 resolved("target-port", 15000, false),
             ],
         );
@@ -648,19 +929,79 @@ mod tests {
         assert_eq!(plan.firewall_rules[0].port, 15000);
     }
 
+    #[test]
+    fn test_blueprint_git_paths_ssl_off() {
+        let bp = blueprint_for(PlanKind::Git);
+        let plan = build(&bp, "repo", &[resolved("http-port", 10500, false)]);
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, ["/srv/enola-git/repo"]);
+        assert!(plan.notes.is_empty());
+    }
+
+    #[test]
+    fn test_blueprint_git_paths_ssl_on() {
+        let bp = blueprint_for(PlanKind::Git);
+        // KEEP-IN-SYNC: deploy_git_server.rs `if enable_ssl` block.
+        let plan = bp.build(
+            "repo",
+            &[resolved("http-port", 10500, false)],
+            &PlanOptions {
+                ssl: true,
+                ..PlanOptions::default()
+            },
+        );
+        let paths: Vec<&str> = plan.paths.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/srv/enola-git/repo",
+                "/etc/nginx/sites-available/proxy_repo",
+                "/etc/nginx/ssl/repo.crt",
+                "/etc/nginx/ssl/repo.key",
+            ]
+        );
+        assert_eq!(plan.notes.len(), 1);
+        assert!(plan.notes[0].contains("does NOT register the HTTPS port in UFW"));
+    }
+
+    // ── TorServiceType ──
+
+    #[test]
+    fn test_tor_service_type_parse_aliases() {
+        assert_eq!(TorServiceType::parse("raw"), Some(TorServiceType::Raw));
+        assert_eq!(TorServiceType::parse("tcp"), Some(TorServiceType::Raw));
+        assert_eq!(TorServiceType::parse("web"), Some(TorServiceType::Web));
+        assert_eq!(TorServiceType::parse("proxy"), Some(TorServiceType::Web));
+        assert_eq!(TorServiceType::parse("http"), Some(TorServiceType::Web));
+        assert_eq!(
+            TorServiceType::parse("static"),
+            Some(TorServiceType::Static)
+        );
+        assert_eq!(TorServiceType::parse("files"), Some(TorServiceType::Files));
+        assert_eq!(
+            TorServiceType::parse("fileserver"),
+            Some(TorServiceType::Files)
+        );
+        // Case-insensitive
+        assert_eq!(TorServiceType::parse("WEB"), Some(TorServiceType::Web));
+        assert_eq!(TorServiceType::parse("bogus"), None);
+        assert_eq!(TorServiceType::as_str(&TorServiceType::Raw), "raw");
+        assert_eq!(TorServiceType::as_str(&TorServiceType::Files), "files");
+    }
+
     // ── Auto-assigned source label ──
 
     #[test]
     fn test_auto_assigned_source_label() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("foo", &[resolved("http-port", 8080, true)]);
+        let plan = build(&bp, "foo", &[resolved("http-port", 8080, true)]);
         assert_eq!(plan.ports[0].source, "auto-assigned (range 8080-9000)");
     }
 
     #[test]
     fn test_manual_source_label() {
         let bp = blueprint_for(PlanKind::WordPress);
-        let plan = bp.build("foo", &[resolved("http-port", 8090, false)]);
+        let plan = build(&bp, "foo", &[resolved("http-port", 8090, false)]);
         assert_eq!(plan.ports[0].source, "manual");
     }
 
