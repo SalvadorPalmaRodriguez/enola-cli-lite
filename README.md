@@ -64,6 +64,7 @@ Traffic model for every service: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT �
   - [🚀 Strapi — Headless CMS](#-strapi--headless-cms)
   - [🐦 Wagtail — Django CMS](#-wagtail--django-cms)
   - [📁 Files — File Sharing](#-files--file-sharing)
+  - [📋 Plan — Dry-run](#-plan--dry-run)
   - [🔧 Maintenance](#-maintenance)
   - [🩺 Diagnostics](#-diagnostics)
   - [🧪 Test — System Tests](#-test--system-tests)
@@ -162,6 +163,7 @@ enola-cli
 ├── strapi      # Headless CMS Strapi
 ├── wagtail     # Wagtail CMS (Django)
 ├── files       # Secure file sharing
+├── plan        # Dry-run of service creation (no side effects)
 ├── maintenance # Maintenance operations
 ├── diag        # System diagnostics
 ├── test        # Run tests
@@ -606,6 +608,27 @@ sudo enola-cli files delete <name> --force
 sudo cp file.pdf /srv/enola-files/my-files/
 sudo cp -r folder/ /srv/enola-files/my-files/
 ```
+
+---
+
+## 📋 Plan — Dry-run
+
+Preview what a `create` command would do — ports, containers, filesystem
+paths, UFW rules, AppArmor profile and risk level — with **zero side
+effects**. Output: text or `--format json`.
+
+```bash
+# Plan a WordPress site
+sudo enola-cli plan wp create -n my-site [--http-port 8090]
+
+# Plan a Git server (Forgejo)
+sudo enola-cli plan git create -n repo [--ssl] [--http-port 10500] [--ssh-port 30100]
+
+# Plan a Tor hidden service
+sudo enola-cli plan tor create -n svc [-s web|static|files|raw] [-p 80] [-t 8080] [--ssl]
+```
+
+Full reference: [commands-plan.md](docs/en/commands-plan.md)
 
 ---
 

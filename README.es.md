@@ -66,6 +66,7 @@ Modelo de tráfico para cada servicio: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_P
   - [� Strapi - Headless CMS](#-strapi---headless-cms)
   - [🐦 Wagtail - CMS Django](#-wagtail---cms-django)
   - [�📁 Files - Compartir Archivos](#-files---compartir-archivos)
+  - [📋 Plan - Dry-run](#-plan---dry-run)
   - [🔧 Maintenance - Mantenimiento](#-maintenance---mantenimiento)
   - [🩺 Diagnostics - Diagnósticos](#-diagnostics---diagnósticos)
   - [🧪 Test - Pruebas del Sistema](#-test---pruebas-del-sistema)
@@ -164,6 +165,7 @@ enola-cli
 ├── strapi      # Headless CMS Strapi
 ├── wagtail     # CMS Wagtail (Django)
 ├── files       # Compartir archivos seguros
+├── plan        # Dry-run de creación de servicios (sin efectos colaterales)
 ├── maintenance # Operaciones de mantenimiento
 ├── diag        # Diagnósticos del sistema
 ├── test        # Ejecutar tests
@@ -610,6 +612,27 @@ sudo enola-cli files delete <nombre> --force
 sudo cp archivo.pdf /srv/enola-files/mis-archivos/
 sudo cp -r carpeta/ /srv/enola-files/mis-archivos/
 ```
+
+---
+
+## 📋 Plan - Dry-run
+
+Previsualiza lo que haría un comando `create` — puertos, contenedores, rutas
+del filesystem, reglas UFW, perfil AppArmor y nivel de riesgo — con **cero
+efectos colaterales**. Salida: texto o `--format json`.
+
+```bash
+# Planificar un sitio WordPress
+sudo enola-cli plan wp create -n mi-sitio [--http-port 8090]
+
+# Planificar un servidor Git (Forgejo)
+sudo enola-cli plan git create -n repo [--ssl] [--http-port 10500] [--ssh-port 30100]
+
+# Planificar un servicio oculto Tor
+sudo enola-cli plan tor create -n svc [-s web|static|files|raw] [-p 80] [-t 8080] [--ssl]
+```
+
+Referencia completa: [commands-plan.md](docs/user/general/commands-plan.md)
 
 ---
 

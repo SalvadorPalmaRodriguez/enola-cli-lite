@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/web/README.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-08-08
+> **Versión:** 2.1 | **Actualizado:** 2026-09-20
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 
 # Enola Web Dashboard
@@ -90,7 +90,14 @@ browser and enter the token to connect.
 - Enable/disable health checks.
 - Timer status, SSH config.
 - SSH hardening (PQC).
-- Backup and cleanup.
+- Backup (with optional per-run `keep` retention) and cleanup.
+- View/set the backup retention policy (`backup-config`).
+
+### Plan (dry-run)
+- Compute the creation plan for a WordPress site, Git server, or Tor service
+  without applying anything (0 side effects).
+- The response is the serialized `ServicePlan` (same JSON as
+  `enola-cli --format json plan ...`).
 
 ### Diagnostics
 - Summary, Nginx, Tor, SSH, WordPress diagnostics.
@@ -218,6 +225,14 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 | POST | `/api/files/{name}/edit` | Edit file share |
 | POST | `/api/files/{name}/fix-perms` | Fix file permissions |
 
+### Plan (dry-run)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/plan/wp/create` | Dry-run plan for `wp create` |
+| POST | `/api/plan/git/create` | Dry-run plan for `git create` |
+| POST | `/api/plan/tor/create` | Dry-run plan for `tor create` |
+
 ### Ports
 
 | Method | Path | Description |
@@ -281,7 +296,9 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 | GET | `/api/maintenance/timer-status` | Timer status |
 | GET | `/api/maintenance/ssh-config` | SSH config |
 | POST | `/api/maintenance/ssh-harden-pqc` | SSH PQC hardening |
-| POST | `/api/maintenance/backup` | Create backup |
+| POST | `/api/maintenance/backup` | Create backup (optional `{keep}` overrides retention for this run) |
+| GET | `/api/maintenance/backup-config` | Show effective backup retention policy |
+| POST | `/api/maintenance/backup-config` | Persist retention (`{max_backups}`) to `~/.enola/config.toml` |
 | POST | `/api/maintenance/cleanup` | Cleanup system |
 
 ### Diagnostics
@@ -444,6 +461,37 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 }
 ```
 
+### `POST /api/plan/wp/create`
+```json
+{
+  "name": "my-blog",
+  "http_port": 8080
+}
+```
+
+### `POST /api/plan/git/create`
+```json
+{
+  "name": "my-repo",
+  "ssl": true,
+  "http_port": 10001,
+  "ssh_port": 30001
+}
+```
+
+### `POST /api/plan/tor/create`
+```json
+{
+  "name": "my-service",
+  "service_type": "web",
+  "virtual_port": 80,
+  "target_port": 8080,
+  "ssl": false
+}
+```
+All fields except `name` are optional and default like the CLI
+(`service_type = "web"`, `virtual_port = 80`, `ssl = false`).
+
 ### `POST /api/firewall/setup`
 ```json
 {
@@ -545,6 +593,21 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 {
   "force": false,
   "dry_run": true
+}
+```
+
+### `POST /api/maintenance/backup`
+```json
+{
+  "keep": 5
+}
+```
+The body is optional — a POST with no body uses the configured retention.
+
+### `POST /api/maintenance/backup-config`
+```json
+{
+  "max_backups": 5
 }
 ```
 

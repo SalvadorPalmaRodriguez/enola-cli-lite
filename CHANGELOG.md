@@ -6,12 +6,51 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **`plan` dry-run command** — `plan <wp|git|tor> create` shows what a `create`
+  would do (ports, Docker containers, filesystem paths, UFW rules, AppArmor
+  profile, risk level) without executing anything. Text output or
+  `--format json`.
+- **Post-quantum `.pqsig` signatures (ML-DSA-65)** — verified by `install.sh`
+  and by `update download`/`update apply`; the installed binary's signature is
+  kept at `share/enola/cli.pqsig` for later re-verification with
+  `enola-cli verify --pqsig`.
 - **Configurable backup retention** — `maintenance backup-config [--max-backups N]`
   shows or persists the retention policy to `~/.enola/config.toml` (`[backup].max_backups`),
   and `maintenance backup --keep N` overrides it for a single run.
   Resolution order: `--keep` > `ENOLA_MAX_BACKUPS` > config.toml > default (5).
+- **REST endpoints for `plan`** — the web dashboard now exposes
+  `POST /api/plan/{wp,git,tor}/create`; each returns the serialized
+  `ServicePlan` (same JSON shape as `--format json`). Dry-run only, 0 side
+  effects.
+- **Backup retention in the web GUI** — `GET`/`POST /api/maintenance/backup-config`
+  expose the retention policy, `POST /api/maintenance/backup` accepts an
+  optional `{keep}` body, and the Maintenance tab has inputs for both.
+- **Console presets and help** — `/api/console/help` now lists `plan` and
+  `web`, and the console preset dropdown includes the three `plan * create`
+  commands.
+
+### Changed
+- **README repositioned** (EN + ES) as "Private Infrastructure for Linux".
+- **WordPress backend port range** changed from 8000-9999 to 8080-9000,
+  affecting the auto-assigned port in `wp create`.
+- **Magnolia minimum RAM** lowered from 4 GB to 1.5 GB (warns if <1536 MB
+  available; 4 GB remains the recommended value).
 
 ### Fixed
+- **`plan git` showed a dedicated Docker network** (`enola_net_<name>`) that
+  `git create` does not create — Forgejo runs on the default Docker bridge.
+- **`plan git --ssl` and `plan tor --service-type`/`--ssl` were ignored** —
+  the plan now reflects the auto-assigned HTTPS port, the self-signed
+  certificate, the Nginx site and the real per-type Tor service paths
+  (raw/web/static/files), and warns about flags that `create` would ignore.
+- **`plan tor` advertised an AppArmor profile** (`enola-tor`, complain) that
+  `tor create` never creates — only `wp create` and `git create` apply a
+  per-service profile; the plan now shows `(none)`.
+- **Backup rotation now sweeps legacy filenames** — `.tar.gz`/`.bak` backups
+  with older timestamp formats were never listed nor rotated and accumulated
+  indefinitely on existing installations.
+- **`maintenance backup --keep 0`** now returns an error instead of silently
+  clamping to 1, matching `backup-config --max-backups 0`.
 - **Backup rotation now applies to archive backups** — `maintenance backup` and
   archive-based backups previously never rotated, so `*.tar.gz` archives
   accumulated unbounded in `/var/backups/enola-server/`.

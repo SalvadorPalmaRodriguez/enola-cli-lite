@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands.md`
-> **Version:** 3.4 | **Updated:** 2026-09-15
+> **Version:** 3.5 | **Updated:** 2026-09-20
 > **Status:** ✅ **CURRENT — Command Index**
 > **Spanish original:** [`docs/user/general/commands.md`](../user/general/commands.md)
 > **References:** commands.md
@@ -44,7 +44,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | Group | Prefix | Description | Reference |
 |-------|--------|-------------|-----------|
 | Firewall | `firewall` | UFW management (setup, status, allow, deny) | [firewall/commands-firewall.md](../user/firewall/commands-firewall.md) |
-| AppArmor | `apparmor` | Process sandboxing (setup, status, mode) | [apparmor/commands-apparmor.md](../user/apparmor/commands-apparmor.md) |
+| AppArmor | `apparmor` | Process sandboxing (setup, status, mode) | [commands-apparmor.md](commands-apparmor.md) |
 | VPN | `vpn` | WireGuard tunnels (create, peer, status) | [vpn/commands-vpn.md](../user/vpn/commands-vpn.md) |
 | SSH | `ssh` | SSH access (add-key, deploy-hidden over Tor) | [ssh/commands-ssh.md](../user/ssh/commands-ssh.md) |
 | Ports | `ports` | View ports used by all services | [ports/commands-ports.md](../user/ports/commands-ports.md) |
@@ -64,7 +64,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | Update | `update` | Advisory feed and binary updates | [update/commands-update.md](../user/update/commands-update.md) |
 | Test | `test` | System tests (run, list, benchmark) | [test/commands-test.md](../user/test/commands-test.md) |
 | Docs | `docs` | Documentation embedded in binary (offline) | [commands-simple.md](../user/general/commands-simple.md#docs) |
-| Plan | `plan` | Dry-run: change plan without executing (wp/tor/git) | [commands-plan.md](../user/general/commands-plan.md) |
+| Plan | `plan` | Dry-run: change plan without executing (wp/tor/git) | [commands-plan.md](commands-plan.md) |
 
 ---
 
