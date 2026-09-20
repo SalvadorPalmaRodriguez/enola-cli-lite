@@ -634,7 +634,7 @@ The body is optional — a POST with no body uses the configured retention.
 ### `GET /api/status`
 ```json
 {
-  "version": "0.4.0-alpha",
+  "version": "0.5.0-alpha",
   "status": "ok"
 }
 ```
