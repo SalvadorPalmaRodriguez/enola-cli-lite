@@ -20,10 +20,12 @@ fi
 # Asegurar permisos de ejecución de los scripts fuente
 chmod +x "$PROJECT_ROOT/scripts/git/pre-commit"
 chmod +x "$PROJECT_ROOT/scripts/git/pre-push"
+chmod +x "$PROJECT_ROOT/scripts/git/commit-msg"
 
 # Symlinks relativos (portables si el repo se mueve)
 ln -sf "../../scripts/git/pre-commit" "$HOOKS_DIR/pre-commit"
 ln -sf "../../scripts/git/pre-push" "$HOOKS_DIR/pre-push"
+ln -sf "../../scripts/git/commit-msg" "$HOOKS_DIR/commit-msg"
 
 echo "✅ Hooks instalados:"
-ls -la "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push"
+ls -la "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push" "$HOOKS_DIR/commit-msg"

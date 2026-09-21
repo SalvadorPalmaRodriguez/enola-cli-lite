@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# commit-msg — Bloquea trailers de atribución a herramientas IA.
+#
+#   El autor y firmante de cada commit es el humano, únicamente (AGENTS.md §3).
+#   Este hook es la barrera mecánica: ninguna regla escrita depende de que el
+#   agente la lea. Rechaza el commit si el mensaje contiene:
+#
+#     - Cualquier trailer `Co-Authored-By:` (co-autoría = atribución)
+#     - `Generated with` / `Generated-by:` / emojis de bot (🤖)
+#     - Emails/nombres de bots IA conocidos (devin, claude, copilot, ...)
+#
+#   Escape puntual (NO recomendado): git commit --no-verify
+#
+# Instalar:
+#   bash scripts/git/install-hooks.sh
+
+set -euo pipefail
+
+MSG_FILE="${1:?uso: commit-msg <fichero-mensaje>}"
+
+FORBIDDEN_PATTERNS=(
+    'Co-Authored-By:'
+    'Generated with'
+    'Generated-by:'
+    'devin-ai-integration'
+    'noreply@anthropic\.com'
+    'github-copilot\[bot\]'
+    'claude\.com>'
+    'noreply@codeium'
+    'noreply@cognition\.ai'
+    '🤖'
+)
+
+FOUND=0
+for pat in "${FORBIDDEN_PATTERNS[@]}"; do
+    if grep -niIE "$pat" "$MSG_FILE" >&2; then
+        echo "  ^ trailer/patrón de atribución IA prohibido: '$pat'" >&2
+        FOUND=1
+    fi
+done
+
+if [[ "$FOUND" -ne 0 ]]; then
+    echo "" >&2
+    echo "❌ Commit rechazado: el autor y firmante es el humano, únicamente." >&2
+    echo "   Elimina esas líneas del mensaje y reintenta." >&2
+    echo "   Escape puntual (NO recomendado): git commit --no-verify" >&2
+    exit 1
+fi
+
+exit 0
