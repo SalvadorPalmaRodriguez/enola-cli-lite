@@ -119,7 +119,7 @@ pub async fn auth_middleware(
         .and_then(|v| v.to_str().ok());
 
     match auth_header {
-        Some(h) if h == state.token => next.run(req).await,
+        Some(h) if token_matches(h, &state.token) => next.run(req).await,
         _ => {
             let err = crate::application::web_errors::ApiError {
                 error: "Unauthorized: invalid or missing token".to_string(),
@@ -127,5 +127,47 @@ pub async fn auth_middleware(
             };
             err.into_response()
         }
+    }
+}
+
+/// T5: comparación en tiempo constante del token bearer (anti timing-attack).
+/// Evita el cortocircuito de `==` que filtra longitud y prefijo por tiempo.
+fn token_matches(provided: &str, expected: &str) -> bool {
+    let a = provided.as_bytes();
+    let b = expected.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_matches_equal_tokens() {
+        assert!(token_matches("secret-token", "secret-token"));
+    }
+
+    #[test]
+    fn token_matches_rejects_different_tokens() {
+        assert!(!token_matches("secret-token", "other-token"));
+    }
+
+    #[test]
+    fn token_matches_rejects_same_prefix_different_length() {
+        assert!(!token_matches("secret", "secret-token"));
+        assert!(!token_matches("secret-token", "secret"));
+    }
+
+    #[test]
+    fn token_matches_rejects_empty_vs_nonempty() {
+        assert!(!token_matches("", "token"));
+        assert!(token_matches("", ""));
     }
 }

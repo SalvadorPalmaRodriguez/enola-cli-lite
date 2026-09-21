@@ -162,14 +162,10 @@ fn set_key_in_path(
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("no se pudo crear {:?}: {}", parent, e))?;
     }
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, rendered).map_err(|e| format!("escribir {:?}: {}", tmp, e))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
-    std::fs::rename(&tmp, path).map_err(|e| format!("renombrar {:?}: {}", tmp, e))?;
+    // T4: escritura atómica (O_EXCL + 0600 + fsync + rename) en lugar del
+    // anti-patrón fs::write + set_permissions (ventana TOCTOU CWE-377).
+    crate::infrastructure::atomic_secret_file::write_atomic(path, rendered.as_bytes(), 0o600)
+        .map_err(|e| format!("escribir {:?}: {}", path, e))?;
 
     // Si escribimos como root vía sudo, devolver la propiedad al invocador:
     // si no, ~/.enola/config.toml quedaría root-owned y el usuario no podría
@@ -378,5 +374,20 @@ binary_base_url = "https://dl.example.com"  # inline
         set_key_in_path(&path, "backup", "max_backups", "3").unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("max_backups = 3"), "{}", content);
+    }
+
+    #[test]
+    fn set_key_writes_file_with_0600_permissions() {
+        // T4: el fichero final debe nacer con permisos 0600 (sin ventana TOCTOU).
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let path = tmp.path().join("config.toml");
+        set_key_in_path(&path, "web", "web_public_url", "https://x.dev").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "config.toml must be 0600, got {:o}", mode);
+        }
     }
 }

@@ -3,6 +3,25 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- **`update apply --binary` required signature verification** — applying a
+  binary by explicit path no longer skips minisign verification. A manual
+  `--binary` path is now treated as unverified and requires `--allow-unsigned`
+  (or `ENOLA_ALLOW_UNSIGNED_UPDATE=1`). `download --yes` keeps the verified
+  flow by passing `signature_verified` through.
+- **Re-verify staged binary at apply time (anti-TOCTOU)** — `apply` now
+  recomputes the SHA256 of the staged binary and aborts if it differs from the
+  hash recorded by `update download`, closing the window where a writable
+  `~/.enola/downloads/` could swap the binary between download and apply.
+- **Forgejo admin password no longer passed in argv (CWE-214/522)** — the
+  initial admin is now created with `forgejo admin user create --random-password`
+  (the generated password is shown once and must be changed on first login)
+  instead of `--password <plaintext>`, which was visible in `/proc/<pid>/cmdline`,
+  `ps aux`, and Docker's exec log. `git user create --password` is now optional
+  and, when omitted, is read interactively so it does not linger in shell history.
+
 ## [0.5.0-alpha] — 2026-09-20
 
 ### Added

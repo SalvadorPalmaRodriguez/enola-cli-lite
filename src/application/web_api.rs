@@ -1369,7 +1369,7 @@ async fn api_git_user_create(Json(req): Json<GitUserCreateRequest>) -> ApiResult
         &req.server,
         &req.username,
         &req.email,
-        &req.password,
+        Some(&req.password),
         req.admin.unwrap_or(false),
         req.admin_user.as_deref(),
         req.admin_pass.as_deref(),

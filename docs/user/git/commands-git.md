@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-08-08
+> **Versión:** 2.2 | **Actualizado:** 2026-09-21
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -28,7 +28,7 @@ Sin flags ni argumentos.
 Crea un nuevo servidor Git (Forgejo).
 
 Dos modos de primer acceso:
-- **Modo CLI** (recomendado): admin creado automáticamente con `--admin-user` y `--admin-password`. El admin deberá cambiar su contraseña en el primer login.
+- **Modo CLI** (recomendado): admin creado automáticamente con `--admin-user`. La contraseña del admin se genera de forma **aleatoria** (se muestra una sola vez por la salida) y Forgejo fuerza su cambio en el primer login. `--admin-password` se usa solo para completar el wizard (si estuviera activo) y para guardar las credenciales locales de autorización (hash bcrypt); **nunca** se pasa por argv del proceso.
 - **Modo web**: el usuario completa el asistente de instalación en el navegador.
 
 ```bash
@@ -42,9 +42,9 @@ sudo enola-cli git create --name <NOMBRE> [--ssl] [--http-port <PUERTO>] [--ssh-
 | `--http-port` | u16 | No | Auto (10000-15000) | Puerto HTTP interno de Forgejo |
 | `--ssh-port` | u16 | No | Auto (30000-35000) | Puerto SSH interno de Forgejo |
 | `--admin-user` | String | No¹ | — | Usuario admin inicial (modo CLI) |
-| `--admin-password` | String | No¹ | — | Contraseña del admin inicial (modo CLI) |
+| `--admin-password` | String | No¹ | — | Credencial local de autorización (hash bcrypt); la contraseña real de Forgejo se genera aleatoriamente |
 
-> ¹ `--admin-password` es obligatorio si se especifica `--admin-user`. Si se omite `--admin-user`, Forgejo muestra el asistente web.
+> ¹ `--admin-password` es obligatorio si se especifica `--admin-user`. Si se omite `--admin-user`, Forgejo muestra el asistente web. La contraseña **no** se pasa por argv del proceso (CWE-214/522).
 
 **Ejemplos:**
 ```bash
@@ -276,7 +276,7 @@ sudo enola-cli git user create <SERVIDOR> --username <USER> --email <EMAIL> --pa
 |------|------|-------------|-------------|
 | `--username` / `-u` | String | Sí | Nombre de usuario a crear |
 | `--email` / `-e` | String | Sí | Email del usuario |
-| `--password` / `-p` | String | Sí | Contraseña del usuario |
+| `--password` / `-p` | String | No | Contraseña del usuario. Si se omite, se pide interactivamente (no queda en el historial). Pasarla por flag queda visible en el historial. |
 | `--admin` | Bool | No | Dar permisos de administrador (default: `false`) |
 | `--admin-user` | String | No | Admin de Forgejo (solo modo web) |
 | `--admin-pass` | String | No | Contraseña admin (solo modo web) |

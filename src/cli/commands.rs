@@ -1951,16 +1951,18 @@ pub mod git {
         false
     }
 
-    /// Si Forgejo está en modo instalación (wizard activo, INSTALL_LOCK=false),
-    /// completa el wizard programáticamente vía POST /install con SQLite y las
-    /// credenciales de admin proporcionadas.
-    ///
-    /// Esto es necesario cuando el contenedor arranca sin INSTALL_LOCK=true:
-    /// hasta que el wizard se complete, la API REST no funciona.
-    fn complete_forgejo_wizard_if_needed(port: u16, admin_user: &str, admin_pass: &str) {
-        // Comprobar si el wizard está activo consultando /
-        let index_url = format!("http://127.0.0.1:{}/", port);
-        let check = std::process::Command::new("curl")
+    /// T13: detección pura del wizard de instalación de Forgejo (testable).
+    /// `index_http_code` es el código HTTP de `GET /`; `install_body` es el
+    /// cuerpo de `GET /install`. Devuelve `true` si el wizard sigue activo.
+    fn wizard_detected_from_responses(index_http_code: &str, install_body: &str) -> bool {
+        index_http_code.trim() == "200"
+            && (install_body.contains("Installation") || install_body.contains("install"))
+    }
+
+    /// T13: comprueba vía HTTP si el wizard de instalación de Forgejo sigue
+    /// activo en el puerto host dado. Reutiliza `wizard_detected_from_responses`.
+    fn forgejo_wizard_active(port: u16) -> bool {
+        let index_code = std::process::Command::new("curl")
             .args([
                 "-sf",
                 "--max-time",
@@ -1970,22 +1972,14 @@ pub mod git {
                 "/dev/null",
                 "-w",
                 "%{http_code}",
-                &index_url,
+                &format!("http://127.0.0.1:{}/", port),
             ])
             .output()
-            .ok();
-
-        let is_wizard = check
+            .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|code| code.trim() == "200")
-            .unwrap_or(false);
+            .unwrap_or_default();
 
-        if !is_wizard {
-            return;
-        }
-
-        // Verificar si el wizard sigue activo buscando el form de instalación
-        let install_check = std::process::Command::new("curl")
+        let install_body = std::process::Command::new("curl")
             .args([
                 "-sf",
                 "--max-time",
@@ -1997,7 +1991,17 @@ pub mod git {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_default();
 
-        if !install_check.contains("Installation") && !install_check.contains("install") {
+        wizard_detected_from_responses(&index_code, &install_body)
+    }
+
+    /// Si Forgejo está en modo instalación (wizard activo, INSTALL_LOCK=false),
+    /// completa el wizard programáticamente vía POST /install con SQLite y las
+    /// credenciales de admin proporcionadas.
+    ///
+    /// Esto es necesario cuando el contenedor arranca sin INSTALL_LOCK=true:
+    /// hasta que el wizard se complete, la API REST no funciona.
+    fn complete_forgejo_wizard_if_needed(port: u16, admin_user: &str, admin_pass: &str) {
+        if !forgejo_wizard_active(port) {
             // Wizard ya completado o no activo
             return;
         }
@@ -2081,41 +2085,58 @@ pub mod git {
         }
     }
 
+    /// Construye el argv de `docker exec … forgejo admin user create` para el admin
+    /// inicial SIN contraseña en el argv (T1 / CWE-214/522). Se usa
+    /// `--random-password`: Forgejo genera una contraseña aleatoria fuerte y la
+    /// imprime una sola vez por stdout; `--must-change-password=true` fuerza el
+    /// cambio en el primer login.
+    fn forgejo_admin_create_argv(container: &str, admin_user: &str) -> Vec<String> {
+        vec![
+            "exec".to_string(),
+            "-u".to_string(),
+            "git".to_string(),
+            container.to_string(),
+            "forgejo".to_string(),
+            "--config".to_string(),
+            "/data/gitea/conf/app.ini".to_string(),
+            "admin".to_string(),
+            "user".to_string(),
+            "create".to_string(),
+            "--username".to_string(),
+            admin_user.to_string(),
+            "--random-password".to_string(),
+            "--email".to_string(),
+            format!("{}@localhost", admin_user),
+            "--admin".to_string(),
+            "--must-change-password=true".to_string(),
+        ]
+    }
+
     /// Crea el usuario administrador dentro del contenedor Forgejo via `forgejo admin user create`.
     /// Este método es el más fiable en Forgejo 9.x independientemente del modo de arranque.
     /// Requiere `--config /data/gitea/conf/app.ini` porque el binario no lo detecta
     /// automáticamente dentro del contenedor Alpine.
-    fn create_forgejo_admin_via_exec(container: &str, admin_user: &str, admin_pass: &str) {
+    ///
+    /// T1: la contraseña NUNCA se pasa por argv; se usa `--random-password` y la
+    /// contraseña generada se muestra por stdout (una sola vez). Con
+    /// `--must-change-password=true` el admin debe cambiarla en el primer login.
+    fn create_forgejo_admin_via_exec(container: &str, admin_user: &str) {
         eprintln!(
-            "   🔑 Creando usuario admin '{}' via docker exec...",
+            "   🔑 Creando usuario admin '{}' via docker exec (contraseña aleatoria)...",
             admin_user
         );
-        let output = std::process::Command::new("docker")
-            .args([
-                "exec",
-                "-u",
-                "git",
-                container,
-                "forgejo",
-                "--config",
-                "/data/gitea/conf/app.ini",
-                "admin",
-                "user",
-                "create",
-                "--username",
-                admin_user,
-                "--password",
-                admin_pass,
-                "--email",
-                &format!("{}@localhost", admin_user),
-                "--admin",
-                "--must-change-password=true",
-            ])
-            .output();
+        let args = forgejo_admin_create_argv(container, admin_user);
+        let output = std::process::Command::new("docker").args(&args).output();
 
         match output {
             Ok(o) if o.status.success() => {
                 eprintln!("✅ Admin '{}' creado exitosamente en Forgejo", admin_user);
+                // Forgejo imprime la contraseña aleatoria por stdout: mostrarla una vez.
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    eprintln!("{}", trimmed);
+                }
             }
             Ok(o) => {
                 let stderr = String::from_utf8_lossy(&o.stderr);
@@ -2130,7 +2151,7 @@ pub mod git {
                         stdout.trim()
                     );
                     eprintln!("   Intenta manualmente:");
-                    eprintln!("   docker exec -u git {} forgejo --config /data/gitea/conf/app.ini admin user create --username {} --password <pass> --email {}@localhost --admin --must-change-password=true",
+                    eprintln!("   docker exec -u git {} forgejo --config /data/gitea/conf/app.ini admin user create --username {} --random-password --email {}@localhost --admin --must-change-password=true",
                         container, admin_user, admin_user);
                 }
             }
@@ -2143,11 +2164,15 @@ pub mod git {
     ///
     /// # Dos modos de primer acceso:
     ///
-    /// **Modo CLI** — credenciales elegidas por el usuario en el comando:
+    /// **Modo CLI** — el admin se crea automáticamente con contraseña aleatoria:
     /// ```bash
     /// sudo enola-cli git create --name myrepo --admin-user alice --admin-password MiPass123
     /// ```
-    /// Forgejo arranca ya configurado. El usuario entra con las credenciales indicadas.
+    /// Forgejo arranca ya configurado. La contraseña del admin se genera de forma
+    /// **aleatoria** (se muestra una sola vez por la salida) y Forgejo fuerza su
+    /// cambio en el primer login (`--must-change-password=true`). `--admin-password`
+    /// se usa solo para completar el wizard (si estuviera activo) y para guardar las
+    /// credenciales locales de autorización (hash bcrypt), nunca se pasa por argv.
     ///
     /// **Modo Web** — el usuario configura todo desde el navegador:
     /// ```bash
@@ -2224,12 +2249,13 @@ pub mod git {
                 // Paso 3: si Forgejo está en modo instalación (wizard), completarlo via POST
                 complete_forgejo_wizard_if_needed(http_port, auser, apass);
 
-                // Paso 4: crear el admin via docker exec (método más fiable en Forgejo 9.x)
-                create_forgejo_admin_via_exec(&container, auser, apass);
+                // Paso 4: crear el admin via docker exec (método más fiable en Forgejo 9.x).
+                // T1: la contraseña se genera aleatoriamente (--random-password), no via argv.
+                create_forgejo_admin_via_exec(&container, auser);
             } else {
                 eprintln!("⚠️  Forgejo tardó demasiado en inicializar su DB.");
                 eprintln!("   Crea el admin manualmente cuando Forgejo esté listo:");
-                eprintln!("   docker exec -u git {} forgejo --config /data/gitea/conf/app.ini admin user create --username {} --password <pass> --email {}@localhost --admin --must-change-password=true",
+                eprintln!("   docker exec -u git {} forgejo --config /data/gitea/conf/app.ini admin user create --username {} --random-password --email {}@localhost --admin --must-change-password=true",
                     container, auser, auser);
             }
         }
@@ -2691,6 +2717,35 @@ pub mod git {
         // Real mapped SSH port (0 if not mapped / not running)
         let ssh_host_port = read_container_mapped_port(&container_name, 22).unwrap_or(0);
 
+        // T13: guardrail antes de exponer Forgejo en Tor. Si el wizard de setup
+        // sigue activo, cualquiera en la red onion podría completarlo y
+        // autoproclamarse admin. Si el registro está abierto, se advierte.
+        if forgejo_wizard_active(forgejo_host_port) {
+            return Err(CliError::Generic(format!(
+                "Cannot publish '{}': the Forgejo setup wizard is still active. \
+                 Complete the setup at http://localhost:{} first, then run \
+                 'enola-cli git publish {}'.",
+                name, forgejo_host_port, name
+            )));
+        }
+        match registration_status(name).await {
+            Ok(true) => {
+                eprintln!(
+                    "⚠️  Warning: user self-registration is enabled on '{}'. \
+                     Anyone on the onion network could register an account. \
+                     Consider: sudo enola-cli git registration {} --disable",
+                    name, name
+                );
+            }
+            Ok(false) => {}
+            Err(_) => {
+                eprintln!(
+                    "⚠️  Warning: could not determine registration status for '{}'.",
+                    name
+                );
+            }
+        }
+
         if ssl {
             let (http_port, _http_port_lock) = nginx_adapter
                 .find_available_port_with_lock(10000, 15000)
@@ -3019,11 +3074,49 @@ pub mod git {
         /// 2. El usuario abre `http://localhost:<puerto>/user/sign_up` en su navegador
         /// 3. Rellena nombre, email y contraseña en el formulario
         /// 4. Después: `sudo enola-cli git registration myrepo --disable` (recomendado)
+        ///
+        /// Construye el argv de `docker exec … forgejo admin user create` para un
+        /// usuario. Nota T1: la contraseña SÍ viaja en argv (Forgejo solo acepta
+        /// `--password` o `--random-password`, sin stdin/file) porque aquí se
+        /// conserva la contraseña elegida. Mitigación: leerla por prompt (no por
+        /// flag en el historial) cuando no se pasa `--password`.
+        fn forgejo_user_create_argv(
+            container: &str,
+            username: &str,
+            password: &str,
+            email: &str,
+            is_admin: bool,
+        ) -> Vec<String> {
+            let mut args = vec![
+                "exec".to_string(),
+                "-u".to_string(),
+                "git".to_string(),
+                container.to_string(),
+                "forgejo".to_string(),
+                "--config".to_string(),
+                "/data/gitea/conf/app.ini".to_string(),
+                "admin".to_string(),
+                "user".to_string(),
+                "create".to_string(),
+                "--username".to_string(),
+                username.to_string(),
+                "--password".to_string(),
+                password.to_string(),
+                "--email".to_string(),
+                email.to_string(),
+                "--must-change-password=true".to_string(),
+            ];
+            if is_admin {
+                args.push("--admin".to_string());
+            }
+            args
+        }
+
         pub async fn create(
             server: &str,
             username: &str,
             email: &str,
-            password: &str,
+            password: Option<&str>,
             is_admin: bool,
             admin_user: Option<&str>,
             admin_pass: Option<&str>,
@@ -3036,28 +3129,19 @@ pub mod git {
 
             wait_for_forgejo_ready(port, 90)?;
 
-            let mut args = vec![
-                "exec",
-                "-u",
-                "git",
-                container.as_str(),
-                "forgejo",
-                "--config",
-                "/data/gitea/conf/app.ini",
-                "admin",
-                "user",
-                "create",
-                "--username",
-                username,
-                "--password",
-                password,
-                "--email",
-                email,
-                "--must-change-password=true",
-            ];
-            if is_admin {
-                args.push("--admin");
-            }
+            // T1: si no se pasa --password, pedirlo interactivamente (no queda en el
+            // historial de shell). El flag sigue disponible como ruta secundaria
+            // (visible en el historial — documentado).
+            let resolved_password = match password {
+                Some(p) if !p.is_empty() => p.to_string(),
+                _ => rpassword::prompt_password(&format!("   Contraseña para '{}': ", username))
+                    .map_err(|e| {
+                        CliError::Generic(format!("No se pudo leer la contraseña: {}", e))
+                    })?,
+            };
+
+            let args =
+                forgejo_user_create_argv(&container, username, &resolved_password, email, is_admin);
 
             let output = std::process::Command::new("docker")
                 .args(&args)
@@ -3130,6 +3214,90 @@ pub mod git {
 
             eprintln!("✅ Usuario '{}' eliminado de '{}'", username, server);
             Ok(())
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::forgejo_user_create_argv;
+
+            #[test]
+            fn user_create_argv_places_password_and_flags() {
+                let args = forgejo_user_create_argv(
+                    "enola-git-demo",
+                    "bob",
+                    "S3cret!",
+                    "bob@example.com",
+                    false,
+                );
+                let pwd_pos = args
+                    .iter()
+                    .position(|a| a == "--password")
+                    .expect("--password present");
+                assert_eq!(args[pwd_pos + 1], "S3cret!");
+                assert!(args.iter().any(|a| a == "--must-change-password=true"));
+                assert!(args.iter().any(|a| a == "bob"));
+                assert!(args.iter().any(|a| a == "bob@example.com"));
+                assert!(!args.iter().any(|a| a == "--admin"));
+            }
+
+            #[test]
+            fn user_create_argv_adds_admin_flag_when_requested() {
+                let args = forgejo_user_create_argv(
+                    "enola-git-demo",
+                    "bob",
+                    "S3cret!",
+                    "bob@example.com",
+                    true,
+                );
+                assert!(args.iter().any(|a| a == "--admin"));
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::forgejo_admin_create_argv;
+        use super::wizard_detected_from_responses;
+
+        #[test]
+        fn admin_create_argv_never_exposes_password_in_argv() {
+            let args = forgejo_admin_create_argv("enola-git-demo", "alice");
+            assert!(
+                !args.iter().any(|a| a == "--password"),
+                "argv must not contain --password"
+            );
+            assert!(args.iter().any(|a| a == "--random-password"));
+            assert!(args.iter().any(|a| a == "--must-change-password=true"));
+            assert!(args.iter().any(|a| a == "--admin"));
+            assert!(args.iter().any(|a| a == "alice@localhost"));
+        }
+
+        // ── T13: detección pura del wizard de Forgejo ─────────────────────────
+
+        #[test]
+        fn wizard_detected_when_index_200_and_install_page_present() {
+            assert!(wizard_detected_from_responses(
+                "200",
+                "<html>... Installation ...</html>"
+            ));
+            assert!(wizard_detected_from_responses(
+                "200",
+                "<html>... install ...</html>"
+            ));
+        }
+
+        #[test]
+        fn wizard_not_detected_when_index_not_200() {
+            assert!(!wizard_detected_from_responses("302", "Installation"));
+            assert!(!wizard_detected_from_responses("", "Installation"));
+        }
+
+        #[test]
+        fn wizard_not_detected_when_install_page_absent() {
+            assert!(!wizard_detected_from_responses(
+                "200",
+                "<html>Forgejo home</html>"
+            ));
         }
     }
 }

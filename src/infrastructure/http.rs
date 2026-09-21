@@ -204,6 +204,9 @@ pub fn http_client_builder(target_url: &str) -> Result<reqwest::ClientBuilder> {
     let mut builder = reqwest::Client::builder().timeout(DEFAULT_HTTP_TIMEOUT);
     if is_onion_url(target_url) {
         let proxy_url = resolve_tor_socks_proxy();
+        // T6: mismo guard que build_http_client — fuerza socks5h:// (con h) para
+        // que el DNS lo resuelva Tor y no se filtre fuera del circuito.
+        ensure_socks5h_for_onion(&proxy_url)?;
         let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
             EnolaError::InfrastructureError(format!(
                 "{} ({}): {}",
@@ -367,6 +370,19 @@ mod tests {
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", ":::invalid");
         // builder itself may succeed (reqwest validates on build); either way no panic
         let _ = http_client_builder("http://example.onion/");
+        std::env::remove_var("ENOLA_TOR_SOCKS_PROXY");
+    }
+
+    #[test]
+    fn http_client_builder_rejects_socks5_without_h_for_onion() {
+        // T6: análogo a build_client_rejects_socks5_without_h_for_onion pero
+        // para el builder (latente, #[allow(dead_code)]). Debe rechazar socks5
+        // sin h para no filtrar DNS fuera de Tor.
+        let _g = TOR_ENV_LOCK.lock().unwrap();
+        std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5://127.0.0.1:9050");
+        let err = http_client_builder("http://example.onion/")
+            .expect_err("socks5 without remote DNS must be rejected");
+        assert!(matches!(err, EnolaError::InfrastructureError(_)));
         std::env::remove_var("ENOLA_TOR_SOCKS_PROXY");
     }
 

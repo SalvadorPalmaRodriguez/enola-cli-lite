@@ -76,6 +76,20 @@ impl FileManagerPort for EnolaFileAdapter {
     }
 
     async fn update_env_key(&self, path: &Path, key: &str, value: &str) -> Result<()> {
+        // T9: rechaza caracteres de control/inyección (CWE-74). Un `=` en la
+        // clave rompería el parseo; `\n`/`\r`/`\0` en el valor inyectaría
+        // claves adicionales en el `.env`.
+        if key.contains('\n') || key.contains('\r') || key.contains('\0') || key.contains('=') {
+            return Err(EnolaError::ValidationError(
+                "env key contains invalid characters".to_string(),
+            ));
+        }
+        if value.contains('\n') || value.contains('\r') || value.contains('\0') {
+            return Err(EnolaError::ValidationError(
+                "env value contains control characters".to_string(),
+            ));
+        }
+
         let content = if path.exists() {
             self.read_file(path).await?
         } else {
@@ -260,6 +274,22 @@ impl FileManagerPort for EnolaFileAdapter {
             EnolaError::InfrastructureError(format!("Cannot create dest dir: {}", e))
         })?;
 
+        // T8: pre-validación de miembros (anti zip-slip). Rechaza paths
+        // absolutos y segmentos '..' antes de extraer.
+        let list = tokio::process::Command::new("tar")
+            .args(["-tzf", &archive.to_string_lossy()])
+            .output()
+            .await
+            .map_err(|e| EnolaError::InfrastructureError(format!("tar list failed: {}", e)))?;
+        if !list.status.success() {
+            return Err(EnolaError::InfrastructureError(format!(
+                "tar -tzf failed for {:?}",
+                archive
+            )));
+        }
+        let members = String::from_utf8_lossy(&list.stdout);
+        validate_tar_members(&members)?;
+
         let status = tokio::process::Command::new("tar")
             .args([
                 "-xzf",
@@ -280,6 +310,28 @@ impl FileManagerPort for EnolaFileAdapter {
             )))
         }
     }
+}
+
+/// T8: valida el listado de miembros de un tar (`tar -tzf`) antes de extraer.
+/// Rechaza paths absolutos y segmentos `..` (anti zip-slip). Función pura para
+/// poder testearla sin depender del comportamiento de `tar` al crear archivos.
+fn validate_tar_members(listing: &str) -> Result<()> {
+    for line in listing.lines() {
+        let line = line.trim();
+        if line.starts_with('/') {
+            return Err(EnolaError::ValidationError(format!(
+                "archive contains absolute path '{}' — refusing to extract",
+                line
+            )));
+        }
+        if line.split('/').any(|seg| seg == "..") {
+            return Err(EnolaError::ValidationError(format!(
+                "archive contains '..' traversal in '{}' — refusing to extract",
+                line
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -445,6 +497,31 @@ mod tests {
         let env = adapter.read_env(&path).await.unwrap();
         assert_eq!(env.get("PORT").unwrap(), "8080");
         assert_eq!(env.get("HOST").unwrap(), "localhost");
+    }
+
+    #[tokio::test]
+    async fn test_update_env_key_rejects_control_chars_in_value() {
+        // T9: un valor con salto de línea inyectaría claves adicionales (CWE-74).
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let path = dir.path().join(".env");
+        let result = adapter.update_env_key(&path, "KEY", "a\nEVIL=1").await;
+        match result {
+            Err(EnolaError::ValidationError(_)) => {}
+            other => panic!("Expected ValidationError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_env_key_rejects_equals_in_key() {
+        let dir = TempDir::new().unwrap();
+        let adapter = EnolaFileAdapter::new();
+        let path = dir.path().join(".env");
+        let result = adapter.update_env_key(&path, "KEY=1", "v").await;
+        match result {
+            Err(EnolaError::ValidationError(_)) => {}
+            other => panic!("Expected ValidationError, got {:?}", other),
+        }
     }
 
     #[tokio::test]
@@ -619,5 +696,41 @@ mod tests {
             .create_archive_multi(&[PathBuf::from("/")], &archive)
             .await;
         assert!(result.is_err());
+    }
+
+    // ── T8: validate_tar_members (anti zip-slip) ─────────────────────────────
+
+    #[test]
+    fn validate_tar_members_accepts_relative_paths() {
+        let listing = "tmp/sub/\ntmp/sub/inner.txt\ntmp/top.txt\n";
+        assert!(validate_tar_members(listing).is_ok());
+    }
+
+    #[test]
+    fn validate_tar_members_rejects_absolute_path() {
+        let listing = "/etc/evil\n";
+        match validate_tar_members(listing) {
+            Err(EnolaError::ValidationError(msg)) => {
+                assert!(msg.contains("absolute path"), "msg: {}", msg);
+            }
+            other => panic!("Expected ValidationError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn validate_tar_members_rejects_parent_traversal() {
+        let listing = "../escape.txt\n";
+        match validate_tar_members(listing) {
+            Err(EnolaError::ValidationError(msg)) => {
+                assert!(msg.contains("traversal"), "msg: {}", msg);
+            }
+            other => panic!("Expected ValidationError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn validate_tar_members_rejects_embedded_parent_traversal() {
+        let listing = "a/../../evil\n";
+        assert!(validate_tar_members(listing).is_err());
     }
 }

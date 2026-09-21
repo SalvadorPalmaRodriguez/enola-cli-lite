@@ -481,9 +481,12 @@ pub fn update_minisign_pubkey() -> String {
         }
     }
     // 3. MED-02: Persisted trusted keys (from feed rotation)
+    // T7: la clave activa es la MÁS RECIENTE persistida. `persist_trusted_minisign_key`
+    // hace `push` (al final), así que usar `last()` — con `first()` la 2ª rotación
+    // dejaría verificando con la clave vieja.
     let trusted = load_trusted_minisign_keys();
-    if let Some(first) = trusted.first() {
-        return first.trim().to_string();
+    if let Some(last) = trusted.last() {
+        return last.trim().to_string();
     }
     // 4. Embedded key (lowest priority)
     EMBEDDED_MINISIGN_PUBKEY_FILE
@@ -1133,6 +1136,27 @@ fn downloads_dir() -> PathBuf {
     PathBuf::from(home).join(".enola").join("downloads")
 }
 
+/// T10: valida `latest_version` (que viene del feed firmado) antes de usarlo
+/// como componente de un path de descarga. Defensa en profundidad contra
+/// `..`/`/`/caracteres no seguros en el nombre (aunque requeriría clave
+/// comprometida para explotarse).
+fn safe_latest_version(version: &str) -> std::result::Result<String, String> {
+    let latest = version.trim();
+    if latest.is_empty()
+        || latest.contains('/')
+        || latest.contains("..")
+        || !latest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        return Err(format!(
+            "Update feed contains unsafe latest_version: {:?}",
+            version
+        ));
+    }
+    Ok(latest.to_string())
+}
+
 /// UPD-RESIDUE-001: remove leftover download artifacts after a successful apply.
 ///
 /// Once the new binary is installed, the staged downloads in `~/.enola/downloads/`
@@ -1358,7 +1382,9 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
     // Persist binary to a stable location (not tempdir which gets cleaned up)
     let persist_dir = downloads_dir();
     std::fs::create_dir_all(&persist_dir).ok();
-    let persist_path = persist_dir.join(format!("enola-cli-{}", report.latest_version));
+    // T10: valida latest_version antes de interpolar en el path.
+    let latest = safe_latest_version(&report.latest_version)?;
+    let persist_path = persist_dir.join(format!("enola-cli-{}", latest));
     std::fs::copy(&binary_path, &persist_path).map_err(|e| format!("Persist binary: {}", e))?;
     let persist_str = persist_path.to_string_lossy().to_string();
     // T1-vía-A (U1b): persistir el .pqsig como hermano del binario staged; el
@@ -1400,12 +1426,30 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
 
 /// Apply a downloaded update: replace the current binary atomically.
 /// Requires root. Backs up old binary to enola-cli.bak.
-pub fn apply_update(binary_path: Option<&str>) -> std::result::Result<DownloadResult, String> {
+pub fn apply_update(
+    binary_path: Option<&str>,
+    expected_sha: Option<&str>,
+    known_verified: bool,
+) -> std::result::Result<DownloadResult, String> {
     use std::os::unix::fs::PermissionsExt;
 
     // Determine which binary to apply
     let (bin_path, expected_sha, sig_verified) = match binary_path {
         Some(p) => {
+            // T2: reject an unverified explicit path unless the escape hatch is set.
+            if !known_verified && std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1")
+            {
+                return Err(
+                    "Cannot apply update: the binary path was not signature-verified. \
+                     To override, set ENOLA_ALLOW_UNSIGNED_UPDATE=1 or use --allow-unsigned."
+                        .to_string(),
+                );
+            }
+            if !known_verified {
+                eprintln!(
+                    "⚠️  WARNING: applying binary by explicit path without signature verification."
+                );
+            }
             let sha = {
                 use sha2::{Digest, Sha256};
                 let data = std::fs::read(p).map_err(|e| format!("Read binary: {}", e))?;
@@ -1413,13 +1457,20 @@ pub fn apply_update(binary_path: Option<&str>) -> std::result::Result<DownloadRe
                 hasher.update(&data);
                 format!("{:x}", hasher.finalize())
             };
-            // When applying by explicit path, we can't know if signature was verified.
-            // Warn but allow — the user chose this path explicitly.
-            eprintln!("⚠️  WARNING: applying binary by explicit path — signature verification status unknown.");
-            (p.to_string(), sha, true)
+            // T3: if an expected hash was provided (download --yes), verify integrity.
+            if let Some(h) = expected_sha {
+                if !h.is_empty() && sha != h {
+                    return Err(format!(
+                        "Cannot apply update: binary at {} has been modified since download (SHA256 mismatch). \
+                         Re-run 'enola-cli update download'.",
+                        p
+                    ));
+                }
+            }
+            (p.to_string(), sha, known_verified)
         }
         None => {
-            let (p, s, sig) = load_last_download().ok_or_else(|| {
+            let (p, stored_sha, sig) = load_last_download().ok_or_else(|| {
                 "No previous download found. Run 'enola-cli update download' first.".to_string()
             })?;
             // MED-05: reject if signature was not verified, unless escape hatch is set.
@@ -1433,7 +1484,22 @@ pub fn apply_update(binary_path: Option<&str>) -> std::result::Result<DownloadRe
                 }
                 eprintln!("⚠️  WARNING: applying update without minisign signature verification.");
             }
-            (p, s, sig)
+            // T3: re-verify integrity at apply time (anti-TOCTOU).
+            let actual_sha = {
+                use sha2::{Digest, Sha256};
+                let data = std::fs::read(&p).map_err(|e| format!("Read binary: {}", e))?;
+                let mut hasher = Sha256::new();
+                hasher.update(&data);
+                format!("{:x}", hasher.finalize())
+            };
+            if !stored_sha.is_empty() && actual_sha != stored_sha {
+                return Err(format!(
+                    "Cannot apply update: binary at {} has been modified since download (SHA256 mismatch). \
+                     Re-run 'enola-cli update download'.",
+                    p
+                ));
+            }
+            (p, actual_sha, sig)
         }
     };
 
@@ -2380,7 +2446,7 @@ mod tests {
             false, // signature NOT verified
         );
 
-        let result = apply_update(None);
+        let result = apply_update(None, None, false);
         assert!(
             result.is_err(),
             "apply_update must reject unsigned download"
@@ -2409,12 +2475,11 @@ mod tests {
             false, // signature NOT verified
         );
 
-        // apply_update should proceed past the signature check (it will fail later
-        // because the binary path doesn't match current_exe, but the error should
-        // NOT be about signature verification).
-        let result = apply_update(None);
-        // It will fail at some point (e.g. binary not found at install path),
-        // but the error should NOT mention "not signature-verified".
+        // apply_update should proceed past the signature check. With the T3
+        // integrity re-check, it now stops at the SHA256 mismatch (the stored
+        // "abc123" does not match the file content), which proves the signature
+        // gate was bypassed without reaching the destructive replace step.
+        let result = apply_update(None, None, false);
         if let Err(e) = &result {
             assert!(
                 !e.contains("not signature-verified"),
@@ -2424,6 +2489,107 @@ mod tests {
         }
 
         std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+        teardown_test_home(tmp, guard);
+    }
+
+    // --- T2: apply_update rechaza binario explícito no verificado ---
+
+    #[test]
+    fn apply_update_rejects_unverified_explicit_binary() {
+        let (tmp, guard) = setup_test_home();
+        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+
+        let fake = tmp.path().join("explicit-binary");
+        std::fs::write(&fake, b"explicit binary content").expect("write fake bin");
+
+        let result = apply_update(Some(fake.to_str().unwrap()), None, false);
+        assert!(
+            result.is_err(),
+            "apply_update must reject an unverified explicit --binary path"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("not signature-verified"),
+            "error must mention signature verification: {}",
+            err
+        );
+
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn apply_update_explicit_binary_escape_hatch_bypasses_signature() {
+        let (tmp, guard) = setup_test_home();
+        std::env::set_var("ENOLA_ALLOW_UNSIGNED_UPDATE", "1");
+
+        // Non-existent path: with the escape hatch set, the signature gate is
+        // skipped and the function fails later on reading the binary (not on
+        // signature verification).
+        let missing = tmp.path().join("does-not-exist");
+        let result = apply_update(Some(missing.to_str().unwrap()), None, false);
+
+        let err = result.expect_err("apply must still fail (binary missing)");
+        assert!(
+            !err.contains("not signature-verified"),
+            "escape hatch should bypass the signature gate: {}",
+            err
+        );
+
+        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+        teardown_test_home(tmp, guard);
+    }
+
+    // --- T3: re-verificación del binario staged (anti-TOCTOU) ---
+
+    #[test]
+    fn apply_update_detects_staged_binary_tampering() {
+        let (tmp, guard) = setup_test_home();
+        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+
+        // Signature was verified at download time, but the staged file no longer
+        // matches the stored SHA256 (tampered between download and apply).
+        let fake_bin = tmp.path().join("tampered-binary");
+        std::fs::write(&fake_bin, b"tampered content").expect("write fake bin");
+        save_last_download(
+            &fake_bin.to_string_lossy(),
+            "deadbeefdeadbeef", // WRONG: does not match file content
+            true,               // signature WAS verified
+        );
+
+        let result = apply_update(None, None, false);
+        assert!(
+            result.is_err(),
+            "apply_update must reject a tampered binary"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("SHA256 mismatch"),
+            "error must mention SHA256 mismatch: {}",
+            err
+        );
+
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn apply_update_explicit_binary_detects_sha_mismatch() {
+        let (tmp, guard) = setup_test_home();
+        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+
+        let fake = tmp.path().join("explicit-sha-mismatch");
+        std::fs::write(&fake, b"explicit binary content").expect("write fake bin");
+
+        // known_verified=true (download --yes path) + expected_sha that does NOT
+        // match the file → integrity check must abort.
+        let result = apply_update(Some(fake.to_str().unwrap()), Some("deadbeefdeadbeef"), true);
+        assert!(result.is_err(), "apply_update must detect SHA256 mismatch");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("SHA256 mismatch"),
+            "error must mention SHA256 mismatch: {}",
+            err
+        );
+
         teardown_test_home(tmp, guard);
     }
 
@@ -2503,6 +2669,41 @@ mod tests {
         assert_eq!(resolved, "RWPrioritizedTrustedKey");
 
         teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn update_minisign_pubkey_uses_most_recent_rotated_key() {
+        // T7: la clave activa debe ser la MÁS RECIENTE (last), no la primera.
+        // Persistir A y luego B; update_minisign_pubkey debe devolver B.
+        let (tmp, guard) = setup_test_home();
+        std::env::remove_var("ENOLA_UPDATE_MINISIGN_PUBKEY");
+
+        persist_trusted_minisign_key("RWRotatedKeyA").expect("persist A");
+        persist_trusted_minisign_key("RWRotatedKeyB").expect("persist B");
+
+        let resolved = update_minisign_pubkey();
+        assert_eq!(resolved, "RWRotatedKeyB", "must use the latest rotated key");
+
+        teardown_test_home(tmp, guard);
+    }
+
+    // --- T10: safe_latest_version (defensa en profundidad en el path) ---
+
+    #[test]
+    fn safe_latest_version_accepts_semver_like() {
+        assert_eq!(safe_latest_version("1.5.0").unwrap(), "1.5.0");
+        assert_eq!(safe_latest_version("1.5.0-rc.1").unwrap(), "1.5.0-rc.1");
+        assert_eq!(safe_latest_version("2026_09_21").unwrap(), "2026_09_21");
+        assert_eq!(safe_latest_version(" 1.5.0 ").unwrap(), "1.5.0");
+    }
+
+    #[test]
+    fn safe_latest_version_rejects_traversal_and_unsafe_chars() {
+        assert!(safe_latest_version("../../evil").is_err());
+        assert!(safe_latest_version("a/b").is_err());
+        assert!(safe_latest_version("").is_err());
+        assert!(safe_latest_version("..").is_err());
+        assert!(safe_latest_version("1.5.0; rm -rf").is_err());
     }
 
     #[test]

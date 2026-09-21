@@ -1127,9 +1127,11 @@ pub enum GitUserCommands {
         #[arg(short, long)]
         email: String,
 
-        /// Contraseña del usuario
+        /// Contraseña del usuario. Si se omite, se pide interactivamente
+        /// (no queda en el historial de shell). Pasarla por flag es una ruta
+        /// secundaria que queda visible en el historial.
         #[arg(short, long)]
-        password: String,
+        password: Option<String>,
 
         /// Dar permisos de administrador al usuario creado
         #[arg(long, default_value = "false")]

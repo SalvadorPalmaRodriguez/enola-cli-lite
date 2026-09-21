@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.1 | **Actualizado:** 2026-09-13
+> **Versión:** 3.2 | **Actualizado:** 2026-09-21
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -135,6 +135,12 @@ También sincroniza la firma post-cuántica instalada
 > **Importante:** Si el binario descargado no fue verificado con minisign
 > (metadata `signature_verified: false`), `apply` se **rechaza**.
 > Usar `--allow-unsigned` solo en entornos de testing.
+>
+> Un `--binary <PATH>` pasado manualmente **siempre se considera no verificado**,
+> por lo que `apply --binary` exige `--allow-unsigned` (o
+> `ENOLA_ALLOW_UNSIGNED_UPDATE=1`). Además, `apply` **recalcula el SHA256** del
+> binario en disco y lo compara con el registrado en `update download`: si ha
+> cambiado entre la descarga y el apply, se **aborta** (anti-TOCTOU).
 
 ```bash
 sudo enola-cli update apply [--binary <PATH>] [--json] [--allow-unsigned]
@@ -142,7 +148,7 @@ sudo enola-cli update apply [--binary <PATH>] [--json] [--allow-unsigned]
 
 | Flag | Tipo | Descripción |
 |------|------|-------------|
-| `--binary` | String | Path al binario descargado (si se omite, usa la última descarga de `update download`) |
+| `--binary` | String | Path al binario descargado (si se omite, usa la última descarga de `update download`). Exige `--allow-unsigned` (ruta manual = no verificada) |
 | `--json` | Bool | Salida en formato JSON |
 | `--allow-unsigned` | Bool | Permite aplicar sin verificación minisign (**peligroso**, solo testing) |
 

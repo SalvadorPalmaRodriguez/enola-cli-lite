@@ -1057,7 +1057,7 @@ async fn execute_git_user(cmd: GitUserCommands, format: &str) -> CliResult<Strin
                 &server,
                 &username,
                 &email,
-                &password,
+                password.as_deref(),
                 admin,
                 admin_user.as_deref(),
                 admin_pass.as_deref(),
@@ -3612,7 +3612,11 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                             dl.current_version, dl.latest_version, dl.binary_path, dl.sha256, sig_status
                         );
                         if yes {
-                            match update_checker::apply_update(Some(&dl.binary_path)) {
+                            match update_checker::apply_update(
+                                Some(&dl.binary_path),
+                                Some(&dl.sha256),
+                                dl.signature_verified,
+                            ) {
                                 Ok(applied) => {
                                     msg.push_str(&format!("\n\n✅ Applied! Binary replaced at: {}\n  Backup: enola-cli.bak\n  SHA256 updated.", applied.binary_path));
                                     if json {
@@ -3664,7 +3668,7 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                     ));
                 }
             }
-            let result = update_checker::apply_update(binary.as_deref());
+            let result = update_checker::apply_update(binary.as_deref(), None, false);
             match result {
                 Ok(applied) => {
                     let msg = format!(
