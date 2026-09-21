@@ -5,13 +5,16 @@ use axum::routing::get;
 use axum::Router;
 use rand::Rng;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::application::web_api;
 
-#[derive(Clone)]
 pub struct AppState {
     pub token: String,
+    /// T12: contador de fallos de auth consecutivos para el backoff anti fuerza bruta.
+    pub auth_failures: AtomicU64,
 }
 
 pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -35,6 +38,7 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
 
     let state = Arc::new(AppState {
         token: token.clone(),
+        auth_failures: AtomicU64::new(0),
     });
 
     let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
@@ -119,8 +123,14 @@ pub async fn auth_middleware(
         .and_then(|v| v.to_str().ok());
 
     match auth_header {
-        Some(h) if token_matches(h, &state.token) => next.run(req).await,
+        Some(h) if token_matches(h, &state.token) => {
+            state.auth_failures.store(0, Ordering::Relaxed);
+            next.run(req).await
+        }
         _ => {
+            // T12: backoff exponencial ante fuerza bruta sobre el token.
+            let fails = state.auth_failures.fetch_add(1, Ordering::Relaxed);
+            tokio::time::sleep(auth_backoff_delay(fails)).await;
             let err = crate::application::web_errors::ApiError {
                 error: "Unauthorized: invalid or missing token".to_string(),
                 code: 401,
@@ -128,6 +138,16 @@ pub async fn auth_middleware(
             err.into_response()
         }
     }
+}
+
+/// T12: delay de backoff exponencial para respuestas 401 (anti fuerza bruta).
+/// Crece 100ms·2^n hasta un tope de 2000ms.
+fn auth_backoff_delay(failures: u64) -> Duration {
+    const BASE_MS: u64 = 100;
+    const MAX_MS: u64 = 2_000;
+    let shift = failures.min(6) as u32;
+    let ms = BASE_MS.saturating_mul(1u64 << shift);
+    Duration::from_millis(ms.min(MAX_MS))
 }
 
 /// T5: comparación en tiempo constante del token bearer (anti timing-attack).
@@ -169,5 +189,16 @@ mod tests {
     fn token_matches_rejects_empty_vs_nonempty() {
         assert!(!token_matches("", "token"));
         assert!(token_matches("", ""));
+    }
+
+    #[test]
+    fn auth_backoff_delay_grows_then_caps() {
+        use std::time::Duration;
+        assert_eq!(auth_backoff_delay(0), Duration::from_millis(100));
+        assert_eq!(auth_backoff_delay(1), Duration::from_millis(200));
+        assert_eq!(auth_backoff_delay(2), Duration::from_millis(400));
+        assert_eq!(auth_backoff_delay(3), Duration::from_millis(800));
+        assert_eq!(auth_backoff_delay(10), Duration::from_millis(2000));
+        assert_eq!(auth_backoff_delay(100), Duration::from_millis(2000));
     }
 }

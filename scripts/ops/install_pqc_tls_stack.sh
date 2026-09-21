@@ -32,12 +32,43 @@ for arg in "$@"; do
     esac
 done
 
+# Ejecuta un comando pasado como argv (sin re-evaluar metacaracteres de shell).
 run() {
     if [ "$DRY_RUN" = "1" ]; then
         echo "[dry-run] $*"
     else
-        eval "$@"
+        "$@"
     fi
+}
+
+# Ejecuta un snippet que requiere features de shell (cd &&, redirs, ||).
+# Solo para los pocos casos que no pueden expresarse como argv plano. El
+# snippet llega como UN solo argumento a `bash -c` (subshell aislado con
+# -euo pipefail): a diferencia de `eval "$@"`, no re-parsea argv del caller.
+run_sh() {
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "[dry-run] $1"
+    else
+        bash -euo pipefail -c "$1"
+    fi
+}
+
+# Escribe el marker de PQC TLS. Incluye OPENSSL_LIBDIR solo si está definido
+# (el marker de salida temprana aún no lo tiene; el final sí).
+write_marker() {
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "[dry-run] escribir ${MARKER_FILE}"
+        return
+    fi
+    mkdir -p "${MARKER_DIR}"
+    {
+        printf 'OPENSSL_VERSION=%s\n' "${OPENSSL_VERSION}"
+        printf 'NGINX_VERSION=%s\n' "${NGINX_VERSION}"
+        printf 'OPENSSL_PREFIX=%s\n' "${OPENSSL_PREFIX}"
+        if [ -n "${OPENSSL_LIBDIR:-}" ]; then
+            printf 'OPENSSL_LIBDIR=%s\n' "${OPENSSL_LIBDIR}"
+        fi
+    } > "${MARKER_FILE}"
 }
 
 require_root() {
@@ -66,14 +97,14 @@ install_prereqs() {
     local pm="$1"
     case "$pm" in
         apt)
-            run "apt-get -qq update"
-            run "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential curl ca-certificates perl make gcc g++ pkg-config zlib1g-dev libpcre2-dev gnupg nginx"
+            run apt-get -qq update
+            run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential curl ca-certificates perl make gcc g++ pkg-config zlib1g-dev libpcre2-dev gnupg nginx
             ;;
         dnf)
-            run "dnf install -y -q gcc gcc-c++ make perl curl ca-certificates pkgconf-pkg-config zlib-devel pcre2-devel gnupg2 nginx"
+            run dnf install -y -q gcc gcc-c++ make perl curl ca-certificates pkgconf-pkg-config zlib-devel pcre2-devel gnupg2 nginx
             ;;
         pacman)
-            run "pacman -Sy --noconfirm --quiet base-devel curl perl pkgconf zlib pcre2 gnupg nginx ca-certificates"
+            run pacman -Sy --noconfirm --quiet base-devel curl perl pkgconf zlib pcre2 gnupg nginx ca-certificates
             ;;
         *)
             echo "❌ Package manager no soportado. Se necesita apt, dnf o pacman."
@@ -107,12 +138,7 @@ if current_openssl_is_pqc && current_nginx_is_pqc; then
     echo "✅ Ya existe un stack PQC TLS activo:"
     openssl version || true
     nginx -V 2>&1 | head -1 || true
-    run "mkdir -p '${MARKER_DIR}'"
-    run "cat > '${MARKER_FILE}' <<'EOF'
-OPENSSL_VERSION=${OPENSSL_VERSION}
-NGINX_VERSION=${NGINX_VERSION}
-OPENSSL_PREFIX=${OPENSSL_PREFIX}
-EOF"
+    write_marker
     exit 0
 fi
 
@@ -126,8 +152,8 @@ if [ -f "${PRECACHE_DIR}/${OPENSSL_TARBALL}" ] && [ -f "${PRECACHE_DIR}/${OPENSS
     cp "${PRECACHE_DIR}/${OPENSSL_SHA256_FILE}" "${TMPDIR}/${OPENSSL_SHA256_FILE}"
     echo "   (usando copia pre-descargada)"
 else
-    run "curl -fsSL --retry 3 --retry-delay 5 '${OPENSSL_BASE_URL}/${OPENSSL_TARBALL}' -o '${TMPDIR}/${OPENSSL_TARBALL}'"
-    run "curl -fsSL --retry 3 --retry-delay 5 '${OPENSSL_BASE_URL}/${OPENSSL_SHA256_FILE}' -o '${TMPDIR}/${OPENSSL_SHA256_FILE}'"
+    run curl -fsSL --retry 3 --retry-delay 5 "${OPENSSL_BASE_URL}/${OPENSSL_TARBALL}" -o "${TMPDIR}/${OPENSSL_TARBALL}"
+    run curl -fsSL --retry 3 --retry-delay 5 "${OPENSSL_BASE_URL}/${OPENSSL_SHA256_FILE}" -o "${TMPDIR}/${OPENSSL_SHA256_FILE}"
 fi
 
 if [ "$DRY_RUN" != "1" ]; then
@@ -150,9 +176,9 @@ if [ -f "${PRECACHE_DIR}/${NGINX_TARBALL}" ] && [ -f "${PRECACHE_DIR}/${NGINX_AS
     cp "${PRECACHE_DIR}/nginx_signing.key" "${TMPDIR}/nginx_signing.key"
     echo "   (usando copia pre-descargada)"
 else
-    run "curl -fsSL --retry 3 --retry-delay 5 '${NGINX_BASE_URL}/${NGINX_TARBALL}' -o '${TMPDIR}/${NGINX_TARBALL}'"
-    run "curl -fsSL --retry 3 --retry-delay 5 '${NGINX_BASE_URL}/${NGINX_ASC}' -o '${TMPDIR}/${NGINX_ASC}'"
-    run "curl -fsSL --retry 3 --retry-delay 5 '${NGINX_KEY_URL}' -o '${TMPDIR}/nginx_signing.key'"
+    run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_BASE_URL}/${NGINX_TARBALL}" -o "${TMPDIR}/${NGINX_TARBALL}"
+    run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_BASE_URL}/${NGINX_ASC}" -o "${TMPDIR}/${NGINX_ASC}"
+    run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_KEY_URL}" -o "${TMPDIR}/nginx_signing.key"
 fi
 
 if [ "$DRY_RUN" != "1" ]; then
@@ -184,10 +210,10 @@ fi
 echo "✅ Nginx descargado y verificado"
 
 echo "🧱 Compilando OpenSSL ${OPENSSL_VERSION}..."
-run "tar -xzf '${TMPDIR}/${OPENSSL_TARBALL}' -C '${TMPDIR}'"
-run "cd '${TMPDIR}/openssl-${OPENSSL_VERSION}' && ./Configure --prefix='${OPENSSL_PREFIX}' --openssldir='${OPENSSL_PREFIX}' shared zlib linux-x86_64"
-run "cd '${TMPDIR}/openssl-${OPENSSL_VERSION}' && make -j\$(nproc)"
-run "cd '${TMPDIR}/openssl-${OPENSSL_VERSION}' && make install_sw"
+run tar -xzf "${TMPDIR}/${OPENSSL_TARBALL}" -C "${TMPDIR}"
+run_sh "cd '${TMPDIR}/openssl-${OPENSSL_VERSION}' && ./Configure --prefix='${OPENSSL_PREFIX}' --openssldir='${OPENSSL_PREFIX}' shared zlib linux-x86_64"
+run_sh "cd '${TMPDIR}/openssl-${OPENSSL_VERSION}' && make -j\$(nproc)"
+run_sh "cd '${TMPDIR}/openssl-${OPENSSL_VERSION}' && make install_sw"
 
 OPENSSL_LIBDIR="${OPENSSL_PREFIX}/lib64"
 if [ "$DRY_RUN" != "1" ] && [ ! -d "$OPENSSL_LIBDIR" ]; then
@@ -195,14 +221,14 @@ if [ "$DRY_RUN" != "1" ] && [ ! -d "$OPENSSL_LIBDIR" ]; then
 fi
 
 echo "🔗 Registrando OpenSSL 3.5 en el sistema..."
-run "mkdir -p /etc/ld.so.conf.d"
-run "printf '%s\n' '${OPENSSL_LIBDIR}' > /etc/ld.so.conf.d/enola-openssl-3.5.conf"
-run "ldconfig"
-run "ln -sf '${OPENSSL_PREFIX}/bin/openssl' /usr/local/bin/openssl"
+run mkdir -p /etc/ld.so.conf.d
+run_sh "printf '%s\n' '${OPENSSL_LIBDIR}' > /etc/ld.so.conf.d/enola-openssl-3.5.conf"
+run ldconfig
+run ln -sf "${OPENSSL_PREFIX}/bin/openssl" /usr/local/bin/openssl
 
 echo "🧱 Compilando Nginx ${NGINX_VERSION} contra OpenSSL ${OPENSSL_VERSION}..."
-run "tar -xzf '${TMPDIR}/${NGINX_TARBALL}' -C '${TMPDIR}'"
-run "cd '${TMPDIR}/nginx-${NGINX_VERSION}' && ./configure \
+run tar -xzf "${TMPDIR}/${NGINX_TARBALL}" -C "${TMPDIR}"
+run_sh "cd '${TMPDIR}/nginx-${NGINX_VERSION}' && ./configure \
   --prefix=/usr/share/nginx \
   --sbin-path=/usr/sbin/nginx \
   --conf-path=/etc/nginx/nginx.conf \
@@ -233,9 +259,9 @@ run "cd '${TMPDIR}/nginx-${NGINX_VERSION}' && ./configure \
   --with-pcre-jit \
   --with-cc-opt='-I${OPENSSL_PREFIX}/include' \
   --with-ld-opt='-Wl,-rpath,${OPENSSL_LIBDIR} -L${OPENSSL_LIBDIR}'"
-run "cd '${TMPDIR}/nginx-${NGINX_VERSION}' && make -j\$(nproc)"
-run "[ -x /usr/sbin/nginx ] && [ ! -e /usr/sbin/nginx.enola-backup ] && cp /usr/sbin/nginx /usr/sbin/nginx.enola-backup || true"
-run "install -m 0755 '${TMPDIR}/nginx-${NGINX_VERSION}/objs/nginx' /usr/sbin/nginx"
+run_sh "cd '${TMPDIR}/nginx-${NGINX_VERSION}' && make -j\$(nproc)"
+run_sh "[ -x /usr/sbin/nginx ] && [ ! -e /usr/sbin/nginx.enola-backup ] && cp /usr/sbin/nginx /usr/sbin/nginx.enola-backup || true"
+run install -m 0755 "${TMPDIR}/nginx-${NGINX_VERSION}/objs/nginx" /usr/sbin/nginx
 
 if [ "$DRY_RUN" != "1" ]; then
     nginx -V 2>&1 | grep -q "OpenSSL ${OPENSSL_VERSION}" || {
@@ -246,13 +272,7 @@ if [ "$DRY_RUN" != "1" ]; then
 fi
 
 echo "📝 Guardando marker de PQC TLS..."
-run "mkdir -p '${MARKER_DIR}'"
-run "cat > '${MARKER_FILE}' <<'EOF'
-OPENSSL_VERSION=${OPENSSL_VERSION}
-NGINX_VERSION=${NGINX_VERSION}
-OPENSSL_PREFIX=${OPENSSL_PREFIX}
-OPENSSL_LIBDIR=${OPENSSL_LIBDIR}
-EOF"
+write_marker
 
 if [ "$DRY_RUN" != "1" ]; then
     nginx -t >/dev/null 2>&1 || true
