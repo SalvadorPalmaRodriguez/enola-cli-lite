@@ -3134,7 +3134,7 @@ pub mod git {
             // (visible en el historial — documentado).
             let resolved_password = match password {
                 Some(p) if !p.is_empty() => p.to_string(),
-                _ => rpassword::prompt_password(&format!("   Contraseña para '{}': ", username))
+                _ => rpassword::prompt_password(format!("   Contraseña para '{}': ", username))
                     .map_err(|e| {
                         CliError::Generic(format!("No se pudo leer la contraseña: {}", e))
                     })?,
