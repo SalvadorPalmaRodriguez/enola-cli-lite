@@ -3,7 +3,12 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.6.0-alpha] — 2026-10-07
+
+### Added
+- **`commit-msg` hook that rejects AI-attribution trailers** — commit messages
+  carrying `Co-Authored-By:`, `Generated with`, or known bot emails are rejected
+  mechanically. The author and signer of every commit is the human, only.
 
 ### Fixed
 - **`update apply --binary` required signature verification** — applying a
@@ -21,6 +26,29 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instead of `--password <plaintext>`, which was visible in `/proc/<pid>/cmdline`,
   `ps aux`, and Docker's exec log. `git user create --password` is now optional
   and, when omitted, is read interactively so it does not linger in shell history.
+
+### Security
+- **Atomic config writes (T4)** — `set_key_in_path` writes `config.toml` via
+  `atomic_secret_file` (O_EXCL + 0600 + fsync + rename), never
+  `fs::write` + `set_permissions`.
+- **Constant-time dashboard token comparison (T5)** — the bearer token is
+  checked byte-by-byte (XOR), not with `==`.
+- **`.onion` requests always use `socks5h://` (T6)** — the latent HTTP client
+  builder now enforces the SOCKS5-with-DNS rule too.
+- **Minisign key rotation fix (T7)** — the active key is the most recently
+  persisted one, never the first.
+- **Archive extraction hardened against zip-slip (T8)** — member paths are
+  pre-validated (no absolute paths, no `..` segments).
+- **`.env` injection guards (T9)** — key/value reject control characters and
+  `=` in keys.
+- **Feed version validated before download-path interpolation (T10)** —
+  defense in depth.
+- **`install_pqc_tls_stack.sh` drops `eval "$@"` (T11)** — argv is executed
+  plainly and snippets run in an isolated subshell.
+- **Exponential backoff against dashboard brute force (T12)** — `100ms·2^n`,
+  capped at 2s; a successful auth resets the counter.
+- **`git publish` guards (T13)** — blocks while the Forgejo wizard is active
+  and warns if open registration before exposing on `.onion`.
 
 ## [0.5.0-alpha] — 2026-09-20
 
