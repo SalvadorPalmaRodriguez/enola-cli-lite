@@ -87,14 +87,18 @@ pub fn build_default_security_opt(user_opts: Vec<String>) -> Vec<String> {
     out
 }
 
+/// Serialises **all** tests that mutate the process-global
+/// `ENOLA_APPARMOR_ENABLED_PATH` env var. There is exactly ONE lock for the
+/// whole file: `mod tests` and `mod tests_extra` must share it, otherwise they
+/// race on the global env var and a test can read the real sysfs node instead
+/// of its fixture (flaky failure + `PoisonError` cascade).
+#[cfg(test)]
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-
-    /// Serialises tests that mutate `ENOLA_APPARMOR_ENABLED_PATH` (see §13.33 of
-    /// documentation.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn tmp_file_with(content: &str) -> tempfile::NamedTempFile {
         let mut f = tempfile::NamedTempFile::new().expect("tmp file");
@@ -192,7 +196,6 @@ mod tests {
 mod tests_extra {
     use super::*;
     use std::io::Write;
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     fn tmp_file_with(content: &str) -> tempfile::NamedTempFile {
         let mut f = tempfile::NamedTempFile::new().expect("tmp file");
         f.write_all(content.as_bytes()).expect("write");
