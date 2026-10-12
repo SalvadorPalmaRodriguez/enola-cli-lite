@@ -12,6 +12,7 @@ pub mod cms; // DRUPAL-001 — Catálogo de adapters CMS (WordPress, Drupal, …
 pub mod git;
 pub mod hardware;
 pub mod infra;
+pub mod mcp; // MCP-002 — transporte stdio NDJSON + guardia de stdout
 pub mod testing;
 pub mod web;
 

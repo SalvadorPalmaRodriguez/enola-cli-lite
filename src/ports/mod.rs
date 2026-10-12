@@ -13,6 +13,7 @@ pub mod firewall; // Gestión de firewall UFW (UFW-002)
 pub mod git;
 pub mod hardware;
 pub mod manifest; // UNINSTALL-MANIFEST-001 — manifest-based uninstall port
+pub mod mcp_transport; // MCP-002 — transporte de mensajes (recv/send) + mock
 pub mod pipeline;
 pub mod port_checker; // PORTS-002 (176) — validación libre de puertos OS+Docker
 pub mod port_config;
