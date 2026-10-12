@@ -6,8 +6,11 @@
 
 use crate::application::list_tor_services::ListTorServices;
 use crate::application::mcp::registry::{ToolHandler, ToolRegistry};
+use crate::application::plan_service::PlanService;
+use crate::application::system_health_check::SystemHealthCheck;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::tool::{ToolKind, ToolSpec};
+use crate::ports::port_checker::PortCheckerPort;
 use crate::ports::tor::TorManagerPort;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -16,6 +19,7 @@ use std::sync::Arc;
 pub fn register(
     registry: &mut ToolRegistry,
     tor: Arc<dyn TorManagerPort + Send + Sync>,
+    port_checker: Arc<dyn PortCheckerPort>,
 ) -> Result<()> {
     register_tool(
         registry,
@@ -41,6 +45,59 @@ pub fn register(
         ToolKind::ReadOnly,
         Arc::new(DoctorHandler),
     )?;
+    register_tool(
+        registry,
+        "diag_summary",
+        "System resource health (CPU, memory, disk).",
+        json!({"type": "object"}),
+        ToolKind::ReadOnly,
+        Arc::new(DiagSummaryHandler),
+    )?;
+    register_tool(
+        registry,
+        "update_check",
+        "Check for available updates and security advisories.",
+        json!({"type": "object"}),
+        ToolKind::ReadOnly,
+        Arc::new(UpdateCheckHandler),
+    )?;
+    register_tool(
+        registry,
+        "plan_wp_create",
+        "Dry-run a WordPress site creation (0 side effects).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "http_port": {"type": "integer"}
+            },
+            "required": ["name"]
+        }),
+        ToolKind::ReadOnly,
+        Arc::new(PlanWpCreateHandler {
+            checker: port_checker.clone(),
+        }),
+    )?;
+    register_tool(
+        registry,
+        "plan_tor_create",
+        "Dry-run a Tor hidden service creation (0 side effects).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "service_type": {"type": "string"},
+                "virtual_port": {"type": "integer"},
+                "target_port": {"type": "integer"},
+                "ssl": {"type": "boolean"}
+            },
+            "required": ["name", "service_type", "virtual_port"]
+        }),
+        ToolKind::ReadOnly,
+        Arc::new(PlanTorCreateHandler {
+            checker: port_checker,
+        }),
+    )?;
     Ok(())
 }
 
@@ -55,6 +112,12 @@ fn register_tool(
     let spec =
         ToolSpec::new(name, description, schema, kind).map_err(EnolaError::ValidationError)?;
     registry.register(spec, handler)
+}
+
+fn required_string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| EnolaError::ValidationError(format!("missing '{key}'")))
 }
 
 struct TorListHandler {
@@ -89,9 +152,78 @@ impl ToolHandler for DoctorHandler {
     }
 }
 
+struct DiagSummaryHandler;
+
+#[async_trait::async_trait]
+impl ToolHandler for DiagSummaryHandler {
+    async fn call(&self, _args: Value) -> Result<Value> {
+        let health = SystemHealthCheck::new().execute().await?;
+        Ok(json!({ "health": health }))
+    }
+}
+
+struct UpdateCheckHandler;
+
+#[async_trait::async_trait]
+impl ToolHandler for UpdateCheckHandler {
+    async fn call(&self, _args: Value) -> Result<Value> {
+        let url = crate::application::update_checker::feed_url();
+        let report = crate::application::update_checker::check_for_updates(&url).await;
+        Ok(json!({ "report": report }))
+    }
+}
+
+struct PlanWpCreateHandler {
+    checker: Arc<dyn PortCheckerPort>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for PlanWpCreateHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let http_port = args
+            .get("http_port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16);
+        let plan = PlanService::new(self.checker.clone()).plan_wordpress(name, http_port)?;
+        Ok(json!({ "plan": plan }))
+    }
+}
+
+struct PlanTorCreateHandler {
+    checker: Arc<dyn PortCheckerPort>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for PlanTorCreateHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let service_type = required_string(&args, "service_type")?;
+        let virtual_port = args
+            .get("virtual_port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16)
+            .ok_or_else(|| EnolaError::ValidationError("missing 'virtual_port'".into()))?;
+        let target_port = args
+            .get("target_port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16);
+        let ssl = args.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+        let plan = PlanService::new(self.checker.clone()).plan_tor(
+            name,
+            service_type,
+            virtual_port,
+            target_port,
+            ssl,
+        )?;
+        Ok(json!({ "plan": plan }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::port_checker::{MockPortCheckerPort, PortCheckResult};
     use crate::ports::tor::{MockTorManagerPort, TorServiceInfo};
 
     #[tokio::test]
@@ -124,15 +256,55 @@ mod tests {
         assert!(out["entries"].is_array());
     }
 
+    #[tokio::test]
+    async fn plan_wp_create_returns_plan() {
+        let mut mock = MockPortCheckerPort::new();
+        mock.expect_find_free_port().returning(|_, _| Ok(8080));
+        mock.expect_check_port().returning(|port| {
+            Ok(PortCheckResult {
+                port,
+                free_os: true,
+                free_docker: true,
+            })
+        });
+        let handler = PlanWpCreateHandler {
+            checker: Arc::new(mock),
+        };
+        let out = handler.call(json!({"name": "blog"})).await.unwrap();
+        assert!(out["plan"].is_object());
+    }
+
+    #[tokio::test]
+    async fn plan_wp_create_requires_name() {
+        let mock = MockPortCheckerPort::new();
+        let handler = PlanWpCreateHandler {
+            checker: Arc::new(mock),
+        };
+        assert!(handler.call(json!({})).await.is_err());
+    }
+
     #[test]
-    fn register_adds_three_readonly_tools() {
+    fn register_adds_seven_readonly_tools() {
         let mut registry = ToolRegistry::new();
-        register(&mut registry, Arc::new(MockTorManagerPort::new())).unwrap();
+        register(
+            &mut registry,
+            Arc::new(MockTorManagerPort::new()),
+            Arc::new(MockPortCheckerPort::new()),
+        )
+        .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 7);
         assert!(tools.iter().all(|t| t.kind == ToolKind::ReadOnly));
-        assert!(tools.iter().any(|t| t.name == "tor_list"));
-        assert!(tools.iter().any(|t| t.name == "config_show"));
-        assert!(tools.iter().any(|t| t.name == "doctor"));
+        for name in [
+            "tor_list",
+            "config_show",
+            "doctor",
+            "diag_summary",
+            "update_check",
+            "plan_wp_create",
+            "plan_tor_create",
+        ] {
+            assert!(tools.iter().any(|t| t.name == name), "missing {name}");
+        }
     }
 }
