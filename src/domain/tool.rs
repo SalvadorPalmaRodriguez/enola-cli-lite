@@ -157,6 +157,71 @@ pub fn classify(family: &str, subcommand: Option<&str>) -> ToolKind {
     }
 }
 
+/// Valida `args` contra un subconjunto de JSON Schema: `type: object`,
+/// `required`, `properties` (con `type` y `enum`). Devuelve error descriptivo.
+pub fn validate_input(schema: &serde_json::Value, args: &serde_json::Value) -> Result<(), String> {
+    if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
+        return Err("schema must declare type: object".to_string());
+    }
+    let obj = args
+        .as_object()
+        .ok_or_else(|| "arguments must be a JSON object".to_string())?;
+
+    if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
+        for name in required {
+            let name = name
+                .as_str()
+                .ok_or_else(|| "required must be strings".to_string())?;
+            if !obj.contains_key(name) {
+                return Err(format!("missing required argument: {name}"));
+            }
+        }
+    }
+
+    if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+        for (name, prop_schema) in props {
+            let Some(value) = obj.get(name) else { continue };
+            validate_property(name, prop_schema, value)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_property(
+    name: &str,
+    schema: &serde_json::Value,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    if let Some(allowed) = schema.get("enum").and_then(|e| e.as_array()) {
+        if !allowed.iter().any(|v| v == value) {
+            let choices: Vec<String> = allowed
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            return Err(format!(
+                "argument '{name}' must be one of: {}",
+                choices.join(", ")
+            ));
+        }
+    }
+
+    if let Some(ty) = schema.get("type").and_then(|t| t.as_str()) {
+        let ok = match ty {
+            "string" => value.is_string(),
+            "integer" => value.is_i64() || value.is_u64(),
+            "number" => value.is_number(),
+            "boolean" => value.is_boolean(),
+            "array" => value.is_array(),
+            "object" => value.is_object(),
+            _ => true,
+        };
+        if !ok {
+            return Err(format!("argument '{name}' must be of type {ty}"));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +321,44 @@ mod tests {
                 assert!(kind == ToolKind::ReadOnly || kind == ToolKind::Mutating);
             }
         }
+    }
+
+    // ── validate_input (subconjunto JSON Schema) ──
+
+    #[test]
+    fn validate_input_accepts_valid_args() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"]
+        });
+        assert!(validate_input(&schema, &json!({"name": "foo"})).is_ok());
+    }
+
+    #[test]
+    fn validate_input_rejects_missing_required() {
+        let schema = json!({"type": "object", "required": ["name"]});
+        let err = validate_input(&schema, &json!({})).unwrap_err();
+        assert!(err.contains("missing required argument: name"));
+    }
+
+    #[test]
+    fn validate_input_rejects_wrong_type() {
+        let schema = json!({"type": "object", "properties": {"name": {"type": "string"}}});
+        let err = validate_input(&schema, &json!({"name": 42})).unwrap_err();
+        assert!(err.contains("must be of type string"));
+    }
+
+    #[test]
+    fn validate_input_rejects_enum_violation() {
+        let schema = json!({"type": "object", "properties": {"mode": {"enum": ["a", "b"]}}});
+        let err = validate_input(&schema, &json!({"mode": "z"})).unwrap_err();
+        assert!(err.contains("must be one of"));
+    }
+
+    #[test]
+    fn validate_input_rejects_non_object_args() {
+        let schema = json!({"type": "object"});
+        assert!(validate_input(&schema, &json!(42)).is_err());
     }
 }
