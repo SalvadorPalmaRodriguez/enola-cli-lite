@@ -122,6 +122,10 @@ async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResul
     let mut registry = ToolRegistry::new();
     crate::application::mcp::command_catalog::register(&mut registry)
         .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+    let tor: Arc<dyn crate::ports::tor::TorManagerPort + Send + Sync> =
+        Arc::new(crate::adapters::tor::TorConfigAdapter::new());
+    crate::application::mcp::builtin_tools::register(&mut registry, tor)
+        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
     McpServer::new(transport, Arc::new(registry))
         .run()
