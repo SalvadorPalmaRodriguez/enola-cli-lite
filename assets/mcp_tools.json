@@ -1,0 +1,2391 @@
+{
+  "families": [
+    {
+      "description": "",
+      "flags": [],
+      "name": "tor",
+      "subcommands": [
+        {
+          "description": "List all Tor hidden services",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new Tor hidden service",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "service-type",
+              "possible_values": [],
+              "required": false,
+              "value_name": "SERVICE_TYPE"
+            },
+            {
+              "name": "virtual-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "VIRTUAL_PORT"
+            },
+            {
+              "name": "target-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "TARGET_PORT"
+            },
+            {
+              "name": "ssl",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Tor hidden service",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Tor hidden service",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Remove a Tor hidden service",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "remove"
+        },
+        {
+          "description": "Edit service ports",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "virtual-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "VIRTUAL_PORT"
+            },
+            {
+              "name": "nginx-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "NGINX_PORT"
+            },
+            {
+              "name": "target-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "TARGET_PORT"
+            },
+            {
+              "name": "auto-ports",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTO_PORTS"
+            }
+          ],
+          "name": "edit"
+        },
+        {
+          "description": "Rotate .onion address (generate new identity)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "rotate"
+        },
+        {
+          "description": "Manage client authorization",
+          "flags": [],
+          "name": "auth"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "git",
+      "subcommands": [
+        {
+          "description": "List Git servers",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Crea un nuevo servidor Git (Forgejo).",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "ssl",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            },
+            {
+              "name": "ssh-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            },
+            {
+              "name": "admin-user",
+              "possible_values": [],
+              "required": false,
+              "value_name": "USERNAME"
+            },
+            {
+              "name": "admin-password",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PASSWORD"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Git server",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Git server",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Show status of a Git server",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Delete a Git server",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Enable or disable user self-registration on a Forgejo instance",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "enable",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "ENABLE"
+            },
+            {
+              "name": "disable",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "DISABLE"
+            },
+            {
+              "name": "status",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "STATUS"
+            }
+          ],
+          "name": "registration"
+        },
+        {
+          "description": "Edit service ports",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "HTTP_PORT"
+            },
+            {
+              "name": "https-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "HTTPS_PORT"
+            },
+            {
+              "name": "ssh-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "SSH_PORT"
+            },
+            {
+              "name": "auto-ports",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTO_PORTS"
+            }
+          ],
+          "name": "edit"
+        },
+        {
+          "description": "Publish Git server on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "ssl",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide Git server from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        },
+        {
+          "description": "Manage users",
+          "flags": [],
+          "name": "user"
+        },
+        {
+          "description": "Run the Git Pipeline Watcher (foreground)",
+          "flags": [],
+          "name": "watcher"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "wp",
+      "subcommands": [
+        {
+          "description": "List WordPress sites",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new WordPress site",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a WordPress site",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a WordPress site",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Restart a WordPress site",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "restart"
+        },
+        {
+          "description": "Delete a WordPress site",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Update WordPress (with backup)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "update"
+        },
+        {
+          "description": "Edit WordPress configuration",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "config"
+        },
+        {
+          "description": "Show WordPress status",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Publish site on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide site from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        },
+        {
+          "description": "Edit WordPress site ports and SSL configuration",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "HTTP_PORT"
+            },
+            {
+              "name": "https-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "HTTPS_PORT"
+            },
+            {
+              "name": "ssl",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "name": "auto-ports",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTO_PORTS"
+            }
+          ],
+          "name": "edit"
+        }
+      ]
+    },
+    {
+      "description": "Stack: drupal:10-apache + mariadb:10.11.",
+      "flags": [],
+      "name": "drupal",
+      "subcommands": [
+        {
+          "description": "List Drupal sites",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new Drupal site",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Drupal site (DB first, then web)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Drupal site (web first, then DB)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Delete a Drupal site (containers, network; data preserved unless --purge)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Show Drupal site status (running/stopped/initializing/not-found + port)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Publish site on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide site from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        },
+        {
+          "description": "Edit Drupal site HTTP port (recreates the web container atomically)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "HTTP_PORT"
+            }
+          ],
+          "name": "edit"
+        }
+      ]
+    },
+    {
+      "description": "Stack: ghost:5-alpine + SQLite embedded (no separate DB container). Internal port: 2368 (Ghost default).",
+      "flags": [],
+      "name": "ghost",
+      "subcommands": [
+        {
+          "description": "List Ghost blogs",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new Ghost blog",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Ghost blog",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Ghost blog",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Delete a Ghost blog (container + network; data preserved on /srv unless purged)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Show Ghost blog status (running/stopped/initializing/not-found + port)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Publish blog on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide blog from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        },
+        {
+          "description": "Edit Ghost blog HTTP port (atomic container recreation)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "HTTP_PORT"
+            }
+          ],
+          "name": "edit"
+        }
+      ]
+    },
+    {
+      "description": "Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2. Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.",
+      "flags": [],
+      "name": "magnolia",
+      "subcommands": [
+        {
+          "description": "List Magnolia instances",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new Magnolia instance",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Magnolia instance",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Magnolia instance",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Delete a Magnolia instance (data preserved on /srv unless purged)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Show Magnolia instance status",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Publish Magnolia instance on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide Magnolia instance from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        }
+      ]
+    },
+    {
+      "description": "Stack: enola/strapi:5.49.0 + postgres:16-alpine. Generates 6 secrets (0600) per instance: app keys, API token, JWT, admin JWT, transfer token, db password (SEC-EXT-DOCKER-040).",
+      "flags": [],
+      "name": "strapi",
+      "subcommands": [
+        {
+          "description": "List Strapi instances",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new Strapi instance (Node + Postgres 16)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Strapi instance (web + db containers)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Strapi instance (web + db)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Delete a Strapi instance",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Show Strapi instance status",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Publish Strapi instance on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide Strapi instance from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        },
+        {
+          "description": "Build the Strapi production Docker image (multi-stage, Node 20, Strapi 5.49).",
+          "flags": [
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "build-image"
+        }
+      ]
+    },
+    {
+      "description": "Stack: wagtail/bakerydemo:latest (demo site, Python/Django) + postgres:16-alpine.",
+      "flags": [],
+      "name": "wagtail",
+      "subcommands": [
+        {
+          "description": "List Wagtail instances",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new Wagtail instance (Python/Django + Postgres)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "http-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a Wagtail instance (web + db)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a Wagtail instance (web + db)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Delete a Wagtail instance",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Show Wagtail instance status",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "Publish Wagtail instance on Tor (create hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "publish"
+        },
+        {
+          "description": "Hide Wagtail instance from Tor (remove hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "files",
+      "subcommands": [
+        {
+          "description": "List all file shares (name, onion address, Nginx port, status)",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Create a new anonymous file share accessible via Tor .onion",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "auth",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
+            },
+            {
+              "name": "ssl",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Edit file share configuration",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            }
+          ],
+          "name": "edit"
+        },
+        {
+          "description": "Delete a file share (removes Nginx config and Tor hidden service)",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Fix ownership and permissions on a file share directory",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "fix-perms"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "maintenance",
+      "subcommands": [
+        {
+          "description": "Show system status",
+          "flags": [],
+          "name": "status"
+        },
+        {
+          "description": "Run smoke test",
+          "flags": [],
+          "name": "smoke-test"
+        },
+        {
+          "description": "Enable automatic health checks",
+          "flags": [],
+          "name": "enable-checks"
+        },
+        {
+          "description": "Disable automatic health checks",
+          "flags": [],
+          "name": "disable-checks"
+        },
+        {
+          "description": "Show timer status for automatic checks",
+          "flags": [],
+          "name": "timer-status"
+        },
+        {
+          "description": "Configure SSH check",
+          "flags": [],
+          "name": "ssh-config"
+        },
+        {
+          "description": "Harden SSH host configuration with post-quantum-safe algorithms (PQC-012) Adds sntrup761x25519-sha512 KEX (OpenSSH 9.0+) as first preferred algorithm. This is a TRANSITIONAL measure until full PQC is standardized. Run again after OpenSSH upgrade to apply improved algorithms",
+          "flags": [
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            },
+            {
+              "name": "dry-run",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "DRY_RUN"
+            }
+          ],
+          "name": "ssh-harden-pqc"
+        },
+        {
+          "description": "Create system backup",
+          "flags": [
+            {
+              "name": "keep",
+              "possible_values": [],
+              "required": false,
+              "value_name": "KEEP"
+            }
+          ],
+          "name": "backup"
+        },
+        {
+          "description": "Show or set the backup retention policy (persisted in config.toml [backup])",
+          "flags": [
+            {
+              "name": "max-backups",
+              "possible_values": [],
+              "required": false,
+              "value_name": "MAX_BACKUPS"
+            }
+          ],
+          "name": "backup-config"
+        },
+        {
+          "description": "Cleanup temporary files and residual data",
+          "flags": [
+            {
+              "name": "target",
+              "possible_values": [],
+              "required": false,
+              "value_name": "TARGET"
+            },
+            {
+              "name": "dry-run",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "DRY_RUN"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            },
+            {
+              "name": "keep-days",
+              "possible_values": [],
+              "required": false,
+              "value_name": "KEEP_DAYS"
+            }
+          ],
+          "name": "cleanup"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "diag",
+      "subcommands": [
+        {
+          "description": "Show all services summary",
+          "flags": [],
+          "name": "summary"
+        },
+        {
+          "description": "Check NGINX status",
+          "flags": [],
+          "name": "nginx"
+        },
+        {
+          "description": "Check Tor status",
+          "flags": [],
+          "name": "tor"
+        },
+        {
+          "description": "Check SSH status",
+          "flags": [],
+          "name": "ssh"
+        },
+        {
+          "description": "Check WordPress status",
+          "flags": [],
+          "name": "word-press"
+        },
+        {
+          "description": "Check WordPress/NGINX sync",
+          "flags": [],
+          "name": "wp-sync"
+        },
+        {
+          "description": "Test NGINX configuration",
+          "flags": [],
+          "name": "nginx-test"
+        },
+        {
+          "description": "Show system resources (RAM, Disk, GPU)",
+          "flags": [],
+          "name": "resources"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "test",
+      "subcommands": [
+        {
+          "description": "Run all system tests",
+          "flags": [
+            {
+              "name": "filter",
+              "possible_values": [],
+              "required": false,
+              "value_name": "FILTER"
+            }
+          ],
+          "name": "run"
+        },
+        {
+          "description": "List available tests",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Run benchmarks",
+          "flags": [],
+          "name": "benchmark"
+        },
+        {
+          "description": "Show last test results",
+          "flags": [],
+          "name": "results"
+        },
+        {
+          "description": "Clean test artifacts",
+          "flags": [],
+          "name": "clean"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "logs",
+      "subcommands": [
+        {
+          "description": "List available log sources",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "View logs from a specific source",
+          "flags": [
+            {
+              "name": "source",
+              "possible_values": [],
+              "required": true,
+              "value_name": "SOURCE"
+            },
+            {
+              "name": "lines",
+              "possible_values": [],
+              "required": false,
+              "value_name": "LINES"
+            },
+            {
+              "name": "follow",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FOLLOW"
+            }
+          ],
+          "name": "view"
+        },
+        {
+          "description": "View installation logs",
+          "flags": [],
+          "name": "install"
+        },
+        {
+          "description": "View smoke test logs",
+          "flags": [],
+          "name": "smoke-test"
+        }
+      ]
+    },
+    {
+      "description": "Displays a table of every port in use: service name, type, port number, protocol, interface binding, and role in the Tor→Nginx→App chain. Includes stopped containers (they retain Docker port bindings).",
+      "flags": [],
+      "name": "ports",
+      "subcommands": [
+        {
+          "description": "List all ports used by Enola services",
+          "flags": [
+            {
+              "name": "json",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "JSON"
+            }
+          ],
+          "name": "list"
+        }
+      ]
+    },
+    {
+      "description": "Enola services bind to 127.0.0.1 and are protected by Tor. UFW is an extra layer for the host machine.",
+      "flags": [],
+      "name": "firewall",
+      "subcommands": [
+        {
+          "description": "Configure UFW with a secure default policy",
+          "flags": [
+            {
+              "name": "ssh-port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "SSH_PORT"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "setup"
+        },
+        {
+          "description": "Show current firewall status and rules",
+          "flags": [],
+          "name": "status"
+        },
+        {
+          "description": "Allow traffic on a port",
+          "flags": [
+            {
+              "name": "port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            },
+            {
+              "name": "proto",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PROTO"
+            },
+            {
+              "name": "from",
+              "possible_values": [],
+              "required": false,
+              "value_name": "FROM"
+            }
+          ],
+          "name": "allow"
+        },
+        {
+          "description": "Deny traffic on a port",
+          "flags": [
+            {
+              "name": "port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PORT"
+            },
+            {
+              "name": "proto",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PROTO"
+            }
+          ],
+          "name": "deny"
+        }
+      ]
+    },
+    {
+      "description": "AppArmor restricts what each container/service can access. Complements UFW (network) with process-level isolation.",
+      "flags": [],
+      "name": "apparmor",
+      "subcommands": [
+        {
+          "description": "Load base AppArmor profiles (nginx, tor, docker-base)",
+          "flags": [
+            {
+              "name": "mode",
+              "possible_values": [],
+              "required": false,
+              "value_name": "MODE"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "setup"
+        },
+        {
+          "description": "Show AppArmor status: installed, enabled, profiles, violations",
+          "flags": [],
+          "name": "status"
+        },
+        {
+          "description": "Change mode of AppArmor profiles (enforce/complain/disable)",
+          "flags": [
+            {
+              "name": "enforce",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "ENFORCE"
+            },
+            {
+              "name": "complain",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "COMPLAIN"
+            },
+            {
+              "name": "disable",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "DISABLE"
+            },
+            {
+              "name": "profile",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PROFILE"
+            }
+          ],
+          "name": "mode"
+        }
+      ]
+    },
+    {
+      "description": "Creates encrypted tunnels so trusted devices can reach your Enola services without exposing them to the internet. Complements Tor (anonymous access) with authenticated VPN access.",
+      "flags": [],
+      "name": "vpn",
+      "subcommands": [
+        {
+          "description": "Create a new WireGuard VPN interface and start it.",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "port",
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            },
+            {
+              "name": "subnet",
+              "possible_values": [],
+              "required": false,
+              "value_name": "SUBNET"
+            },
+            {
+              "name": "autostart",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTOSTART"
+            },
+            {
+              "name": "sync-firewall",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SYNC_FIREWALL"
+            },
+            {
+              "name": "tor",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "TOR"
+            }
+          ],
+          "name": "create"
+        },
+        {
+          "description": "Start a stopped WireGuard interface (wg-quick up).",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start"
+        },
+        {
+          "description": "Stop a running WireGuard interface (wg-quick down).",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop"
+        },
+        {
+          "description": "Show status of a WireGuard interface (connected peers, traffic).",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status"
+        },
+        {
+          "description": "List all WireGuard interfaces on this system.",
+          "flags": [],
+          "name": "list"
+        },
+        {
+          "description": "Delete a WireGuard interface (stop + remove config).",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            },
+            {
+              "name": "sync-firewall",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SYNC_FIREWALL"
+            }
+          ],
+          "name": "delete"
+        },
+        {
+          "description": "Manage VPN peers (clients)",
+          "flags": [],
+          "name": "peer"
+        }
+      ]
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "ssh",
+      "subcommands": [
+        {
+          "description": "The key is appended only if not already present (deduplicated by body). Written atomically with 0o600 permissions and a file lock (anti-TOCTOU).",
+          "flags": [
+            {
+              "name": "user",
+              "possible_values": [],
+              "required": false,
+              "value_name": "USER"
+            },
+            {
+              "name": "pubkey",
+              "possible_values": [],
+              "required": true,
+              "value_name": "PUBKEY"
+            },
+            {
+              "name": "comment",
+              "possible_values": [],
+              "required": false,
+              "value_name": "COMMENT"
+            }
+          ],
+          "name": "add-key"
+        },
+        {
+          "description": "Ensures sshd is running and publishes it only via a .onion address, without exposing SSH to the public network.",
+          "flags": [
+            {
+              "name": "name",
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "name": "onion-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "ONION_PORT"
+            },
+            {
+              "name": "local-ssh-port",
+              "possible_values": [],
+              "required": true,
+              "value_name": "LOCAL_SSH_PORT"
+            }
+          ],
+          "name": "deploy-hidden"
+        }
+      ]
+    },
+    {
+      "description": "Examples: sudo enola-cli setup              # Install core dependencies sudo enola-cli setup --all        # Install ALL dependencies sudo enola-cli setup --vpn        # Install VPN (WireGuard) only sudo enola-cli setup --security   # Install security tools (UFW, AppArmor) sudo enola-cli setup --pqc-tls    # Install official OpenSSL 3.5 + Nginx PQC stack",
+      "flags": [
+        {
+          "name": "all",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "ALL"
+        },
+        {
+          "name": "vpn",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "VPN"
+        },
+        {
+          "name": "security",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "SECURITY"
+        },
+        {
+          "name": "pqc-tls",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "PQC_TLS"
+        }
+      ],
+      "name": "setup",
+      "subcommands": []
+    },
+    {
+      "description": "Examples: sudo enola-cli doctor sudo enola-cli doctor --security",
+      "flags": [
+        {
+          "name": "security",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "SECURITY"
+        }
+      ],
+      "name": "doctor",
+      "subcommands": []
+    },
+    {
+      "description": "",
+      "flags": [],
+      "name": "quickref",
+      "subcommands": []
+    },
+    {
+      "description": "Displays the complete Enola CLI license agreement embedded in the binary. Works offline — no network required.",
+      "flags": [],
+      "name": "license",
+      "subcommands": []
+    },
+    {
+      "description": "Comprueba que el archivo descargado está firmado con la clave post-cuántica ML-DSA-65 (FIPS 204) del proyecto, usando la clave pública embebida en este binario. No requiere red, login ni herramientas externas (no necesitas `enola-sign-pqc`, que es una herramienta de desarrollo).",
+      "flags": [
+        {
+          "name": "file",
+          "possible_values": [],
+          "required": true,
+          "value_name": "FILE"
+        },
+        {
+          "name": "pqsig",
+          "possible_values": [],
+          "required": false,
+          "value_name": "PQSIG"
+        },
+        {
+          "name": "pubkey",
+          "possible_values": [],
+          "required": false,
+          "value_name": "PUBKEY"
+        },
+        {
+          "name": "json",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "JSON"
+        }
+      ],
+      "name": "verify",
+      "subcommands": []
+    },
+    {
+      "description": "Borra de forma limpia binario, servicios, contenedores, configs de Tor/Nginx/AppArmor/UFW/systemd y datos (/srv/enola-*, /opt/enola/). Por defecto ejecuta en modo --dry-run: solo lista lo que se borraría.",
+      "flags": [
+        {
+          "name": "yes",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "YES"
+        },
+        {
+          "name": "keep-data",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "KEEP_DATA"
+        },
+        {
+          "name": "only",
+          "possible_values": [],
+          "required": false,
+          "value_name": "ONLY"
+        },
+        {
+          "name": "force",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "FORCE"
+        },
+        {
+          "name": "remove-deps",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "REMOVE_DEPS"
+        }
+      ],
+      "name": "uninstall",
+      "subcommands": []
+    },
+    {
+      "description": "Muestra el valor efectivo resuelto para cada clave junto con su fuente (flag > env > file > default) y la variable de entorno equivalente. Los valores sensibles (API keys, tokens, secrets) se muestran como `[REDACTED]`.",
+      "flags": [
+        {
+          "name": "json",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "JSON"
+        }
+      ],
+      "name": "config-show",
+      "subcommands": []
+    },
+    {
+      "description": "Ejecuta comprobaciones: TOML parseable, permisos 0600, sintaxis de URLs, Tor disponible si hay `.onion` en la config, y opcionalmente alcanzabilidad HTTP de `auth_url` y `web_public_url`.",
+      "flags": [
+        {
+          "name": "reachable",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "REACHABLE"
+        },
+        {
+          "name": "json",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "JSON"
+        }
+      ],
+      "name": "config-validate",
+      "subcommands": []
+    },
+    {
+      "description": "La documentación está embebida en el binario — funciona offline.",
+      "flags": [],
+      "name": "docs",
+      "subcommands": [
+        {
+          "description": "Muestra la guía de inicio rápido (configuración, primer servicio)",
+          "flags": [],
+          "name": "quickstart"
+        },
+        {
+          "description": "Muestra la referencia de todos los comandos, con ejemplos",
+          "flags": [
+            {
+              "name": "group",
+              "possible_values": [],
+              "required": false,
+              "value_name": "GROUP"
+            }
+          ],
+          "name": "commands"
+        },
+        {
+          "description": "Explica conceptos clave de Enola",
+          "flags": [
+            {
+              "name": "topic",
+              "possible_values": [],
+              "required": false,
+              "value_name": "TOPIC"
+            }
+          ],
+          "name": "concepts"
+        },
+        {
+          "description": "Muestra preguntas frecuentes y solución de problemas",
+          "flags": [
+            {
+              "name": "filter",
+              "possible_values": [],
+              "required": false,
+              "value_name": "FILTER"
+            }
+          ],
+          "name": "faq"
+        },
+        {
+          "description": "Muestra ejemplos de uso por caso de uso",
+          "flags": [
+            {
+              "name": "case",
+              "possible_values": [],
+              "required": false,
+              "value_name": "CASE"
+            }
+          ],
+          "name": "examples"
+        },
+        {
+          "description": "Busca un término en toda la documentación embebida",
+          "flags": [
+            {
+              "name": "term",
+              "possible_values": [],
+              "required": true,
+              "value_name": "TERM"
+            }
+          ],
+          "name": "search"
+        },
+        {
+          "description": "Muestra la guía de seguridad post-cuántica y plan PQC",
+          "flags": [],
+          "name": "quantum-security"
+        },
+        {
+          "description": "Muestra la guía para verificar autenticidad de descargas con minisign",
+          "flags": [],
+          "name": "verify-downloads"
+        },
+        {
+          "description": "Muestra el modelo de seguridad orientado al usuario",
+          "flags": [],
+          "name": "security"
+        },
+        {
+          "description": "Muestra la guía de instalación desde ISO",
+          "flags": [],
+          "name": "install-from-iso"
+        }
+      ]
+    },
+    {
+      "description": "Examples: sudo enola-cli update check sudo enola-cli update check --json",
+      "flags": [],
+      "name": "update",
+      "subcommands": [
+        {
+          "description": "Check for available updates and security advisories.",
+          "flags": [
+            {
+              "name": "json",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "JSON"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "check"
+        },
+        {
+          "description": "Show the current advisory feed schema (for operators creating their own feed)",
+          "flags": [
+            {
+              "name": "json",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "JSON"
+            }
+          ],
+          "name": "schema"
+        },
+        {
+          "description": "Verify a signed advisory feed manually from URL or local path.",
+          "flags": [
+            {
+              "name": "source",
+              "possible_values": [],
+              "required": true,
+              "value_name": "SOURCE"
+            },
+            {
+              "name": "signature",
+              "possible_values": [],
+              "required": false,
+              "value_name": "SIGNATURE"
+            },
+            {
+              "name": "json",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "JSON"
+            }
+          ],
+          "name": "verify-feed"
+        },
+        {
+          "description": "Download the latest binary from the update feed.",
+          "flags": [
+            {
+              "name": "yes",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "YES"
+            },
+            {
+              "name": "dry-run",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "DRY_RUN"
+            },
+            {
+              "name": "json",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "JSON"
+            },
+            {
+              "name": "force",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            },
+            {
+              "name": "allow-unsigned",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "ALLOW_UNSIGNED"
+            }
+          ],
+          "name": "download"
+        },
+        {
+          "description": "Apply a previously downloaded update.",
+          "flags": [
+            {
+              "name": "binary",
+              "possible_values": [],
+              "required": false,
+              "value_name": "BINARY"
+            },
+            {
+              "name": "json",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "JSON"
+            },
+            {
+              "name": "allow-unsigned",
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "ALLOW_UNSIGNED"
+            }
+          ],
+          "name": "apply"
+        }
+      ]
+    },
+    {
+      "description": "The server binds to 127.0.0.1 only and requires a token shown in the terminal.",
+      "flags": [
+        {
+          "name": "port",
+          "possible_values": [],
+          "required": false,
+          "value_name": "PORT"
+        }
+      ],
+      "name": "web",
+      "subcommands": []
+    },
+    {
+      "description": "Shows what WOULD happen: ports to open/assign, Docker containers to create, filesystem paths, UFW rules, AppArmor profiles, and a statically-computed risk level — WITHOUT executing anything.",
+      "flags": [],
+      "name": "plan",
+      "subcommands": [
+        {
+          "description": "Plan a WordPress site creation (dry-run)",
+          "flags": [],
+          "name": "wp"
+        },
+        {
+          "description": "Plan a Tor hidden service creation (dry-run)",
+          "flags": [],
+          "name": "tor"
+        },
+        {
+          "description": "Plan a Git server creation (dry-run)",
+          "flags": [],
+          "name": "git"
+        }
+      ]
+    },
+    {
+      "description": "Read-only by default: mutating tools require `--allow-write` plus an explicit allowlist in config.toml ([mcp].allowed_tools).",
+      "flags": [
+        {
+          "name": "allow-write",
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "ALLOW_WRITE"
+        },
+        {
+          "name": "allow-tools",
+          "possible_values": [],
+          "required": false,
+          "value_name": "TOOLS"
+        }
+      ],
+      "name": "mcp",
+      "subcommands": []
+    }
+  ]
+}

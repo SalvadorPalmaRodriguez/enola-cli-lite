@@ -17,6 +17,7 @@ pub mod plan; // Tarea 3 — `enola plan` dry-run domain types
 pub mod port_config;
 pub mod system;
 pub mod tests;
+pub mod tool; // MCP-004 — ToolSpec, ToolKind, clasificación read/write
 pub mod tor;
 pub mod user;
 pub mod vpn; // Tarea 162 — WireGuard VPN domain types

@@ -106,6 +106,8 @@ fn main() {
 
     // ── Generar assets/console_commands.json desde clap ───────────────
     generate_console_commands_json();
+    // ── Generar assets/mcp_tools.json (árbol tipado para el servidor MCP) ──
+    generate_mcp_tools_json();
     println!("cargo:rerun-if-changed=src/cli/defs.rs");
 }
 
@@ -223,9 +225,94 @@ fn generate_console_commands_json() {
         .expect("no se pudo escribir assets/console_commands.json");
 }
 
+/// Primera línea útil de un doc comment clap (ignora marcadores DOC-SYNC).
+fn clean_description(about: &str) -> String {
+    about
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("DOC-SYNC:"))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Descripción limpia de un comando clap (convierte StyledStr a texto plano).
+fn cmd_description(cmd: &clap::Command) -> String {
+    let raw = cmd
+        .get_long_about()
+        .or_else(|| cmd.get_about())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    clean_description(&raw)
+}
+
+/// Extrae los flags de un comando clap como array JSON.
+fn extract_flags(cmd: &clap::Command) -> serde_json::Value {
+    let mut flags: Vec<serde_json::Value> = Vec::new();
+    for arg in cmd.get_arguments() {
+        // Nombre de la flag: el long si existe, si no el id (posicional).
+        let name = match arg.get_long() {
+            Some(l) => l.to_string(),
+            None => arg.get_id().as_str().to_string(),
+        };
+        flags.push(serde_json::json!({
+            "name": name,
+            "required": arg.is_required_set(),
+            "value_name": arg.get_value_names().and_then(|v| v.first()).map(|s| s.to_string()),
+            "possible_values": arg.get_possible_values().iter().map(|p| p.get_name().to_string()).collect::<Vec<_>>(),
+        }));
+    }
+    serde_json::Value::Array(flags)
+}
+
+/// Construye el árbol tipado de comandos (familia → subcomandos → flags).
+fn build_command_tree() -> serde_json::Value {
+    let cmd = defs::Cli::command();
+
+    let mut families: Vec<serde_json::Value> = Vec::new();
+    for sub in cmd.get_subcommands() {
+        let name = sub.get_name().to_string();
+        let description = cmd_description(sub);
+
+        let nested: Vec<&clap::Command> = sub.get_subcommands().collect();
+        let mut subcommands: Vec<serde_json::Value> = Vec::new();
+        let mut own_flags: Vec<serde_json::Value> = Vec::new();
+
+        if nested.is_empty() {
+            // Comando hoja: sus flags son las del propio comando.
+            own_flags = extract_flags(sub).as_array().cloned().unwrap_or_default();
+        } else {
+            for n in &nested {
+                subcommands.push(serde_json::json!({
+                    "name": n.get_name(),
+                    "description": cmd_description(n),
+                    "flags": extract_flags(n),
+                }));
+            }
+        }
+
+        families.push(serde_json::json!({
+            "name": name,
+            "description": description,
+            "subcommands": subcommands,
+            "flags": own_flags,
+        }));
+    }
+
+    serde_json::json!({ "families": families })
+}
+
+/// Genera assets/mcp_tools.json con el árbol tipado de comandos.
+fn generate_mcp_tools_json() {
+    let tree = build_command_tree();
+    let json_str =
+        serde_json::to_string_pretty(&tree).expect("no se pudo serializar mcp_tools.json");
+    std::fs::write("assets/mcp_tools.json", json_str)
+        .expect("no se pudo escribir assets/mcp_tools.json");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::format_date_utc;
+    use super::{build_command_tree, format_date_utc};
 
     #[test]
     fn epoch_zero_is_1970_01_01() {
@@ -246,5 +333,41 @@ mod tests {
     fn handles_pre_epoch_dates() {
         // 1969-12-31 00:00:00 UTC
         assert_eq!(format_date_utc(-86_400), "1969-12-31");
+    }
+
+    #[test]
+    fn command_tree_contains_wp_create_with_flags() {
+        let tree = build_command_tree();
+        let families = tree["families"].as_array().unwrap();
+        assert!(
+            families.len() >= 30,
+            "expected >= 30 families, got {}",
+            families.len()
+        );
+
+        let wp = families
+            .iter()
+            .find(|f| f["name"] == "wp")
+            .expect("wp family missing");
+        let create = wp["subcommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == "create")
+            .expect("wp create subcommand missing");
+
+        let flags = create["flags"].as_array().unwrap();
+        let name = flags
+            .iter()
+            .find(|f| f["name"] == "name")
+            .expect("--name flag missing");
+        assert_eq!(name["required"], true);
+
+        let http_port = flags
+            .iter()
+            .find(|f| f["name"] == "http-port")
+            .expect("--http-port flag missing");
+        assert_eq!(http_port["required"], false);
+        assert_eq!(http_port["value_name"], "PORT");
     }
 }
