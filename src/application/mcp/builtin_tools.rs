@@ -4,6 +4,7 @@
 // JSON estructurado (no una cadena formateada). Los handlers con dependencias
 // externas reciben el PORT inyectado desde la composición (no importan adapters).
 
+use crate::application::list_ports::ListPorts;
 use crate::application::list_tor_services::ListTorServices;
 use crate::application::list_wordpress_sites::ListWordPressSites;
 use crate::application::mcp::registry::{ToolHandler, ToolRegistry};
@@ -111,7 +112,17 @@ pub fn register(
             "required": ["name"]
         }),
         ToolKind::ReadOnly,
-        Arc::new(WpStatusHandler { container }),
+        Arc::new(WpStatusHandler {
+            container: container.clone(),
+        }),
+    )?;
+    register_tool(
+        registry,
+        "ports_list",
+        "List all host/virtual port bindings managed by enola-cli.",
+        json!({"type": "object"}),
+        ToolKind::ReadOnly,
+        Arc::new(PortsListHandler { container }),
     )?;
     register_tool(
         registry,
@@ -254,6 +265,18 @@ impl ToolHandler for WpListHandler {
     }
 }
 
+struct PortsListHandler {
+    container: Arc<dyn ContainerPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for PortsListHandler {
+    async fn call(&self, _args: Value) -> Result<Value> {
+        let ports = ListPorts::new(self.container.clone()).execute().await?;
+        Ok(json!({ "ports": ports }))
+    }
+}
+
 struct WpStatusHandler {
     container: Arc<dyn ContainerPort + Send + Sync>,
 }
@@ -383,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn register_adds_eleven_readonly_tools() {
+    fn register_adds_twelve_readonly_tools() {
         let mut registry = ToolRegistry::new();
         register(
             &mut registry,
@@ -395,7 +418,7 @@ mod tests {
         )
         .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 11);
+        assert_eq!(tools.len(), 12);
         assert!(tools.iter().all(|t| t.kind == ToolKind::ReadOnly));
         for name in [
             "tor_list",
@@ -407,6 +430,7 @@ mod tests {
             "update_check",
             "wp_list",
             "wp_status",
+            "ports_list",
             "plan_wp_create",
             "plan_tor_create",
         ] {

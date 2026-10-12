@@ -6107,177 +6107,20 @@ pub mod logs {
 pub mod ports {
     use super::*;
 
-    /// Una entrada en la tabla de puertos.
-    ///
-    /// Representa un puerto en uso en la cadena Tor→Nginx→App.
-    #[derive(Debug, Clone, serde::Serialize)]
-    pub struct PortEntry {
-        /// Nombre del servicio (ej: "mi-git", "mi-wordpress")
-        pub service: String,
-        /// Tipo de servicio: "git", "wordpress", "tor", "nginx"
-        pub service_type: String,
-        /// Rol del puerto en la cadena:
-        /// "onion-http" | "onion-https" | "nginx-listen" | "nginx-listen-ssl" |
-        /// "backend" | "ssh" | "api"
-        pub role: String,
-        /// Número de puerto
-        pub port: u16,
-        /// Interfaz de binding: "127.0.0.1" (interno) o "virtual" (.onion URL)
-        pub interface: String,
-        /// Estado: "running", "stopped", "active", "virtual", "unknown"
-        pub status: String,
-    }
+    pub use crate::application::list_ports::PortEntry;
 
     /// Obtiene todos los puertos en uso por servicios Enola.
     ///
-    /// Fuentes consultadas:
-    /// - `docker ps -a`   → puertos Git y WordPress (incluye contenedores parados)
-    /// - `/etc/nginx/sites-enabled/` → puertos de escucha de Nginx
-    /// - `/etc/tor/torrc` + `/etc/tor/enola.d/` → puertos virtuales .onion
-    ///
-    /// Incluye contenedores parados (retienen port bindings en Docker).
+    /// Delega en el caso de uso tipado `ListPorts` (application/), que usa
+    /// `ContainerPort` (bollard) para contenedores y parsea la config de
+    /// Nginx/Tor. Fuentes: `docker ps -a` (git/wordpress), sites-enabled de
+    /// Nginx y `/etc/tor/torrc` + `enola.d/`. Incluye contenedores parados.
     pub async fn list_all_ports() -> CliResult<Vec<PortEntry>> {
-        let mut entries: Vec<PortEntry> = Vec::new();
-
-        // ── 1. Puertos Git/Forgejo ───────────────────────────────────────────
-        if let Ok(servers) = super::git::list().await {
-            for s in servers {
-                if let Some(p) = s.http_port {
-                    entries.push(PortEntry {
-                        service: s.name.clone(),
-                        service_type: "git".to_string(),
-                        role: "backend".to_string(),
-                        port: p,
-                        interface: "127.0.0.1".to_string(),
-                        status: s.status.clone(),
-                    });
-                }
-                if let Some(p) = s.ssh_port {
-                    entries.push(PortEntry {
-                        service: s.name.clone(),
-                        service_type: "git".to_string(),
-                        role: "ssh".to_string(),
-                        port: p,
-                        interface: "127.0.0.1".to_string(),
-                        status: s.status.clone(),
-                    });
-                }
-            }
-        }
-
-        // ── 2. Puertos WordPress ─────────────────────────────────────────────
-        if let Ok(sites) = super::wordpress::list().await {
-            for s in sites {
-                if let Some(p) = s.port {
-                    entries.push(PortEntry {
-                        service: s.name.clone(),
-                        service_type: "wordpress".to_string(),
-                        role: "backend".to_string(),
-                        port: p,
-                        interface: "127.0.0.1".to_string(),
-                        status: s.status.clone(),
-                    });
-                }
-            }
-        }
-
-        // ── 3. Puertos Nginx (nginx-listen) desde /etc/nginx/sites-enabled/ ──
-        let nginx_dir = std::path::Path::new("/etc/nginx/sites-enabled");
-        if nginx_dir.exists() {
-            if let Ok(dir) = std::fs::read_dir(nginx_dir) {
-                for entry in dir.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                        for line in content.lines() {
-                            let trimmed = line.trim();
-                            if trimmed.starts_with("listen 127.0.0.1:") {
-                                if let Some(port_str) = trimmed
-                                    .strip_prefix("listen 127.0.0.1:")
-                                    .and_then(|s| s.split(';').next())
-                                    .and_then(|s| s.split_whitespace().next())
-                                {
-                                    if let Ok(p) = port_str.parse::<u16>() {
-                                        let role = if trimmed.contains("ssl") {
-                                            "nginx-listen-ssl"
-                                        } else {
-                                            "nginx-listen"
-                                        };
-                                        entries.push(PortEntry {
-                                            service: name.trim_start_matches("proxy_").to_string(),
-                                            service_type: "nginx".to_string(),
-                                            role: role.to_string(),
-                                            port: p,
-                                            interface: "127.0.0.1".to_string(),
-                                            status: "active".to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── 5. Puertos Tor (virtuales) desde /etc/tor/torrc + enola.d/*.conf ─
-        let torrc_files = {
-            let mut files = vec!["/etc/tor/torrc".to_string()];
-            if let Ok(dir) = std::fs::read_dir("/etc/tor/enola.d") {
-                for e in dir.flatten() {
-                    let p = e.path().to_string_lossy().to_string();
-                    if p.ends_with(".conf") {
-                        files.push(p);
-                    }
-                }
-            }
-            files
-        };
-
-        for tor_file in &torrc_files {
-            if let Ok(torrc) = std::fs::read_to_string(tor_file) {
-                let mut current_service = String::new();
-                for line in torrc.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("HiddenServiceDir") {
-                        current_service = trimmed
-                            .split_whitespace()
-                            .last()
-                            .unwrap_or("")
-                            .trim_end_matches('/')
-                            .split('/')
-                            .next_back()
-                            .unwrap_or("")
-                            .trim_start_matches("enola_")
-                            .to_string();
-                    } else if trimmed.starts_with("HiddenServicePort")
-                        && !current_service.is_empty()
-                    {
-                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                        if parts.len() >= 2 {
-                            if let Ok(virtual_port) = parts[1].parse::<u16>() {
-                                let role = if virtual_port == 443 {
-                                    "onion-https"
-                                } else {
-                                    "onion-http"
-                                };
-                                entries.push(PortEntry {
-                                    service: current_service.clone(),
-                                    service_type: "tor".to_string(),
-                                    role: role.to_string(),
-                                    port: virtual_port,
-                                    interface: "virtual".to_string(),
-                                    status: "virtual".to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Ordenar por servicio y luego por rol
-        entries.sort_by(|a, b| a.service.cmp(&b.service).then(a.role.cmp(&b.role)));
-        Ok(entries)
+        let adapter = Arc::new(BollardDockerAdapter::new().map_err(CliError::from)?);
+        crate::application::list_ports::ListPorts::new(adapter)
+            .execute()
+            .await
+            .map_err(CliError::from)
     }
 }
 

@@ -20,6 +20,7 @@ pub mod edit_wordpress_config;
 pub mod firewall_manager; // UFW-004 (192)
 pub mod fwknop_config; // Added FwknopConfig
 pub mod git_registration_toggle; // Added GitRegistrationToggle
+pub mod list_ports; // MCP-004 — listar puertos gestionados (caso de uso tipado)
 pub mod list_tor_services;
 pub mod list_wordpress_sites; // MCP-004 — listar sitios WordPress (caso de uso tipado)
 pub mod manage_client_auth;
