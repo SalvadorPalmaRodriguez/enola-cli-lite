@@ -110,6 +110,8 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
 async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResult<String> {
     use crate::adapters::mcp::server::McpServer;
     use crate::adapters::mcp::stdio::StdioTransport;
+    use crate::application::mcp::registry::ToolRegistry;
+    use std::sync::Arc;
 
     let transport = StdioTransport::new()
         .map_err(|e| CliError::Generic(format!("failed to init MCP stdio: {e}")))?;
@@ -117,7 +119,11 @@ async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResul
     // Licencia UNA vez (la salida va a stderr gracias a la guardia ya instalada).
     check_license_acceptance()?;
 
-    McpServer::new(transport)
+    let mut registry = ToolRegistry::new();
+    crate::application::mcp::command_catalog::register(&mut registry)
+        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+
+    McpServer::new(transport, Arc::new(registry))
         .run()
         .await
         .map_err(|e| CliError::Generic(format!("MCP server error: {e}")))?;

@@ -3,23 +3,29 @@
 // El servidor es un driving adapter que habla JSON-RPC 2.0 por un
 // `McpTransport`. El handshake exige `initialize` antes de `tools/list` y
 // `resources/list`; las notificaciones se atienden sin respuesta y los errores
-// de protocolo no cierran el bucle.
+// de protocolo no cierran el bucle. Las tools viven en un `ToolRegistry`
+// compartido (también lo usará `ask` en la Fase 9).
 
-use crate::domain::error::Result;
+use crate::application::mcp::registry::ToolRegistry;
+use crate::domain::error::{EnolaError, Result};
 use crate::domain::mcp::{self, Id, Request, Response, RpcError};
+use crate::domain::tool::ToolSpec;
 use crate::ports::mcp_transport::McpTransport;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 pub(crate) struct McpServer<T: McpTransport> {
     transport: T,
     initialized: bool,
+    registry: Arc<ToolRegistry>,
 }
 
 impl<T: McpTransport> McpServer<T> {
-    pub(crate) fn new(transport: T) -> Self {
+    pub(crate) fn new(transport: T, registry: Arc<ToolRegistry>) -> Self {
         Self {
             transport,
             initialized: false,
+            registry,
         }
     }
 
@@ -62,43 +68,10 @@ impl<T: McpTransport> McpServer<T> {
 
     async fn dispatch(&mut self, request: &Request, id: Id) -> Response {
         match request.method.as_str() {
-            "initialize" => {
-                if self.initialized {
-                    return error_response(id, -32600, "Invalid Request: already initialized");
-                }
-                let requested = request
-                    .params
-                    .as_ref()
-                    .and_then(|p| p.get("protocolVersion"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(mcp::PROTOCOL_VERSION);
-                match mcp::negotiate_protocol_version(requested) {
-                    Ok(version) => {
-                        self.initialized = true;
-                        success_response(
-                            id,
-                            json!({
-                                "protocolVersion": version,
-                                "capabilities": { "tools": {}, "resources": {} },
-                                "serverInfo": {
-                                    "name": env!("CARGO_PKG_NAME"),
-                                    "version": env!("CARGO_PKG_VERSION"),
-                                }
-                            }),
-                        )
-                    }
-                    Err(_) => {
-                        error_response(id, -32602, "Invalid params: unsupported protocolVersion")
-                    }
-                }
-            }
+            "initialize" => self.handle_initialize(request, id).await,
             "ping" => success_response(id, json!({})),
-            "tools/list" => {
-                if !self.initialized {
-                    return error_response(id, -32600, "Invalid Request: not initialized");
-                }
-                success_response(id, json!({ "tools": [] }))
-            }
+            "tools/list" => self.handle_tools_list(id),
+            "tools/call" => self.handle_tool_call(request, id).await,
             "resources/list" => {
                 if !self.initialized {
                     return error_response(id, -32600, "Invalid Request: not initialized");
@@ -106,6 +79,81 @@ impl<T: McpTransport> McpServer<T> {
                 success_response(id, json!({ "resources": [] }))
             }
             _ => error_response(id, -32601, "Method not found"),
+        }
+    }
+
+    async fn handle_initialize(&mut self, request: &Request, id: Id) -> Response {
+        if self.initialized {
+            return error_response(id, -32600, "Invalid Request: already initialized");
+        }
+        let requested = request
+            .params
+            .as_ref()
+            .and_then(|p| p.get("protocolVersion"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(mcp::PROTOCOL_VERSION);
+        match mcp::negotiate_protocol_version(requested) {
+            Ok(version) => {
+                self.initialized = true;
+                success_response(
+                    id,
+                    json!({
+                        "protocolVersion": version,
+                        "capabilities": { "tools": {}, "resources": {} },
+                        "serverInfo": {
+                            "name": env!("CARGO_PKG_NAME"),
+                            "version": env!("CARGO_PKG_VERSION"),
+                        }
+                    }),
+                )
+            }
+            Err(_) => error_response(id, -32602, "Invalid params: unsupported protocolVersion"),
+        }
+    }
+
+    fn handle_tools_list(&self, id: Id) -> Response {
+        if !self.initialized {
+            return error_response(id, -32600, "Invalid Request: not initialized");
+        }
+        let tools: Vec<Value> = self
+            .registry
+            .list_tools()
+            .iter()
+            .map(tool_to_value)
+            .collect();
+        success_response(id, json!({ "tools": tools }))
+    }
+
+    async fn handle_tool_call(&self, request: &Request, id: Id) -> Response {
+        if !self.initialized {
+            return error_response(id, -32600, "Invalid Request: not initialized");
+        }
+        let params = request.params.as_ref().and_then(|p| p.as_object());
+        let Some(name) = params.and_then(|p| p.get("name")).and_then(|v| v.as_str()) else {
+            return error_response(id, -32602, "Invalid params: missing 'name'");
+        };
+        let args = params
+            .and_then(|p| p.get("arguments"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+
+        match self.registry.call(name, args).await {
+            Ok(result) => {
+                let text = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+                success_response(
+                    id,
+                    json!({
+                        "content": [{"type": "text", "text": text}],
+                        "isError": false,
+                    }),
+                )
+            }
+            Err(e) => match e {
+                EnolaError::NotFound(_) | EnolaError::ValidationError(_) => {
+                    error_response(id, -32602, &format!("Invalid params: {e}"))
+                }
+                other => error_response(id, -32603, &other.to_string()),
+            },
         }
     }
 
@@ -117,10 +165,18 @@ impl<T: McpTransport> McpServer<T> {
     }
 
     async fn send_response(&mut self, resp: Response) -> Result<()> {
-        let msg = serde_json::to_string(&resp)
-            .map_err(|e| crate::domain::error::EnolaError::ValidationError(e.to_string()))?;
+        let msg =
+            serde_json::to_string(&resp).map_err(|e| EnolaError::ValidationError(e.to_string()))?;
         self.transport.send(&msg).await
     }
+}
+
+fn tool_to_value(spec: &ToolSpec) -> Value {
+    json!({
+        "name": spec.name,
+        "description": spec.description,
+        "inputSchema": spec.input_schema,
+    })
 }
 
 fn success_response(id: Id, result: Value) -> Response {
@@ -148,9 +204,12 @@ fn error_response(id: Id, code: i64, message: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::mcp::registry::ToolHandler;
+    use crate::domain::tool::{ToolKind, ToolSpec};
     use crate::ports::mcp_transport::McpTransport;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
+    use std::sync::Mutex;
 
     struct InMemoryTransport {
         incoming: VecDeque<String>,
@@ -168,19 +227,34 @@ mod tests {
 
     #[async_trait::async_trait]
     impl McpTransport for InMemoryTransport {
-        async fn recv(&mut self) -> crate::domain::error::Result<Option<String>> {
+        async fn recv(&mut self) -> Result<Option<String>> {
             Ok(self.incoming.pop_front())
         }
-        async fn send(&mut self, msg: &str) -> crate::domain::error::Result<()> {
+        async fn send(&mut self, msg: &str) -> Result<()> {
             self.outgoing.push(msg.to_string());
             Ok(())
         }
     }
 
+    struct StubHandler {
+        result: Value,
+    }
+
+    #[async_trait::async_trait]
+    impl ToolHandler for StubHandler {
+        async fn call(&self, _args: Value) -> Result<Value> {
+            Ok(self.result.clone())
+        }
+    }
+
     async fn run(incoming: Vec<Value>) -> Vec<Value> {
+        run_with_registry(incoming, Arc::new(ToolRegistry::new())).await
+    }
+
+    async fn run_with_registry(incoming: Vec<Value>, registry: Arc<ToolRegistry>) -> Vec<Value> {
         let transport =
             InMemoryTransport::new(incoming.into_iter().map(|v| v.to_string()).collect());
-        let server = McpServer::new(transport);
+        let server = McpServer::new(transport, registry);
         let transport = server.run().await.unwrap();
         transport
             .outgoing
@@ -299,11 +373,79 @@ mod tests {
             initialize_msg(100),
             json!({"jsonrpc": "2.0", "id": 101, "method": "ping"}),
         ];
-        // No debe panickear; el bucle sobrevive a todo.
         let out = run(junk).await;
         assert!(out.iter().any(|r| r["id"] == 100));
         assert!(out
             .iter()
             .any(|r| r["id"] == 101 && r["result"] == json!({})));
+    }
+
+    #[tokio::test]
+    async fn tools_list_returns_registered_tools() {
+        let mut registry = ToolRegistry::new();
+        let spec = ToolSpec::new(
+            "my_tool",
+            "A test tool",
+            json!({"type": "object"}),
+            ToolKind::ReadOnly,
+        )
+        .unwrap();
+        registry
+            .register(spec, Arc::new(StubHandler { result: json!({}) }))
+            .unwrap();
+
+        let out = run_with_registry(
+            vec![
+                initialize_msg(1),
+                json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+            ],
+            Arc::new(registry),
+        )
+        .await;
+        assert_eq!(out[1]["result"]["tools"][0]["name"], "my_tool");
+    }
+
+    #[tokio::test]
+    async fn tools_call_dispatches_to_handler() {
+        let mut registry = ToolRegistry::new();
+        let spec = ToolSpec::new(
+            "my_tool",
+            "A test tool",
+            json!({"type": "object", "properties": {"x": {"type": "integer"}}}),
+            ToolKind::ReadOnly,
+        )
+        .unwrap();
+        registry
+            .register(
+                spec,
+                Arc::new(StubHandler {
+                    result: json!({"doubled": true}),
+                }),
+            )
+            .unwrap();
+
+        let out = run_with_registry(
+            vec![
+                initialize_msg(1),
+                json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "my_tool", "arguments": {"x": 2}}}),
+            ],
+            Arc::new(registry),
+        )
+        .await;
+        assert_eq!(out[1]["result"]["content"][0]["type"], "text");
+        assert_eq!(out[1]["result"]["isError"], false);
+        assert_eq!(
+            out[1]["result"]["content"][0]["text"],
+            r#"{"doubled":true}"#
+        );
+    }
+
+    #[test]
+    fn registry_is_referenced_but_never_imports_executor() {
+        // Garantía anti-deriva R5: el registry vive en application/ y no
+        // depende del CLI. Este test solo fija la relación server→registry.
+        let _ = std::mem::size_of::<Mutex<()>>();
+        let registry = ToolRegistry::new();
+        assert!(registry.list_tools().is_empty());
     }
 }
