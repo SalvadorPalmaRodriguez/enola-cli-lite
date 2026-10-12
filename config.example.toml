@@ -105,14 +105,13 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # Política de escritura y límites del servidor MCP.
 # Prioridad: flag CLI > env var > esta sección > defaults seguros.
 #
-# allow_write = false          → solo lectura (default; recomendado)
-# allow_write = true           → habilita tools mutantes
-# allowed_tools = []           → vacía = TODAS las mutantes (explícito);
-#                                si no, nombres de tool (wp_create) o rutas
-#                                de comando (wp:create) permitidas
-# max_output_bytes = 65536     → límite de stdout/stderr por llamada
-# audit_log = "stderr"         → "stderr" o path de fichero (nunca stdout)
-# request_timeout_secs = 60    → timeout por llamada a tool
+# - allow_write        → false: solo lectura (default, recomendado);
+#                        true: habilita tools mutantes.
+# - allowed_tools      → vacía = TODAS las mutantes (explícito); si no,
+#                        nombres de tool (wp_create) o rutas (wp:create).
+# - max_output_bytes   → límite de stdout/stderr por llamada (65536).
+# - audit_log          → "stderr" o path de fichero (nunca stdout).
+# - request_timeout_secs → timeout por llamada a tool (60).
 #
 # Env vars: ENOLA_MCP_ALLOW_WRITE, ENOLA_MCP_ALLOWED_TOOLS,
 #           ENOLA_MCP_MAX_OUTPUT_BYTES, ENOLA_MCP_AUDIT_LOG,
