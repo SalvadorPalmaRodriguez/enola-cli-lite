@@ -2,3 +2,4 @@
 pub mod builtin_tools;
 pub mod command_catalog;
 pub mod registry;
+pub mod run_command;

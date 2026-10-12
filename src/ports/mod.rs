@@ -17,6 +17,7 @@ pub mod mcp_transport; // MCP-002 — transporte de mensajes (recv/send) + mock
 pub mod pipeline;
 pub mod port_checker; // PORTS-002 (176) — validación libre de puertos OS+Docker
 pub mod port_config;
+pub mod process_runner; // MCP-004 — ejecución de enola-cli como subproceso (argv)
 pub mod service;
 pub mod test_runner;
 pub mod tor;

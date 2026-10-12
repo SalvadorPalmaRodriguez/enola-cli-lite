@@ -161,6 +161,13 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
     )
     .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
+    let runner = Arc::new(
+        crate::adapters::process_runner::SubprocessRunner::new()
+            .map_err(|e| CliError::Generic(format!("failed to init MCP runner: {e}")))?,
+    );
+    crate::application::mcp::run_command::register(&mut registry, runner)
+        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+
     Ok(registry)
 }
 

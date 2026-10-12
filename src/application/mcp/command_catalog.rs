@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 const TREE_JSON: &str = include_str!("../../../assets/mcp_tools.json");
 
-fn load_tree() -> Value {
+pub(crate) fn load_tree() -> Value {
     serde_json::from_str(TREE_JSON).unwrap_or_else(|_| json!({ "families": [] }))
 }
 

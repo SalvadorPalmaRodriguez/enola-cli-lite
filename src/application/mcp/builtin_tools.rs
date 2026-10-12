@@ -437,4 +437,98 @@ mod tests {
             assert!(tools.iter().any(|t| t.name == name), "missing {name}");
         }
     }
+
+    /// MCP-004 (4.8) — coherencia schemas de tools ↔ árbol clap generado.
+    ///
+    /// Anti-deriva: cada propiedad del `inputSchema` de una tool debe existir
+    /// como flag del subcomando clap equivalente, y todo flag `required` de
+    /// clap debe estar en `required` del schema. Falla si se renombra un flag
+    /// en `defs.rs` sin actualizar el schema de la tool.
+    #[test]
+    fn tool_schemas_match_clap_tree() {
+        use crate::application::mcp::command_catalog::load_tree;
+
+        fn leaf<'a>(tree: &'a Value, path: &[&str]) -> &'a Value {
+            let mut node = tree["families"]
+                .as_array()
+                .and_then(|f| f.iter().find(|f| f["name"].as_str() == Some(path[0])))
+                .unwrap_or_else(|| panic!("family '{}' missing from tree", path[0]));
+            for tok in &path[1..] {
+                node = node["subcommands"]
+                    .as_array()
+                    .and_then(|s| s.iter().find(|s| s["name"].as_str() == Some(*tok)))
+                    .unwrap_or_else(|| panic!("'{}' missing under '{}'", tok, path[0]));
+            }
+            node
+        }
+
+        // tool → ruta en el árbol clap
+        let mapping: &[(&str, &[&str])] = &[
+            ("tor_list", &["tor", "list"]),
+            ("diag_tor", &["diag", "tor"]),
+            ("config_show", &["config-show"]),
+            ("doctor", &["doctor"]),
+            ("diag_summary", &["diag", "summary"]),
+            ("diag_nginx", &["diag", "nginx"]),
+            ("update_check", &["update", "check"]),
+            ("wp_list", &["wp", "list"]),
+            ("wp_status", &["wp", "status"]),
+            ("ports_list", &["ports", "list"]),
+            ("plan_wp_create", &["plan", "wp", "create"]),
+            ("plan_tor_create", &["plan", "tor", "create"]),
+        ];
+
+        let mut registry = ToolRegistry::new();
+        register(
+            &mut registry,
+            Arc::new(MockTorManagerPort::new()),
+            Arc::new(MockPortCheckerPort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(MockServiceManagerPort::new()),
+            Arc::new(MockNginxManagerPort::new()),
+        )
+        .unwrap();
+        let tools = registry.list_tools();
+        let tree = load_tree();
+
+        for (tool_name, path) in mapping {
+            let spec = tools
+                .iter()
+                .find(|t| t.name == *tool_name)
+                .unwrap_or_else(|| panic!("tool '{tool_name}' not registered"));
+            let node = leaf(&tree, path);
+            let clap_flags: Vec<&str> = node["flags"]
+                .as_array()
+                .map(|f| f.iter().filter_map(|x| x["name"].as_str()).collect())
+                .unwrap_or_default();
+
+            // Toda propiedad del schema existe como flag clap (los args MCP
+            // usan snake_case; las flags clap, kebab-case → se normaliza).
+            if let Some(props) = spec.input_schema["properties"].as_object() {
+                for key in props.keys() {
+                    let flag = key.replace('_', "-");
+                    assert!(
+                        clap_flags.contains(&flag.as_str()),
+                        "tool '{tool_name}' schema has '{key}' but '{}' has no --{flag} flag",
+                        path.join(" ")
+                    );
+                }
+            }
+            // Todo flag required de clap está en required del schema.
+            let schema_required: Vec<&str> = spec.input_schema["required"]
+                .as_array()
+                .map(|r| r.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            for f in node["flags"].as_array().cloned().unwrap_or_default() {
+                if f["required"].as_bool() == Some(true) {
+                    let name = f["name"].as_str().unwrap_or("");
+                    assert!(
+                        schema_required.contains(&name),
+                        "tool '{tool_name}' misses required flag '--{name}' ('{}' requires it)",
+                        path.join(" ")
+                    );
+                }
+            }
+        }
+    }
 }

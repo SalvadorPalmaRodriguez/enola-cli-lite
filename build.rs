@@ -264,40 +264,23 @@ fn extract_flags(cmd: &clap::Command) -> serde_json::Value {
     serde_json::Value::Array(flags)
 }
 
-/// Construye el árbol tipado de comandos (familia → subcomandos → flags).
+/// Nodo del árbol de comandos: nombre, descripción, flags y subcomandos
+/// (recursivo, cubre grupos de nivel 3 como `plan wp create` o `tor auth`).
+fn command_node(cmd: &clap::Command) -> serde_json::Value {
+    let nested: Vec<serde_json::Value> = cmd.get_subcommands().map(command_node).collect();
+    serde_json::json!({
+        "name": cmd.get_name(),
+        "description": cmd_description(cmd),
+        "flags": extract_flags(cmd),
+        "subcommands": nested,
+    })
+}
+
+/// Construye el árbol tipado de comandos (familia → subcomandos → flags,
+/// con grupos anidados recursivos).
 fn build_command_tree() -> serde_json::Value {
     let cmd = defs::Cli::command();
-
-    let mut families: Vec<serde_json::Value> = Vec::new();
-    for sub in cmd.get_subcommands() {
-        let name = sub.get_name().to_string();
-        let description = cmd_description(sub);
-
-        let nested: Vec<&clap::Command> = sub.get_subcommands().collect();
-        let mut subcommands: Vec<serde_json::Value> = Vec::new();
-        let mut own_flags: Vec<serde_json::Value> = Vec::new();
-
-        if nested.is_empty() {
-            // Comando hoja: sus flags son las del propio comando.
-            own_flags = extract_flags(sub).as_array().cloned().unwrap_or_default();
-        } else {
-            for n in &nested {
-                subcommands.push(serde_json::json!({
-                    "name": n.get_name(),
-                    "description": cmd_description(n),
-                    "flags": extract_flags(n),
-                }));
-            }
-        }
-
-        families.push(serde_json::json!({
-            "name": name,
-            "description": description,
-            "subcommands": subcommands,
-            "flags": own_flags,
-        }));
-    }
-
+    let families: Vec<serde_json::Value> = cmd.get_subcommands().map(command_node).collect();
     serde_json::json!({ "families": families })
 }
 
@@ -369,5 +352,31 @@ mod tests {
             .expect("--http-port flag missing");
         assert_eq!(http_port["required"], false);
         assert_eq!(http_port["value_name"], "PORT");
+    }
+
+    #[test]
+    fn command_tree_nests_level3_groups() {
+        // `plan wp` es un grupo con un único hoja `create`; el árbol debe
+        // exponer la ruta completa `plan wp create` con sus flags.
+        let tree = build_command_tree();
+        let families = tree["families"].as_array().unwrap();
+        let plan = families
+            .iter()
+            .find(|f| f["name"] == "plan")
+            .expect("plan family missing");
+        let wp = plan["subcommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == "wp")
+            .expect("plan wp group missing");
+        let create = wp["subcommands"]
+            .as_array()
+            .expect("plan wp must expose nested subcommands")
+            .iter()
+            .find(|s| s["name"] == "create")
+            .expect("plan wp create leaf missing");
+        let flags = create["flags"].as_array().unwrap();
+        assert!(flags.iter().any(|f| f["name"] == "name"));
     }
 }

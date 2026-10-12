@@ -13,6 +13,7 @@ pub mod git;
 pub mod hardware;
 pub mod infra;
 pub mod mcp; // MCP-002 — transporte stdio NDJSON + guardia de stdout
+pub mod process_runner; // MCP-004 — enola-cli como subproceso (argv, sin shell)
 pub mod testing;
 pub mod web;
 

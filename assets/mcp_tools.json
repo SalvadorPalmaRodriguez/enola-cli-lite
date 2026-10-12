@@ -8,7 +8,8 @@
         {
           "description": "List all Tor hidden services",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new Tor hidden service",
@@ -47,7 +48,8 @@
               "value_name": "SSL"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Tor hidden service",
@@ -59,7 +61,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Tor hidden service",
@@ -71,7 +74,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Remove a Tor hidden service",
@@ -92,7 +96,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "remove"
+          "name": "remove",
+          "subcommands": []
         },
         {
           "description": "Edit service ports",
@@ -131,7 +136,8 @@
               "value_name": "AUTO_PORTS"
             }
           ],
-          "name": "edit"
+          "name": "edit",
+          "subcommands": []
         },
         {
           "description": "Rotate .onion address (generate new identity)",
@@ -143,12 +149,136 @@
               "value_name": "NAME"
             }
           ],
-          "name": "rotate"
+          "name": "rotate",
+          "subcommands": []
         },
         {
           "description": "Manage client authorization",
           "flags": [],
-          "name": "auth"
+          "name": "auth",
+          "subcommands": [
+            {
+              "description": "List authorized clients for a service",
+              "flags": [
+                {
+                  "name": "service",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVICE"
+                }
+              ],
+              "name": "list",
+              "subcommands": []
+            },
+            {
+              "description": "Enable client authorization for a service",
+              "flags": [
+                {
+                  "name": "service",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVICE"
+                }
+              ],
+              "name": "enable",
+              "subcommands": []
+            },
+            {
+              "description": "Disable client authorization for a service",
+              "flags": [
+                {
+                  "name": "service",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVICE"
+                }
+              ],
+              "name": "disable",
+              "subcommands": []
+            },
+            {
+              "description": "Add an authorized client (SERVER-SIDE operation)",
+              "flags": [
+                {
+                  "name": "service",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVICE"
+                },
+                {
+                  "name": "client",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "CLIENT"
+                },
+                {
+                  "name": "pubkey",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PUBKEY"
+                }
+              ],
+              "name": "add",
+              "subcommands": []
+            },
+            {
+              "description": "Revoke a client's authorization",
+              "flags": [
+                {
+                  "name": "service",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVICE"
+                },
+                {
+                  "name": "client",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "CLIENT"
+                }
+              ],
+              "name": "revoke",
+              "subcommands": []
+            },
+            {
+              "description": "Generate a new client keypair (CLIENT-SIDE operation)",
+              "flags": [
+                {
+                  "name": "client",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "CLIENT"
+                }
+              ],
+              "name": "generate",
+              "subcommands": []
+            },
+            {
+              "description": "Rotate a client's public key (PQC-013: mitigates harvest-now-decrypt-later by reducing key lifetime).",
+              "flags": [
+                {
+                  "name": "service",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVICE"
+                },
+                {
+                  "name": "client",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "CLIENT"
+                },
+                {
+                  "name": "pubkey",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PUBKEY"
+                }
+              ],
+              "name": "rotate",
+              "subcommands": []
+            }
+          ]
         }
       ]
     },
@@ -160,7 +290,8 @@
         {
           "description": "List Git servers",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Crea un nuevo servidor Git (Forgejo).",
@@ -205,7 +336,8 @@
               "value_name": "PASSWORD"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Git server",
@@ -217,7 +349,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Git server",
@@ -229,7 +362,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Show status of a Git server",
@@ -241,7 +375,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Delete a Git server",
@@ -262,7 +397,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Enable or disable user self-registration on a Forgejo instance",
@@ -301,7 +437,8 @@
               "value_name": "STATUS"
             }
           ],
-          "name": "registration"
+          "name": "registration",
+          "subcommands": []
         },
         {
           "description": "Edit service ports",
@@ -340,7 +477,8 @@
               "value_name": "AUTO_PORTS"
             }
           ],
-          "name": "edit"
+          "name": "edit",
+          "subcommands": []
         },
         {
           "description": "Publish Git server on Tor (create hidden service)",
@@ -361,7 +499,8 @@
               "value_name": "SSL"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide Git server from Tor (remove hidden service)",
@@ -373,17 +512,129 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         },
         {
           "description": "Manage users",
           "flags": [],
-          "name": "user"
+          "name": "user",
+          "subcommands": [
+            {
+              "description": "Lista los usuarios del servidor Git.",
+              "flags": [
+                {
+                  "name": "server",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVER"
+                },
+                {
+                  "name": "admin-user",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "USERNAME"
+                },
+                {
+                  "name": "admin-pass",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PASSWORD"
+                }
+              ],
+              "name": "list",
+              "subcommands": []
+            },
+            {
+              "description": "Crea un usuario en el servidor Git via API REST (modo automático).",
+              "flags": [
+                {
+                  "name": "server",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVER"
+                },
+                {
+                  "name": "username",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "USERNAME"
+                },
+                {
+                  "name": "email",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "EMAIL"
+                },
+                {
+                  "name": "password",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PASSWORD"
+                },
+                {
+                  "name": "admin",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "ADMIN"
+                },
+                {
+                  "name": "admin-user",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "USERNAME"
+                },
+                {
+                  "name": "admin-pass",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PASSWORD"
+                }
+              ],
+              "name": "create",
+              "subcommands": []
+            },
+            {
+              "description": "Elimina un usuario del servidor Git",
+              "flags": [
+                {
+                  "name": "server",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SERVER"
+                },
+                {
+                  "name": "username",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "USERNAME"
+                },
+                {
+                  "name": "admin-user",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "USERNAME"
+                },
+                {
+                  "name": "admin-pass",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PASSWORD"
+                }
+              ],
+              "name": "delete",
+              "subcommands": []
+            }
+          ]
         },
         {
           "description": "Run the Git Pipeline Watcher (foreground)",
           "flags": [],
-          "name": "watcher"
+          "name": "watcher",
+          "subcommands": []
         }
       ]
     },
@@ -395,7 +646,8 @@
         {
           "description": "List WordPress sites",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new WordPress site",
@@ -413,7 +665,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a WordPress site",
@@ -425,7 +678,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a WordPress site",
@@ -437,7 +691,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Restart a WordPress site",
@@ -449,7 +704,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "restart"
+          "name": "restart",
+          "subcommands": []
         },
         {
           "description": "Delete a WordPress site",
@@ -470,7 +726,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Update WordPress (with backup)",
@@ -482,7 +739,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "update"
+          "name": "update",
+          "subcommands": []
         },
         {
           "description": "Edit WordPress configuration",
@@ -494,7 +752,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "config"
+          "name": "config",
+          "subcommands": []
         },
         {
           "description": "Show WordPress status",
@@ -506,7 +765,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Publish site on Tor (create hidden service)",
@@ -518,7 +778,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide site from Tor (remove hidden service)",
@@ -530,7 +791,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         },
         {
           "description": "Edit WordPress site ports and SSL configuration",
@@ -572,7 +834,8 @@
               "value_name": "AUTO_PORTS"
             }
           ],
-          "name": "edit"
+          "name": "edit",
+          "subcommands": []
         }
       ]
     },
@@ -584,7 +847,8 @@
         {
           "description": "List Drupal sites",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new Drupal site",
@@ -602,7 +866,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Drupal site (DB first, then web)",
@@ -614,7 +879,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Drupal site (web first, then DB)",
@@ -626,7 +892,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Delete a Drupal site (containers, network; data preserved unless --purge)",
@@ -647,7 +914,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Show Drupal site status (running/stopped/initializing/not-found + port)",
@@ -659,7 +927,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Publish site on Tor (create hidden service)",
@@ -671,7 +940,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide site from Tor (remove hidden service)",
@@ -683,7 +953,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         },
         {
           "description": "Edit Drupal site HTTP port (recreates the web container atomically)",
@@ -701,7 +972,8 @@
               "value_name": "HTTP_PORT"
             }
           ],
-          "name": "edit"
+          "name": "edit",
+          "subcommands": []
         }
       ]
     },
@@ -713,7 +985,8 @@
         {
           "description": "List Ghost blogs",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new Ghost blog",
@@ -731,7 +1004,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Ghost blog",
@@ -743,7 +1017,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Ghost blog",
@@ -755,7 +1030,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Delete a Ghost blog (container + network; data preserved on /srv unless purged)",
@@ -776,7 +1052,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Show Ghost blog status (running/stopped/initializing/not-found + port)",
@@ -788,7 +1065,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Publish blog on Tor (create hidden service)",
@@ -800,7 +1078,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide blog from Tor (remove hidden service)",
@@ -812,7 +1091,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         },
         {
           "description": "Edit Ghost blog HTTP port (atomic container recreation)",
@@ -830,7 +1110,8 @@
               "value_name": "HTTP_PORT"
             }
           ],
-          "name": "edit"
+          "name": "edit",
+          "subcommands": []
         }
       ]
     },
@@ -842,7 +1123,8 @@
         {
           "description": "List Magnolia instances",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new Magnolia instance",
@@ -860,7 +1142,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Magnolia instance",
@@ -872,7 +1155,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Magnolia instance",
@@ -884,7 +1168,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Delete a Magnolia instance (data preserved on /srv unless purged)",
@@ -905,7 +1190,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Show Magnolia instance status",
@@ -917,7 +1203,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Publish Magnolia instance on Tor (create hidden service)",
@@ -929,7 +1216,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide Magnolia instance from Tor (remove hidden service)",
@@ -941,7 +1229,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         }
       ]
     },
@@ -953,7 +1242,8 @@
         {
           "description": "List Strapi instances",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new Strapi instance (Node + Postgres 16)",
@@ -971,7 +1261,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Strapi instance (web + db containers)",
@@ -983,7 +1274,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Strapi instance (web + db)",
@@ -995,7 +1287,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Delete a Strapi instance",
@@ -1016,7 +1309,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Show Strapi instance status",
@@ -1028,7 +1322,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Publish Strapi instance on Tor (create hidden service)",
@@ -1040,7 +1335,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide Strapi instance from Tor (remove hidden service)",
@@ -1052,7 +1348,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         },
         {
           "description": "Build the Strapi production Docker image (multi-stage, Node 20, Strapi 5.49).",
@@ -1067,7 +1364,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "build-image"
+          "name": "build-image",
+          "subcommands": []
         }
       ]
     },
@@ -1079,7 +1377,8 @@
         {
           "description": "List Wagtail instances",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new Wagtail instance (Python/Django + Postgres)",
@@ -1097,7 +1396,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a Wagtail instance (web + db)",
@@ -1109,7 +1409,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a Wagtail instance (web + db)",
@@ -1121,7 +1422,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Delete a Wagtail instance",
@@ -1142,7 +1444,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Show Wagtail instance status",
@@ -1154,7 +1457,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Publish Wagtail instance on Tor (create hidden service)",
@@ -1166,7 +1470,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "publish"
+          "name": "publish",
+          "subcommands": []
         },
         {
           "description": "Hide Wagtail instance from Tor (remove hidden service)",
@@ -1178,7 +1483,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "hide"
+          "name": "hide",
+          "subcommands": []
         }
       ]
     },
@@ -1190,7 +1496,8 @@
         {
           "description": "List all file shares (name, onion address, Nginx port, status)",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Create a new anonymous file share accessible via Tor .onion",
@@ -1220,7 +1527,8 @@
               "value_name": "SSL"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Edit file share configuration",
@@ -1238,7 +1546,8 @@
               "value_name": "PORT"
             }
           ],
-          "name": "edit"
+          "name": "edit",
+          "subcommands": []
         },
         {
           "description": "Delete a file share (removes Nginx config and Tor hidden service)",
@@ -1259,7 +1568,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Fix ownership and permissions on a file share directory",
@@ -1271,7 +1581,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "fix-perms"
+          "name": "fix-perms",
+          "subcommands": []
         }
       ]
     },
@@ -1283,32 +1594,38 @@
         {
           "description": "Show system status",
           "flags": [],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Run smoke test",
           "flags": [],
-          "name": "smoke-test"
+          "name": "smoke-test",
+          "subcommands": []
         },
         {
           "description": "Enable automatic health checks",
           "flags": [],
-          "name": "enable-checks"
+          "name": "enable-checks",
+          "subcommands": []
         },
         {
           "description": "Disable automatic health checks",
           "flags": [],
-          "name": "disable-checks"
+          "name": "disable-checks",
+          "subcommands": []
         },
         {
           "description": "Show timer status for automatic checks",
           "flags": [],
-          "name": "timer-status"
+          "name": "timer-status",
+          "subcommands": []
         },
         {
           "description": "Configure SSH check",
           "flags": [],
-          "name": "ssh-config"
+          "name": "ssh-config",
+          "subcommands": []
         },
         {
           "description": "Harden SSH host configuration with post-quantum-safe algorithms (PQC-012) Adds sntrup761x25519-sha512 KEX (OpenSSH 9.0+) as first preferred algorithm. This is a TRANSITIONAL measure until full PQC is standardized. Run again after OpenSSH upgrade to apply improved algorithms",
@@ -1332,7 +1649,8 @@
               "value_name": "DRY_RUN"
             }
           ],
-          "name": "ssh-harden-pqc"
+          "name": "ssh-harden-pqc",
+          "subcommands": []
         },
         {
           "description": "Create system backup",
@@ -1344,7 +1662,8 @@
               "value_name": "KEEP"
             }
           ],
-          "name": "backup"
+          "name": "backup",
+          "subcommands": []
         },
         {
           "description": "Show or set the backup retention policy (persisted in config.toml [backup])",
@@ -1356,7 +1675,8 @@
               "value_name": "MAX_BACKUPS"
             }
           ],
-          "name": "backup-config"
+          "name": "backup-config",
+          "subcommands": []
         },
         {
           "description": "Cleanup temporary files and residual data",
@@ -1392,7 +1712,8 @@
               "value_name": "KEEP_DAYS"
             }
           ],
-          "name": "cleanup"
+          "name": "cleanup",
+          "subcommands": []
         }
       ]
     },
@@ -1404,42 +1725,50 @@
         {
           "description": "Show all services summary",
           "flags": [],
-          "name": "summary"
+          "name": "summary",
+          "subcommands": []
         },
         {
           "description": "Check NGINX status",
           "flags": [],
-          "name": "nginx"
+          "name": "nginx",
+          "subcommands": []
         },
         {
           "description": "Check Tor status",
           "flags": [],
-          "name": "tor"
+          "name": "tor",
+          "subcommands": []
         },
         {
           "description": "Check SSH status",
           "flags": [],
-          "name": "ssh"
+          "name": "ssh",
+          "subcommands": []
         },
         {
           "description": "Check WordPress status",
           "flags": [],
-          "name": "word-press"
+          "name": "word-press",
+          "subcommands": []
         },
         {
           "description": "Check WordPress/NGINX sync",
           "flags": [],
-          "name": "wp-sync"
+          "name": "wp-sync",
+          "subcommands": []
         },
         {
           "description": "Test NGINX configuration",
           "flags": [],
-          "name": "nginx-test"
+          "name": "nginx-test",
+          "subcommands": []
         },
         {
           "description": "Show system resources (RAM, Disk, GPU)",
           "flags": [],
-          "name": "resources"
+          "name": "resources",
+          "subcommands": []
         }
       ]
     },
@@ -1458,27 +1787,32 @@
               "value_name": "FILTER"
             }
           ],
-          "name": "run"
+          "name": "run",
+          "subcommands": []
         },
         {
           "description": "List available tests",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Run benchmarks",
           "flags": [],
-          "name": "benchmark"
+          "name": "benchmark",
+          "subcommands": []
         },
         {
           "description": "Show last test results",
           "flags": [],
-          "name": "results"
+          "name": "results",
+          "subcommands": []
         },
         {
           "description": "Clean test artifacts",
           "flags": [],
-          "name": "clean"
+          "name": "clean",
+          "subcommands": []
         }
       ]
     },
@@ -1490,7 +1824,8 @@
         {
           "description": "List available log sources",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "View logs from a specific source",
@@ -1517,17 +1852,20 @@
               "value_name": "FOLLOW"
             }
           ],
-          "name": "view"
+          "name": "view",
+          "subcommands": []
         },
         {
           "description": "View installation logs",
           "flags": [],
-          "name": "install"
+          "name": "install",
+          "subcommands": []
         },
         {
           "description": "View smoke test logs",
           "flags": [],
-          "name": "smoke-test"
+          "name": "smoke-test",
+          "subcommands": []
         }
       ]
     },
@@ -1549,7 +1887,8 @@
               "value_name": "JSON"
             }
           ],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         }
       ]
     },
@@ -1577,12 +1916,14 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "setup"
+          "name": "setup",
+          "subcommands": []
         },
         {
           "description": "Show current firewall status and rules",
           "flags": [],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Allow traffic on a port",
@@ -1606,7 +1947,8 @@
               "value_name": "FROM"
             }
           ],
-          "name": "allow"
+          "name": "allow",
+          "subcommands": []
         },
         {
           "description": "Deny traffic on a port",
@@ -1624,7 +1966,8 @@
               "value_name": "PROTO"
             }
           ],
-          "name": "deny"
+          "name": "deny",
+          "subcommands": []
         }
       ]
     },
@@ -1652,12 +1995,14 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "setup"
+          "name": "setup",
+          "subcommands": []
         },
         {
           "description": "Show AppArmor status: installed, enabled, profiles, violations",
           "flags": [],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "Change mode of AppArmor profiles (enforce/complain/disable)",
@@ -1696,7 +2041,8 @@
               "value_name": "PROFILE"
             }
           ],
-          "name": "mode"
+          "name": "mode",
+          "subcommands": []
         }
       ]
     },
@@ -1754,7 +2100,8 @@
               "value_name": "TOR"
             }
           ],
-          "name": "create"
+          "name": "create",
+          "subcommands": []
         },
         {
           "description": "Start a stopped WireGuard interface (wg-quick up).",
@@ -1766,7 +2113,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "start"
+          "name": "start",
+          "subcommands": []
         },
         {
           "description": "Stop a running WireGuard interface (wg-quick down).",
@@ -1778,7 +2126,8 @@
               "value_name": "NAME"
             }
           ],
-          "name": "stop"
+          "name": "stop",
+          "subcommands": []
         },
         {
           "description": "Show status of a WireGuard interface (connected peers, traffic).",
@@ -1790,12 +2139,14 @@
               "value_name": "NAME"
             }
           ],
-          "name": "status"
+          "name": "status",
+          "subcommands": []
         },
         {
           "description": "List all WireGuard interfaces on this system.",
           "flags": [],
-          "name": "list"
+          "name": "list",
+          "subcommands": []
         },
         {
           "description": "Delete a WireGuard interface (stop + remove config).",
@@ -1825,12 +2176,120 @@
               "value_name": "SYNC_FIREWALL"
             }
           ],
-          "name": "delete"
+          "name": "delete",
+          "subcommands": []
         },
         {
           "description": "Manage VPN peers (clients)",
           "flags": [],
-          "name": "peer"
+          "name": "peer",
+          "subcommands": [
+            {
+              "description": "Add a new peer to a VPN interface.",
+              "flags": [
+                {
+                  "name": "interface",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INTERFACE"
+                },
+                {
+                  "name": "peer_name",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PEER_NAME"
+                },
+                {
+                  "name": "endpoint",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "ENDPOINT"
+                },
+                {
+                  "name": "dns",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "DNS"
+                },
+                {
+                  "name": "psk",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "PSK"
+                },
+                {
+                  "name": "ip",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "IP"
+                },
+                {
+                  "name": "tor",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "TOR"
+                }
+              ],
+              "name": "add",
+              "subcommands": []
+            },
+            {
+              "description": "Add a peer using their existing public key (client manages own keys).",
+              "flags": [
+                {
+                  "name": "interface",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INTERFACE"
+                },
+                {
+                  "name": "peer_name",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PEER_NAME"
+                },
+                {
+                  "name": "public_key",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PUBLIC_KEY"
+                },
+                {
+                  "name": "ip",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "IP"
+                }
+              ],
+              "name": "add-pubkey",
+              "subcommands": []
+            },
+            {
+              "description": "Remove a peer from a VPN interface by public key.",
+              "flags": [
+                {
+                  "name": "interface",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INTERFACE"
+                },
+                {
+                  "name": "public_key",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PUBLIC_KEY"
+                }
+              ],
+              "name": "remove",
+              "subcommands": []
+            }
+          ]
         }
       ]
     },
@@ -1861,7 +2320,8 @@
               "value_name": "COMMENT"
             }
           ],
-          "name": "add-key"
+          "name": "add-key",
+          "subcommands": []
         },
         {
           "description": "Ensures sshd is running and publishes it only via a .onion address, without exposing SSH to the public network.",
@@ -1885,7 +2345,8 @@
               "value_name": "LOCAL_SSH_PORT"
             }
           ],
-          "name": "deploy-hidden"
+          "name": "deploy-hidden",
+          "subcommands": []
         }
       ]
     },
@@ -2092,7 +2553,8 @@
         {
           "description": "Muestra la guía de inicio rápido (configuración, primer servicio)",
           "flags": [],
-          "name": "quickstart"
+          "name": "quickstart",
+          "subcommands": []
         },
         {
           "description": "Muestra la referencia de todos los comandos, con ejemplos",
@@ -2104,7 +2566,8 @@
               "value_name": "GROUP"
             }
           ],
-          "name": "commands"
+          "name": "commands",
+          "subcommands": []
         },
         {
           "description": "Explica conceptos clave de Enola",
@@ -2116,7 +2579,8 @@
               "value_name": "TOPIC"
             }
           ],
-          "name": "concepts"
+          "name": "concepts",
+          "subcommands": []
         },
         {
           "description": "Muestra preguntas frecuentes y solución de problemas",
@@ -2128,7 +2592,8 @@
               "value_name": "FILTER"
             }
           ],
-          "name": "faq"
+          "name": "faq",
+          "subcommands": []
         },
         {
           "description": "Muestra ejemplos de uso por caso de uso",
@@ -2140,7 +2605,8 @@
               "value_name": "CASE"
             }
           ],
-          "name": "examples"
+          "name": "examples",
+          "subcommands": []
         },
         {
           "description": "Busca un término en toda la documentación embebida",
@@ -2152,27 +2618,32 @@
               "value_name": "TERM"
             }
           ],
-          "name": "search"
+          "name": "search",
+          "subcommands": []
         },
         {
           "description": "Muestra la guía de seguridad post-cuántica y plan PQC",
           "flags": [],
-          "name": "quantum-security"
+          "name": "quantum-security",
+          "subcommands": []
         },
         {
           "description": "Muestra la guía para verificar autenticidad de descargas con minisign",
           "flags": [],
-          "name": "verify-downloads"
+          "name": "verify-downloads",
+          "subcommands": []
         },
         {
           "description": "Muestra el modelo de seguridad orientado al usuario",
           "flags": [],
-          "name": "security"
+          "name": "security",
+          "subcommands": []
         },
         {
           "description": "Muestra la guía de instalación desde ISO",
           "flags": [],
-          "name": "install-from-iso"
+          "name": "install-from-iso",
+          "subcommands": []
         }
       ]
     },
@@ -2203,7 +2674,8 @@
               "value_name": "FORCE"
             }
           ],
-          "name": "check"
+          "name": "check",
+          "subcommands": []
         },
         {
           "description": "Show the current advisory feed schema (for operators creating their own feed)",
@@ -2218,7 +2690,8 @@
               "value_name": "JSON"
             }
           ],
-          "name": "schema"
+          "name": "schema",
+          "subcommands": []
         },
         {
           "description": "Verify a signed advisory feed manually from URL or local path.",
@@ -2245,7 +2718,8 @@
               "value_name": "JSON"
             }
           ],
-          "name": "verify-feed"
+          "name": "verify-feed",
+          "subcommands": []
         },
         {
           "description": "Download the latest binary from the update feed.",
@@ -2296,7 +2770,8 @@
               "value_name": "ALLOW_UNSIGNED"
             }
           ],
-          "name": "download"
+          "name": "download",
+          "subcommands": []
         },
         {
           "description": "Apply a previously downloaded update.",
@@ -2326,7 +2801,8 @@
               "value_name": "ALLOW_UNSIGNED"
             }
           ],
-          "name": "apply"
+          "name": "apply",
+          "subcommands": []
         }
       ]
     },
@@ -2351,17 +2827,116 @@
         {
           "description": "Plan a WordPress site creation (dry-run)",
           "flags": [],
-          "name": "wp"
+          "name": "wp",
+          "subcommands": [
+            {
+              "description": "Plan a WordPress site creation (dry-run)",
+              "flags": [
+                {
+                  "name": "name",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "name": "http-port",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PORT"
+                }
+              ],
+              "name": "create",
+              "subcommands": []
+            }
+          ]
         },
         {
           "description": "Plan a Tor hidden service creation (dry-run)",
           "flags": [],
-          "name": "tor"
+          "name": "tor",
+          "subcommands": [
+            {
+              "description": "Plan a Tor hidden service creation (dry-run)",
+              "flags": [
+                {
+                  "name": "name",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "name": "service-type",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "SERVICE_TYPE"
+                },
+                {
+                  "name": "virtual-port",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "VIRTUAL_PORT"
+                },
+                {
+                  "name": "target-port",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "TARGET_PORT"
+                },
+                {
+                  "name": "ssl",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "SSL"
+                }
+              ],
+              "name": "create",
+              "subcommands": []
+            }
+          ]
         },
         {
           "description": "Plan a Git server creation (dry-run)",
           "flags": [],
-          "name": "git"
+          "name": "git",
+          "subcommands": [
+            {
+              "description": "Plan a Git server creation (dry-run)",
+              "flags": [
+                {
+                  "name": "name",
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "name": "ssl",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "SSL"
+                },
+                {
+                  "name": "http-port",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PORT"
+                },
+                {
+                  "name": "ssh-port",
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PORT"
+                }
+              ],
+              "name": "create",
+              "subcommands": []
+            }
+          ]
         }
       ]
     },
