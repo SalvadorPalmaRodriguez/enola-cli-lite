@@ -6,18 +6,23 @@
 // de protocolo no cierran el bucle. Las tools viven en un `ToolRegistry`
 // compartido (también lo usará `ask` en la Fase 9).
 
+use crate::application::mcp::audit::AuditLogger;
+use crate::application::mcp::policy::McpPolicy;
 use crate::application::mcp::registry::ToolRegistry;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::mcp::{self, Id, Request, Response, RpcError};
-use crate::domain::tool::ToolSpec;
+use crate::domain::tool::{ToolKind, ToolSpec};
 use crate::ports::mcp_transport::McpTransport;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(crate) struct McpServer<T: McpTransport> {
     transport: T,
     initialized: bool,
     registry: Arc<ToolRegistry>,
+    policy: McpPolicy,
+    audit: Arc<AuditLogger>,
 }
 
 impl<T: McpTransport> McpServer<T> {
@@ -26,7 +31,16 @@ impl<T: McpTransport> McpServer<T> {
             transport,
             initialized: false,
             registry,
+            policy: McpPolicy::default(),
+            audit: Arc::new(AuditLogger::new(None)),
         }
+    }
+
+    /// MCP-007: inyecta la política de escritura y el log de auditoría.
+    pub(crate) fn with_policy(mut self, policy: McpPolicy, audit: Arc<AuditLogger>) -> Self {
+        self.policy = policy;
+        self.audit = audit;
+        self
     }
 
     /// Ejecuta el bucle hasta EOF y devuelve el transporte (útil en tests).
@@ -152,7 +166,42 @@ impl<T: McpTransport> McpServer<T> {
             .cloned()
             .unwrap_or_else(|| json!({}));
 
-        match self.registry.call(name, args).await {
+        // MCP-007: política de escritura evaluada ANTES del dispatch.
+        let kind = self.registry.kind_of(name).unwrap_or(ToolKind::ReadOnly);
+        let is_mutating = kind == ToolKind::Mutating;
+        if let Err(e) = self.policy.allows(kind, name) {
+            if is_mutating {
+                self.audit.log_call(name, &args, "rejected");
+            }
+            return success_response(
+                id,
+                json!({
+                    "content": [{"type": "text", "text": format!("{e}")}],
+                    "isError": true,
+                }),
+            );
+        }
+
+        // request_timeout_secs conectado a la ejecución real de la tool.
+        let timeout = Duration::from_secs(self.policy.request_timeout_secs);
+        let outcome =
+            match tokio::time::timeout(timeout, self.registry.call(name, args.clone())).await {
+                Ok(res) => res,
+                Err(_) => Err(EnolaError::Timeout(format!(
+                    "tool '{name}' timed out after {}s",
+                    timeout.as_secs()
+                ))),
+            };
+
+        if is_mutating {
+            let label = match &outcome {
+                Ok(_) => "ok".to_string(),
+                Err(e) => format!("error: {e}"),
+            };
+            self.audit.log_call(name, &args, &label);
+        }
+
+        match outcome {
             Ok(result) => {
                 let text = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
                 success_response(
@@ -167,6 +216,13 @@ impl<T: McpTransport> McpServer<T> {
                 EnolaError::NotFound(_) | EnolaError::ValidationError(_) => {
                     error_response(id, -32602, &format!("Invalid params: {e}"))
                 }
+                EnolaError::SecurityError(_) => success_response(
+                    id,
+                    json!({
+                        "content": [{"type": "text", "text": format!("{e}")}],
+                        "isError": true,
+                    }),
+                ),
                 other => error_response(id, -32603, &other.to_string()),
             },
         }

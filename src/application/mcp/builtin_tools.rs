@@ -4,19 +4,26 @@
 // JSON estructurado (no una cadena formateada). Los handlers con dependencias
 // externas reciben el PORT inyectado desde la composición (no importan adapters).
 
+use crate::application::deploy_fileserver::{DeployFileServer, DeployFileServerRequest};
+use crate::application::deploy_tor_service::{DeployTorService, DeployTorServiceRequest};
+use crate::application::deploy_wordpress::DeployWordPress;
 use crate::application::list_ports::ListPorts;
 use crate::application::list_tor_services::ListTorServices;
 use crate::application::list_wordpress_sites::ListWordPressSites;
 use crate::application::mcp::registry::{ToolHandler, ToolRegistry};
 use crate::application::nginx_status_checker::NginxStatusChecker;
 use crate::application::plan_service::PlanService;
+use crate::application::publish_wordpress::PublishWordPress;
+use crate::application::remove_tor_service::RemoveTorService;
 use crate::application::system_health_check::SystemHealthCheck;
 use crate::application::verify_onion::VerifyOnion;
 use crate::application::wordpress_status_check::WordPressStatusCheck;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::tool::{ToolKind, ToolSpec};
 use crate::ports::container::ContainerPort;
+use crate::ports::file::FileManagerPort;
 use crate::ports::http_probe::HttpProbePort;
+use crate::ports::manifest::ManifestPort;
 use crate::ports::port_checker::PortCheckerPort;
 use crate::ports::service::ServiceManagerPort;
 use crate::ports::tor::TorManagerPort;
@@ -34,8 +41,10 @@ pub fn register(
     service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
     nginx: Arc<dyn NginxManagerPort + Send + Sync>,
     probe: Arc<dyn HttpProbePort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+    file_manager: Arc<dyn FileManagerPort + Send + Sync>,
 ) -> Result<()> {
-    let tor_handler: Arc<dyn ToolHandler> = Arc::new(TorListHandler { tor });
+    let tor_handler: Arc<dyn ToolHandler> = Arc::new(TorListHandler { tor: tor.clone() });
     register_tool(
         registry,
         "tor_list",
@@ -83,8 +92,8 @@ pub fn register(
         json!({"type": "object"}),
         ToolKind::ReadOnly,
         Arc::new(DiagNginxHandler {
-            service_manager,
-            nginx,
+            service_manager: service_manager.clone(),
+            nginx: nginx.clone(),
         }),
     )?;
     register_tool(
@@ -125,7 +134,9 @@ pub fn register(
         "List all host/virtual port bindings managed by enola-cli.",
         json!({"type": "object"}),
         ToolKind::ReadOnly,
-        Arc::new(PortsListHandler { container }),
+        Arc::new(PortsListHandler {
+            container: container.clone(),
+        }),
     )?;
     register_tool(
         registry,
@@ -173,7 +184,126 @@ pub fn register(
         }),
         ToolKind::ReadOnly,
         Arc::new(PlanTorCreateHandler {
-            checker: port_checker,
+            checker: port_checker.clone(),
+        }),
+    )?;
+
+    // ── Tools mutantes (Fase 7) — rechazadas por la política salvo
+    //    --allow-write + allowlist. Se registran con ToolKind::Mutating. ──
+    register_tool(
+        registry,
+        "wp_create",
+        "Create a WordPress site (containers, network, secrets).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "http_port": {"type": "integer"}
+            },
+            "required": ["name"]
+        }),
+        ToolKind::Mutating,
+        Arc::new(WpCreateHandler {
+            container: container.clone(),
+            tor: tor.clone(),
+            manifest: manifest.clone(),
+            checker: port_checker.clone(),
+        }),
+    )?;
+    register_tool(
+        registry,
+        "wp_publish",
+        "Publish an existing WordPress site as a Tor hidden service (returns onion_address).",
+        json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"]
+        }),
+        ToolKind::Mutating,
+        Arc::new(WpPublishHandler {
+            container,
+            tor: tor.clone(),
+            service_manager: service_manager.clone(),
+            manifest: manifest.clone(),
+        }),
+    )?;
+    register_tool(
+        registry,
+        "wp_hide",
+        "Remove the Tor hidden service of a WordPress site (requires force=true).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "force": {"type": "boolean"}
+            },
+            "required": ["name", "force"]
+        }),
+        ToolKind::Mutating,
+        Arc::new(TorRemoveHandler {
+            tor: tor.clone(),
+            tool_label: "wp_hide",
+        }),
+    )?;
+    register_tool(
+        registry,
+        "tor_create",
+        "Create a Tor hidden service (virtual port → local target).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "virtual_port": {"type": "integer"},
+                "target_port": {"type": "integer"}
+            },
+            "required": ["name", "virtual_port"]
+        }),
+        ToolKind::Mutating,
+        Arc::new(TorCreateHandler {
+            tor: tor.clone(),
+            service_manager: service_manager.clone(),
+            manifest: manifest.clone(),
+        }),
+    )?;
+    register_tool(
+        registry,
+        "tor_remove",
+        "Remove a Tor hidden service (requires force=true).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "force": {"type": "boolean"}
+            },
+            "required": ["name", "force"]
+        }),
+        ToolKind::Mutating,
+        Arc::new(TorRemoveHandler {
+            tor: tor.clone(),
+            tool_label: "tor_remove",
+        }),
+    )?;
+    register_tool(
+        registry,
+        "files_create",
+        "Create a file sharing service over Tor (Nginx + hidden service).",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "port": {"type": "integer"},
+                "share_path": {"type": "string"},
+                "enable_auth": {"type": "boolean"}
+            },
+            "required": ["name"]
+        }),
+        ToolKind::Mutating,
+        Arc::new(FilesCreateHandler {
+            nginx,
+            tor,
+            service_manager,
+            file_manager,
+            manifest,
         }),
     )?;
     Ok(())
@@ -370,6 +500,162 @@ impl ToolHandler for PlanTorCreateHandler {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Handlers mutantes (Fase 7) — solo alcanzables con --allow-write + allowlist.
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct WpCreateHandler {
+    container: Arc<dyn ContainerPort + Send + Sync>,
+    tor: Arc<dyn TorManagerPort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+    checker: Arc<dyn PortCheckerPort>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for WpCreateHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let http_port = match args.get("http_port").and_then(|v| v.as_u64()) {
+            Some(p) => p as u16,
+            None => self
+                .checker
+                .find_free_port(8080, 9000)
+                .map_err(|e| EnolaError::InfrastructureError(e.to_string()))?,
+        };
+        let output = DeployWordPress::new(
+            self.container.clone(),
+            self.tor.clone(),
+            self.manifest.clone(),
+        )
+        .execute(name, http_port)
+        .await?;
+        Ok(json!({ "name": name, "http_port": http_port, "output": output }))
+    }
+}
+
+struct WpPublishHandler {
+    container: Arc<dyn ContainerPort + Send + Sync>,
+    tor: Arc<dyn TorManagerPort + Send + Sync>,
+    service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for WpPublishHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let result = PublishWordPress::new(
+            self.container.clone(),
+            self.tor.clone(),
+            self.service_manager.clone(),
+            self.manifest.clone(),
+        )
+        .execute(name)
+        .await?;
+        Ok(serde_json::to_value(result)
+            .map_err(|e| EnolaError::Unknown(format!("wp_publish serialization: {e}")))?)
+    }
+}
+
+/// Quita un hidden service (`RemoveTorService`). Destructivo: exige
+/// `force: true` explícito en los argumentos (la tool nunca lo presupone).
+struct TorRemoveHandler {
+    tor: Arc<dyn TorManagerPort + Send + Sync>,
+    tool_label: &'static str,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for TorRemoveHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        if args.get("force").and_then(|v| v.as_bool()) != Some(true) {
+            return Err(EnolaError::ValidationError(format!(
+                "'{}' is destructive; pass \"force\": true explicitly",
+                self.tool_label
+            )));
+        }
+        let nginx: Option<Arc<dyn NginxManagerPort + Send + Sync>> = None;
+        RemoveTorService::new(self.tor.clone(), nginx)
+            .execute(name)
+            .await?;
+        Ok(json!({ "name": name, "removed": true }))
+    }
+}
+
+struct TorCreateHandler {
+    tor: Arc<dyn TorManagerPort + Send + Sync>,
+    service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for TorCreateHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let virtual_port = args
+            .get("virtual_port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16)
+            .ok_or_else(|| EnolaError::ValidationError("missing 'virtual_port'".into()))?;
+        let target_port = args
+            .get("target_port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16)
+            .unwrap_or(virtual_port);
+        let onion = DeployTorService::new(
+            self.tor.clone(),
+            self.service_manager.clone(),
+            self.manifest.clone(),
+        )
+        .execute(DeployTorServiceRequest {
+            service_name: name.to_string(),
+            ports: vec![(virtual_port, target_port)],
+        })
+        .await?;
+        Ok(json!({ "name": name, "onion_address": onion }))
+    }
+}
+
+struct FilesCreateHandler {
+    nginx: Arc<dyn NginxManagerPort + Send + Sync>,
+    tor: Arc<dyn TorManagerPort + Send + Sync>,
+    service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
+    file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for FilesCreateHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let (onion, share_path) = DeployFileServer::new(
+            self.nginx.clone(),
+            self.tor.clone(),
+            self.service_manager.clone(),
+            self.file_manager.clone(),
+            self.manifest.clone(),
+        )
+        .execute(DeployFileServerRequest {
+            service_name: name.to_string(),
+            port: args
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .map(|p| p as u16)
+                .unwrap_or(8080),
+            share_path: args
+                .get("share_path")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            enable_auth: args
+                .get("enable_auth")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        })
+        .await?;
+        Ok(json!({ "name": name, "onion_address": onion, "share_path": share_path }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn register_adds_thirteen_readonly_tools() {
+    fn register_adds_thirteen_readonly_and_six_mutating_tools() {
         let mut registry = ToolRegistry::new();
         register(
             &mut registry,
@@ -447,11 +733,22 @@ mod tests {
             Arc::new(MockServiceManagerPort::new()),
             Arc::new(MockNginxManagerPort::new()),
             Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
+            Arc::new(crate::ports::manifest::MockManifestPort::new()),
+            Arc::new(crate::ports::file::MockFileManagerPort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 13);
-        assert!(tools.iter().all(|t| t.kind == ToolKind::ReadOnly));
+        assert_eq!(tools.len(), 19);
+        let readonly: Vec<_> = tools
+            .iter()
+            .filter(|t| t.kind == ToolKind::ReadOnly)
+            .collect();
+        let mutating: Vec<_> = tools
+            .iter()
+            .filter(|t| t.kind == ToolKind::Mutating)
+            .collect();
+        assert_eq!(readonly.len(), 13);
+        assert_eq!(mutating.len(), 6);
         for name in [
             "tor_list",
             "diag_tor",
@@ -469,6 +766,153 @@ mod tests {
         ] {
             assert!(tools.iter().any(|t| t.name == name), "missing {name}");
         }
+        for name in [
+            "wp_create",
+            "wp_publish",
+            "wp_hide",
+            "tor_create",
+            "tor_remove",
+            "files_create",
+        ] {
+            assert!(mutating.iter().any(|t| t.name == name), "missing {name}");
+        }
+    }
+
+    /// MCP-007 (7.5) — toda tool mutante con equivalente `plan` debe exponer
+    /// su dry-run de lectura. Falla si se añade una mutante planificable sin
+    /// registrar su `plan_*`.
+    #[test]
+    fn mutating_tools_with_plan_expose_dry_run() {
+        let mut registry = ToolRegistry::new();
+        register(
+            &mut registry,
+            Arc::new(MockTorManagerPort::new()),
+            Arc::new(MockPortCheckerPort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(MockServiceManagerPort::new()),
+            Arc::new(MockNginxManagerPort::new()),
+            Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
+            Arc::new(crate::ports::manifest::MockManifestPort::new()),
+            Arc::new(crate::ports::file::MockFileManagerPort::new()),
+        )
+        .unwrap();
+        let tools = registry.list_tools();
+        // mutante → su plan de lectura esperado (PlanCommands: wp/tor/git create)
+        for (mutating, plan) in [
+            ("wp_create", "plan_wp_create"),
+            ("tor_create", "plan_tor_create"),
+        ] {
+            assert!(tools.iter().any(|t| t.name == mutating));
+            assert!(
+                tools.iter().any(|t| t.name == plan),
+                "mutating '{mutating}' must expose '{plan}' dry-run"
+            );
+        }
+    }
+
+    /// MCP-007 (7.3) — handlers mutantes: una prueba por tool con ports mockeados.
+    #[tokio::test]
+    async fn tor_remove_requires_explicit_force() {
+        let tor = MockTorManagerPort::new(); // no llamada esperada sin force
+        let h = TorRemoveHandler {
+            tor: Arc::new(tor),
+            tool_label: "tor_remove",
+        };
+        let r = h.call(json!({"name": "svc"})).await;
+        assert!(r.is_err());
+        assert!(r.unwrap_err().to_string().contains("force"));
+    }
+
+    #[tokio::test]
+    async fn tor_remove_with_force_calls_use_case() {
+        let mut tor = MockTorManagerPort::new();
+        tor.expect_remove_hidden_service()
+            .withf(|name| name == "svc")
+            .returning(|_| Ok(()));
+        let h = TorRemoveHandler {
+            tor: Arc::new(tor),
+            tool_label: "tor_remove",
+        };
+        let r = h.call(json!({"name": "svc", "force": true})).await.unwrap();
+        assert_eq!(r["removed"], true);
+    }
+
+    #[tokio::test]
+    async fn tor_create_requires_virtual_port() {
+        let h = TorCreateHandler {
+            tor: Arc::new(MockTorManagerPort::new()),
+            service_manager: Arc::new(MockServiceManagerPort::new()),
+            manifest: Arc::new(crate::ports::manifest::MockManifestPort::new()),
+        };
+        assert!(h.call(json!({"name": "svc"})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn tor_create_deploys_hidden_service() {
+        let mut tor = MockTorManagerPort::new();
+        tor.expect_deploy_hidden_service()
+            .withf(|name, ports| name == "svc" && *ports == vec![(80u16, 8080u16)])
+            .returning(|_, _| Ok("xyz.onion".to_string()));
+        let mut sm = MockServiceManagerPort::new();
+        sm.expect_is_active().returning(|_| Ok(true));
+        let mut manifest = crate::ports::manifest::MockManifestPort::new();
+        manifest.expect_append().returning(|_, _| Ok(())).times(0..);
+        let h = TorCreateHandler {
+            tor: Arc::new(tor),
+            service_manager: Arc::new(sm),
+            manifest: Arc::new(manifest),
+        };
+        let r = h
+            .call(json!({"name": "svc", "virtual_port": 80, "target_port": 8080}))
+            .await
+            .unwrap();
+        assert_eq!(r["onion_address"], "xyz.onion");
+    }
+
+    #[tokio::test]
+    async fn wp_create_requires_name() {
+        let h = WpCreateHandler {
+            container: Arc::new(MockContainerPort::new()),
+            tor: Arc::new(MockTorManagerPort::new()),
+            manifest: Arc::new(crate::ports::manifest::MockManifestPort::new()),
+            checker: Arc::new(MockPortCheckerPort::new()),
+        };
+        assert!(h.call(json!({})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn wp_hide_requires_force() {
+        let tor = MockTorManagerPort::new();
+        let h = TorRemoveHandler {
+            tor: Arc::new(tor),
+            tool_label: "wp_hide",
+        };
+        assert!(h.call(json!({"name": "site"})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn files_create_requires_name() {
+        let h = FilesCreateHandler {
+            nginx: Arc::new(MockNginxManagerPort::new()),
+            tor: Arc::new(MockTorManagerPort::new()),
+            service_manager: Arc::new(MockServiceManagerPort::new()),
+            file_manager: Arc::new(crate::ports::file::MockFileManagerPort::new()),
+            manifest: Arc::new(crate::ports::manifest::MockManifestPort::new()),
+        };
+        assert!(h.call(json!({})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn wp_publish_reports_unknown_site() {
+        let mut container = MockContainerPort::new();
+        container.expect_list_containers().returning(|_| Ok(vec![]));
+        let h = WpPublishHandler {
+            container: Arc::new(container),
+            tor: Arc::new(MockTorManagerPort::new()),
+            service_manager: Arc::new(MockServiceManagerPort::new()),
+            manifest: Arc::new(crate::ports::manifest::MockManifestPort::new()),
+        };
+        assert!(h.call(json!({"name": "ghost"})).await.is_err());
     }
 
     /// MCP-004 (4.8) — coherencia schemas de tools ↔ árbol clap generado.
@@ -521,6 +965,8 @@ mod tests {
             Arc::new(MockServiceManagerPort::new()),
             Arc::new(MockNginxManagerPort::new()),
             Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
+            Arc::new(crate::ports::manifest::MockManifestPort::new()),
+            Arc::new(crate::ports::file::MockFileManagerPort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();

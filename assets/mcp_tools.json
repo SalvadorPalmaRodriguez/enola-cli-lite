@@ -3217,6 +3217,27 @@
           "possible_values": [],
           "required": false,
           "value_name": "TOOLS"
+        },
+        {
+          "name": "max-output-bytes",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "BYTES"
+        },
+        {
+          "name": "audit-log",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "PATH"
+        },
+        {
+          "name": "request-timeout-secs",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "SECS"
         }
       ],
       "name": "mcp",

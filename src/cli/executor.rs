@@ -98,7 +98,19 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
         Commands::Mcp {
             allow_write,
             allow_tools,
-        } => execute_mcp(allow_write, allow_tools.as_deref()).await,
+            max_output_bytes,
+            audit_log,
+            request_timeout_secs,
+        } => {
+            execute_mcp(
+                allow_write,
+                allow_tools.as_deref(),
+                max_output_bytes,
+                audit_log.as_deref(),
+                request_timeout_secs,
+            )
+            .await
+        }
     }
 }
 
@@ -106,10 +118,17 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
 ///
 /// Instala la guardia de stdout ANTES de comprobar la licencia (la licencia se
 /// comprueba UNA vez, no por llamada). El bucle de protocolo corre hasta EOF.
-/// `allow_write`/`allow_tools` se conectan a la política de escritura en Fase 7.
-async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResult<String> {
+/// MCP-007: la política de escritura se resuelve flag > env > [mcp] > default.
+async fn execute_mcp(
+    allow_write: bool,
+    allow_tools: Option<&str>,
+    max_output_bytes: Option<u64>,
+    audit_log: Option<&str>,
+    request_timeout_secs: Option<u64>,
+) -> CliResult<String> {
     use crate::adapters::mcp::server::McpServer;
     use crate::adapters::mcp::stdio::StdioTransport;
+    use crate::application::mcp::policy::{resolve_policy, McpFlagOverrides};
     use std::sync::Arc;
 
     let transport = StdioTransport::new()
@@ -118,9 +137,29 @@ async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResul
     // Licencia UNA vez (la salida va a stderr gracias a la guardia ya instalada).
     check_license_acceptance()?;
 
-    let registry = Arc::new(build_mcp_registry()?);
+    let flags = McpFlagOverrides {
+        allow_write: if allow_write { Some(true) } else { None },
+        allow_tools: allow_tools.map(|csv| {
+            csv.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect()
+        }),
+        max_output_bytes: max_output_bytes.map(|v| v as usize),
+        audit_log: audit_log.map(String::from),
+        request_timeout_secs,
+    };
+    let config_section = crate::infrastructure::config_loader::load_section("mcp");
+    let policy = Arc::new(resolve_policy(&flags, &config_section));
+    let audit = std::sync::Arc::new(crate::application::mcp::audit::AuditLogger::new(
+        policy.audit_log.as_deref(),
+    ));
+
+    let registry = Arc::new(build_mcp_registry(policy.clone(), audit.clone())?);
 
     McpServer::new(transport, registry)
+        .with_policy((*policy).clone(), audit)
         .run()
         .await
         .map_err(|e| CliError::Generic(format!("MCP server error: {e}")))?;
@@ -129,7 +168,10 @@ async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResul
 }
 
 /// Compone el ToolRegistry inyectando los adapters concretos en los handlers.
-fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegistry> {
+fn build_mcp_registry(
+    policy: Arc<crate::application::mcp::policy::McpPolicy>,
+    audit: Arc<crate::application::mcp::audit::AuditLogger>,
+) -> CliResult<crate::application::mcp::registry::ToolRegistry> {
     use crate::adapters::infra::docker::BollardDockerAdapter;
     use crate::adapters::infra::nginx::NginxAdapter;
     use crate::adapters::infra::port_checker::PortCheckerAdapter;
@@ -151,6 +193,8 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
     let service_manager = Arc::new(SystemdAdapter);
     let nginx = Arc::new(NginxAdapter::new());
     let probe = Arc::new(crate::adapters::http_probe::ReqwestHttpProbe);
+    let manifest = Arc::new(crate::adapters::infra::manifest::FileManifestAdapter::new());
+    let file_manager = Arc::new(crate::adapters::infra::filesystem::EnolaFileAdapter);
 
     crate::application::mcp::builtin_tools::register(
         &mut registry,
@@ -160,6 +204,8 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
         service_manager,
         nginx,
         probe,
+        manifest,
+        file_manager,
     )
     .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
@@ -167,7 +213,7 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
         crate::adapters::process_runner::SubprocessRunner::new()
             .map_err(|e| CliError::Generic(format!("failed to init MCP runner: {e}")))?,
     );
-    crate::application::mcp::run_command::register(&mut registry, runner)
+    crate::application::mcp::run_command::register(&mut registry, runner, policy, audit)
         .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
     crate::application::mcp::resources::register_search_tool(&mut registry)

@@ -506,6 +506,18 @@ pub enum Commands {
         /// Comma-separated allowlist of tool names
         #[arg(long, value_name = "TOOLS")]
         allow_tools: Option<String>,
+
+        /// Max bytes returned per tool call (env: ENOLA_MCP_MAX_OUTPUT_BYTES)
+        #[arg(long, value_name = "BYTES")]
+        max_output_bytes: Option<u64>,
+
+        /// Audit log file path for mutating calls (env: ENOLA_MCP_AUDIT_LOG; default: stderr)
+        #[arg(long, value_name = "PATH")]
+        audit_log: Option<String>,
+
+        /// Timeout per tool call in seconds (env: ENOLA_MCP_REQUEST_TIMEOUT_SECS; default: 60)
+        #[arg(long, value_name = "SECS")]
+        request_timeout_secs: Option<u64>,
     },
 }
 

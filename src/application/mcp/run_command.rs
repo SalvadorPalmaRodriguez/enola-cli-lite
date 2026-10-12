@@ -8,7 +8,9 @@
 // contra el árbol antes de despachar (default-deny: lo desconocido se
 // clasifica como mutante y se rechaza hasta `--allow-write` en Fase 7).
 
+use crate::application::mcp::audit::AuditLogger;
 use crate::application::mcp::command_catalog::load_tree;
+use crate::application::mcp::policy::McpPolicy;
 use crate::application::mcp::registry::ToolHandler;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::tool::{classify, truncate_output, ToolKind};
@@ -19,8 +21,6 @@ use std::time::Duration;
 
 /// Timeout por defecto de un subcomando despachado.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
-/// Límite de stdout/stderr devuelto por la meta-tool.
-const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 /// Profundidad máxima de la ruta de subcomandos (familia → grupo → hoja).
 const MAX_PATH_TOKENS: usize = 2;
 /// Timeout máximo aceptado vía `timeout_secs` (5 min).
@@ -196,6 +196,8 @@ pub(crate) fn build_argv(family: &str, tokens: &[String], flag_argv: Vec<String>
 
 struct RunCommandHandler {
     runner: Arc<dyn ProcessRunnerPort + Send + Sync>,
+    policy: Arc<McpPolicy>,
+    audit: Arc<AuditLogger>,
 }
 
 #[async_trait::async_trait]
@@ -210,12 +212,17 @@ impl ToolHandler for RunCommandHandler {
         let family_node = find_family(&tree, family)?;
         let (tokens, leaf) = resolve_leaf(family_node, subcommand)?;
 
-        // Política de escritura (default-deny): solo lectura en esta fase.
-        if classify(family, tokens.first().map(String::as_str)) != ToolKind::ReadOnly {
-            return Err(EnolaError::SecurityError(format!(
-                "'{family} {}' is a mutating command; it requires --allow-write (Phase 7)",
-                tokens.join(" ")
-            )));
+        // Política de escritura (Fase 7): el nombre evaluado es `family:sub`
+        // para que la allowlist pueda limitar comandos concretos. La llamada
+        // mutante queda auditada aunque la meta-tool sea ReadOnly.
+        let kind = classify(family, tokens.first().map(String::as_str));
+        let policy_name = format!("{family}:{}", tokens.join(" "));
+        let mutating = kind == ToolKind::Mutating;
+        if let Err(e) = self.policy.allows(kind, &policy_name) {
+            if mutating {
+                self.audit.log_call(&policy_name, &args, "rejected");
+            }
+            return Err(e);
         }
 
         let flag_argv = build_flag_argv(leaf, args.get("args").unwrap_or(&Value::Null))?;
@@ -227,9 +234,17 @@ impl ToolHandler for RunCommandHandler {
             .map(|s| Duration::from_secs(s.clamp(1, MAX_TIMEOUT_SECS)))
             .unwrap_or(DEFAULT_TIMEOUT);
 
-        let out = self.runner.run(&argv, timeout).await?;
-        let (stdout, t1) = truncate_output(&out.stdout, MAX_OUTPUT_BYTES);
-        let (stderr, t2) = truncate_output(&out.stderr, MAX_OUTPUT_BYTES);
+        let out = self.runner.run(&argv, timeout).await;
+        if mutating {
+            let label = match &out {
+                Ok(_) => "ok".to_string(),
+                Err(e) => format!("error: {e}"),
+            };
+            self.audit.log_call(&policy_name, &args, &label);
+        }
+        let out = out?;
+        let (stdout, t1) = truncate_output(&out.stdout, self.policy.max_output_bytes);
+        let (stderr, t2) = truncate_output(&out.stderr, self.policy.max_output_bytes);
         Ok(json!({
             "argv": argv,
             "exit_code": out.exit_code,
@@ -244,13 +259,16 @@ impl ToolHandler for RunCommandHandler {
 pub fn register(
     registry: &mut crate::application::mcp::registry::ToolRegistry,
     runner: Arc<dyn ProcessRunnerPort + Send + Sync>,
+    policy: Arc<McpPolicy>,
+    audit: Arc<AuditLogger>,
 ) -> Result<()> {
     use crate::domain::tool::ToolSpec;
     let spec = ToolSpec::new(
         "enola_run_command",
-        "Run any enola-cli command from the generated catalog (read-only only). \
-         'subcommand' accepts level-3 paths like 'wp create'. 'args' is an object \
-         of flag values. Always forces --format json.",
+        "Run any enola-cli command from the generated catalog. Mutating commands \
+         require --allow-write (+ allowlist). 'subcommand' accepts level-3 paths \
+         like 'wp create'. 'args' is an object of flag values. Always forces \
+         --format json.",
         json!({
             "type": "object",
             "properties": {
@@ -264,7 +282,14 @@ pub fn register(
         ToolKind::ReadOnly,
     )
     .map_err(EnolaError::ValidationError)?;
-    registry.register(spec, Arc::new(RunCommandHandler { runner }))
+    registry.register(
+        spec,
+        Arc::new(RunCommandHandler {
+            runner,
+            policy,
+            audit,
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -274,8 +299,14 @@ mod tests {
     use std::time::Duration;
 
     fn handler_with(runner: MockProcessRunnerPort) -> RunCommandHandler {
+        handler_with_policy(runner, McpPolicy::default())
+    }
+
+    fn handler_with_policy(runner: MockProcessRunnerPort, policy: McpPolicy) -> RunCommandHandler {
         RunCommandHandler {
             runner: Arc::new(runner),
+            policy: Arc::new(policy),
+            audit: Arc::new(AuditLogger::new(None)),
         }
     }
 
@@ -529,5 +560,127 @@ mod tests {
             }))
             .await
             .is_ok());
+    }
+
+    // ── Fase 7.4: política de escritura en la meta-tool ─────────────────────
+
+    #[tokio::test]
+    async fn mutating_commands_rejected_without_allow_write() {
+        // Muestra de familias mutantes: la política no depende de que la tool
+        // sea de primera clase (todas pasan por enola_run_command).
+        for (family, sub) in [
+            ("drupal", "create"),
+            ("ghost", "create"),
+            ("strapi", "create"),
+            ("wagtail", "create"),
+            ("magnolia", "create"),
+            ("firewall", "allow"),
+            ("vpn", "create"),
+            ("vpn", "delete"),
+            ("maintenance", "cleanup"),
+        ] {
+            let mock = MockProcessRunnerPort::new(); // no dispatch esperado
+            let h = handler_with(mock);
+            let r = h
+                .call(json!({"family": family, "subcommand": sub, "args": {}}))
+                .await;
+            assert!(r.is_err(), "{family} {sub} should be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn mutating_command_dispatched_with_allow_write() {
+        let mock = ok_runner(vec![
+            "--format".into(),
+            "json".into(),
+            "tor".into(),
+            "create".into(),
+            "--name".into(),
+            "svc".into(),
+        ]);
+        let policy = McpPolicy {
+            allow_write: true,
+            ..Default::default()
+        };
+        let h = handler_with_policy(mock, policy);
+        // tor create requiere --name (required). virtual/target port opcionales.
+        let r = h
+            .call(json!({
+                "family": "tor", "subcommand": "create",
+                "args": {"name": "svc"}
+            }))
+            .await
+            .unwrap();
+        assert_eq!(r["exit_code"], 0);
+    }
+
+    #[tokio::test]
+    async fn mutating_command_rejected_when_not_in_allowlist() {
+        let mock = MockProcessRunnerPort::new();
+        let policy = McpPolicy {
+            allow_write: true,
+            allowed_tools: vec!["wp:create".to_string()],
+            ..Default::default()
+        };
+        let h = handler_with_policy(mock, policy);
+        let r = h
+            .call(json!({
+                "family": "tor", "subcommand": "create",
+                "args": {"name": "svc"}
+            }))
+            .await;
+        assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn allowlist_matches_command_path() {
+        let mock = ok_runner(vec![
+            "--format".into(),
+            "json".into(),
+            "wp".into(),
+            "create".into(),
+            "--name".into(),
+            "blog".into(),
+        ]);
+        let policy = McpPolicy {
+            allow_write: true,
+            allowed_tools: vec!["wp:create".to_string()],
+            ..Default::default()
+        };
+        let h = handler_with_policy(mock, policy);
+        assert!(h
+            .call(json!({
+                "family": "wp", "subcommand": "create",
+                "args": {"name": "blog"}
+            }))
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn destructive_commands_never_get_force_injected() {
+        // `tor remove` exige --force en clap; la tool no lo añade por su cuenta:
+        // el argv solo lleva lo que el llamador pasó explícitamente.
+        let mock = ok_runner(vec![
+            "--format".into(),
+            "json".into(),
+            "tor".into(),
+            "remove".into(),
+            "svc".into(),
+        ]);
+        let policy = McpPolicy {
+            allow_write: true,
+            ..Default::default()
+        };
+        let h = handler_with_policy(mock, policy);
+        let r = h
+            .call(json!({
+                "family": "tor", "subcommand": "remove",
+                "args": {"name": "svc"}
+            }))
+            .await
+            .unwrap();
+        let argv: Vec<String> = serde_json::from_value(r["argv"].clone()).unwrap();
+        assert!(!argv.iter().any(|a| a == "--force" || a == "--yes"));
     }
 }

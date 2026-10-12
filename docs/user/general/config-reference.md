@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.1 | **Actualizado:** 2026-09-19
+> **Versión:** 1.2 | **Actualizado:** 2026-10-12
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -124,6 +124,33 @@ max_backups = 5
 
 ---
 
+## Sección `[mcp]`
+
+Política de escritura y límites del servidor MCP (`enola-cli mcp`).
+
+| Clave | Tipo | Default | Env var / Flag | Descripción |
+|-------|------|---------|----------------|-------------|
+| `allow_write` | Bool | `false` | `ENOLA_MCP_ALLOW_WRITE` / `--allow-write` | Habilita tools mutantes |
+| `allowed_tools` | Array/CSV | `[]` | `ENOLA_MCP_ALLOWED_TOOLS` / `--allow-tools` | Vacía = todas las mutantes; si no, nombres (`wp_create`) o rutas (`wp:create`) |
+| `max_output_bytes` | Integer | `65536` | `ENOLA_MCP_MAX_OUTPUT_BYTES` / `--max-output-bytes` | Límite de stdout/stderr por llamada |
+| `audit_log` | String | `stderr` | `ENOLA_MCP_AUDIT_LOG` / `--audit-log` | `"stderr"` o path de fichero (nunca stdout) |
+| `request_timeout_secs` | Integer | `60` | `ENOLA_MCP_REQUEST_TIMEOUT_SECS` / `--request-timeout-secs` | Timeout por llamada a tool |
+
+```toml
+[mcp]
+# allow_write = false          # solo lectura (recomendado)
+# allowed_tools = []           # vacía = TODAS las mutantes con allow_write
+# max_output_bytes = 65536
+# audit_log = "stderr"
+# request_timeout_secs = 60
+```
+
+> ⚠️ `allowed_tools = []` con `allow_write = true` habilita **todas** las
+> tools mutantes — es una decisión explícita. El audit log registra cada
+> llamada mutante con args saneados (secretos redactados).
+
+---
+
 ## Ejemplo completo
 
 ```toml
@@ -142,6 +169,13 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 
 [backup]
 max_backups = 5
+
+[mcp]
+allow_write = false
+# allowed_tools = ["wp_create", "wp:publish"]
+# max_output_bytes = 65536
+# audit_log = "stderr"
+# request_timeout_secs = 60
 ```
 
 ---

@@ -101,6 +101,32 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # max_backups = 5
 
 
+# ── 6. Servidor MCP (`enola-cli mcp`) ──────────────────────────────────────
+# Política de escritura y límites del servidor MCP.
+# Prioridad: flag CLI > env var > esta sección > defaults seguros.
+#
+# allow_write = false          → solo lectura (default; recomendado)
+# allow_write = true           → habilita tools mutantes
+# allowed_tools = []           → vacía = TODAS las mutantes (explícito);
+#                                si no, nombres de tool (wp_create) o rutas
+#                                de comando (wp:create) permitidas
+# max_output_bytes = 65536     → límite de stdout/stderr por llamada
+# audit_log = "stderr"         → "stderr" o path de fichero (nunca stdout)
+# request_timeout_secs = 60    → timeout por llamada a tool
+#
+# Env vars: ENOLA_MCP_ALLOW_WRITE, ENOLA_MCP_ALLOWED_TOOLS,
+#           ENOLA_MCP_MAX_OUTPUT_BYTES, ENOLA_MCP_AUDIT_LOG,
+#           ENOLA_MCP_REQUEST_TIMEOUT_SECS
+# Flags:    --allow-write --allow-tools --max-output-bytes
+#           --audit-log --request-timeout-secs
+[mcp]
+# allow_write = false
+# allowed_tools = []
+# max_output_bytes = 65536
+# audit_log = "stderr"
+# request_timeout_secs = 60
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # REFERENCIAS CRUZADAS (sincronización 2026-09-19)
 # ══════════════════════════════════════════════════════════════════════════
@@ -115,6 +141,7 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 #                                       | [backup]          |
 # application/backup_system.rs          | [backup]          | retención
 # application/update_checker.rs          | [update]          | UPD-CLI-001
+# application/mcp/policy.rs              | [mcp]             | MCP-007
 # application/config_inspector.rs       | Todas (catálogo)  | CONFIG-001..009
 #
 # Tareas relacionadas en TAREAS.md:

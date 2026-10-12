@@ -53,6 +53,12 @@ impl ToolRegistry {
         specs
     }
 
+    /// Devuelve el `ToolKind` de una tool registrada (None si no existe).
+    /// La política de escritura lo consulta ANTES del dispatch (MCP-007).
+    pub fn kind_of(&self, name: &str) -> Option<crate::domain::tool::ToolKind> {
+        self.tools.get(name).map(|t| t.spec.kind)
+    }
+
     /// Despacha `name` con `args`, validando antes de invocar el handler.
     pub async fn call(&self, name: &str, args: Value) -> Result<Value> {
         let tool = self

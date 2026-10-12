@@ -118,7 +118,10 @@
     ],
     "mcp": [
       "--allow-write",
-      "--allow-tools"
+      "--allow-tools",
+      "--max-output-bytes",
+      "--audit-log",
+      "--request-timeout-secs"
     ],
     "plan.git": [
       "--name",
