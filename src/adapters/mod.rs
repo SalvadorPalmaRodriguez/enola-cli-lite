@@ -11,6 +11,7 @@
 pub mod cms; // DRUPAL-001 — Catálogo de adapters CMS (WordPress, Drupal, …)
 pub mod git;
 pub mod hardware;
+pub mod http_probe; // MCP-006 — sonda reqwest+SOCKS5h (verify_onion)
 pub mod infra;
 pub mod mcp; // MCP-002 — transporte stdio NDJSON + guardia de stdout
 pub mod process_runner; // MCP-004 — enola-cli como subproceso (argv, sin shell)

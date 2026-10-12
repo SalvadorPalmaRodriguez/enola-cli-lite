@@ -100,6 +100,7 @@ pub const READ_ONLY_SUBCOMMANDS: &[(&str, &str)] = &[
     ("diag", "wp-sync"),
     ("diag", "nginx-test"),
     ("diag", "resources"),
+    ("diag", "onion"),
     ("test", "list"),
     ("test", "results"),
     ("logs", "list"),

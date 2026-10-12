@@ -302,7 +302,8 @@
       "word-press",
       "wp-sync",
       "nginx-test",
-      "resources"
+      "resources",
+      "onion"
     ],
     "docs": [
       "quickstart",

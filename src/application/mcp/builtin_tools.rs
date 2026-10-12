@@ -11,10 +11,12 @@ use crate::application::mcp::registry::{ToolHandler, ToolRegistry};
 use crate::application::nginx_status_checker::NginxStatusChecker;
 use crate::application::plan_service::PlanService;
 use crate::application::system_health_check::SystemHealthCheck;
+use crate::application::verify_onion::VerifyOnion;
 use crate::application::wordpress_status_check::WordPressStatusCheck;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::tool::{ToolKind, ToolSpec};
 use crate::ports::container::ContainerPort;
+use crate::ports::http_probe::HttpProbePort;
 use crate::ports::port_checker::PortCheckerPort;
 use crate::ports::service::ServiceManagerPort;
 use crate::ports::tor::TorManagerPort;
@@ -31,6 +33,7 @@ pub fn register(
     container: Arc<dyn ContainerPort + Send + Sync>,
     service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
     nginx: Arc<dyn NginxManagerPort + Send + Sync>,
+    probe: Arc<dyn HttpProbePort + Send + Sync>,
 ) -> Result<()> {
     let tor_handler: Arc<dyn ToolHandler> = Arc::new(TorListHandler { tor });
     register_tool(
@@ -123,6 +126,18 @@ pub fn register(
         json!({"type": "object"}),
         ToolKind::ReadOnly,
         Arc::new(PortsListHandler { container }),
+    )?;
+    register_tool(
+        registry,
+        "verify_onion",
+        "Probe a .onion address through Tor (SOCKS5h): reachability, HTTP status, latency, failure reason.",
+        json!({
+            "type": "object",
+            "properties": {"address": {"type": "string"}},
+            "required": ["address"]
+        }),
+        ToolKind::ReadOnly,
+        Arc::new(VerifyOnionHandler { probe }),
     )?;
     register_tool(
         registry,
@@ -277,6 +292,22 @@ impl ToolHandler for PortsListHandler {
     }
 }
 
+struct VerifyOnionHandler {
+    probe: Arc<dyn HttpProbePort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for VerifyOnionHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let address = required_string(&args, "address")?;
+        let verification = VerifyOnion::new(self.probe.clone())
+            .execute(address)
+            .await?;
+        Ok(serde_json::to_value(verification)
+            .map_err(|e| EnolaError::Unknown(format!("verify_onion serialization: {e}")))?)
+    }
+}
+
 struct WpStatusHandler {
     container: Arc<dyn ContainerPort + Send + Sync>,
 }
@@ -406,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn register_adds_twelve_readonly_tools() {
+    fn register_adds_thirteen_readonly_tools() {
         let mut registry = ToolRegistry::new();
         register(
             &mut registry,
@@ -415,10 +446,11 @@ mod tests {
             Arc::new(MockContainerPort::new()),
             Arc::new(MockServiceManagerPort::new()),
             Arc::new(MockNginxManagerPort::new()),
+            Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 13);
         assert!(tools.iter().all(|t| t.kind == ToolKind::ReadOnly));
         for name in [
             "tor_list",
@@ -431,6 +463,7 @@ mod tests {
             "wp_list",
             "wp_status",
             "ports_list",
+            "verify_onion",
             "plan_wp_create",
             "plan_tor_create",
         ] {
@@ -474,6 +507,7 @@ mod tests {
             ("wp_list", &["wp", "list"]),
             ("wp_status", &["wp", "status"]),
             ("ports_list", &["ports", "list"]),
+            ("verify_onion", &["diag", "onion"]),
             ("plan_wp_create", &["plan", "wp", "create"]),
             ("plan_tor_create", &["plan", "tor", "create"]),
         ];
@@ -486,6 +520,7 @@ mod tests {
             Arc::new(MockContainerPort::new()),
             Arc::new(MockServiceManagerPort::new()),
             Arc::new(MockNginxManagerPort::new()),
+            Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();

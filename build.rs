@@ -246,6 +246,9 @@ fn cmd_description(cmd: &clap::Command) -> String {
 }
 
 /// Extrae los flags de un comando clap como array JSON.
+///
+/// `positional: true` marca argumentos posicionales (sin `--long`): el
+/// dispatcher los emite como valores sueltos en su orden de declaración.
 fn extract_flags(cmd: &clap::Command) -> serde_json::Value {
     let mut flags: Vec<serde_json::Value> = Vec::new();
     for arg in cmd.get_arguments() {
@@ -257,6 +260,7 @@ fn extract_flags(cmd: &clap::Command) -> serde_json::Value {
         flags.push(serde_json::json!({
             "name": name,
             "required": arg.is_required_set(),
+            "positional": arg.get_long().is_none(),
             "value_name": arg.get_value_names().and_then(|v| v.first()).map(|s| s.to_string()),
             "possible_values": arg.get_possible_values().iter().map(|p| p.get_name().to_string()).collect::<Vec<_>>(),
         }));

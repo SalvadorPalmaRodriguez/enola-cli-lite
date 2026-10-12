@@ -1820,6 +1820,19 @@ pub enum DiagnosticsCommands {
 
     /// Show system resources (RAM, Disk, GPU)
     Resources,
+
+    /// Probe a .onion address through Tor (SOCKS5h) and report reachability
+    ///
+    /// Validates the address, probes via the local Tor SOCKS proxy, retries
+    /// with backoff, and returns structured reachability (status, latency,
+    /// title, failure reason: timeout|proxy_unavailable|site_unreachable).
+    ///
+    /// Example:
+    ///   enola-cli diag onion abc…xyz.onion --format json
+    Onion {
+        /// Onion address (v3 = 56 chars) or URL http(s)://<addr>.onion
+        address: String,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

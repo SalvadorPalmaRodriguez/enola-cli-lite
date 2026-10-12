@@ -150,6 +150,7 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
     );
     let service_manager = Arc::new(SystemdAdapter);
     let nginx = Arc::new(NginxAdapter::new());
+    let probe = Arc::new(crate::adapters::http_probe::ReqwestHttpProbe);
 
     crate::application::mcp::builtin_tools::register(
         &mut registry,
@@ -158,6 +159,7 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
         container,
         service_manager,
         nginx,
+        probe,
     )
     .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
@@ -2362,6 +2364,10 @@ async fn execute_diagnostics(cmd: DiagnosticsCommands, format: &str) -> CliResul
         DiagnosticsCommands::Resources => {
             let resources = commands::diagnostics::resources().await?;
             format_output(&resources, format)
+        }
+        DiagnosticsCommands::Onion { address } => {
+            let verification = commands::diagnostics::onion(&address).await?;
+            format_output(&verification, format)
         }
     }
 }

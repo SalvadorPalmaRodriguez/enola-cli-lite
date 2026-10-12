@@ -43,6 +43,7 @@ pub mod toggle_wordpress;
 pub mod tor_service_manager;
 pub mod update_checker; // UPD-CLI-001/002: verificador de actualizaciones y feed advisories
 pub mod update_wordpress;
+pub mod verify_onion; // MCP-006 — sonda de alcanzabilidad .onion (SOCKS5h)
 pub mod vpn_manager; // Tarea 162 — WireGuard VPN orchestration
 pub mod vpn_tor_manager; // VPN over Tor — socat bridge + hidden service orchestration
 pub mod web_api; // WEB-GUI: REST API handlers

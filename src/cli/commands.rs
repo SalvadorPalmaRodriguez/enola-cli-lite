@@ -5705,6 +5705,22 @@ pub mod diagnostics {
         Ok(output.success())
     }
 
+    /// Probe a .onion address through Tor and return structured reachability.
+    ///
+    /// Delega en `VerifyOnion` (application) sobre `ReqwestHttpProbe`
+    /// (SOCKS5h vía infrastructure::http). El resultado se serializa con
+    /// `--format json`: {url, reachable, status, latency_ms, title, reason}.
+    pub async fn onion(
+        address: &str,
+    ) -> CliResult<crate::application::verify_onion::OnionVerification> {
+        use crate::adapters::http_probe::ReqwestHttpProbe;
+        use crate::application::verify_onion::VerifyOnion;
+        VerifyOnion::new(Arc::new(ReqwestHttpProbe))
+            .execute(address)
+            .await
+            .map_err(CliError::from)
+    }
+
     /// Get system resources
     pub async fn resources() -> CliResult<String> {
         use crate::adapters::hardware::probe::EnolaHardwareProbe;

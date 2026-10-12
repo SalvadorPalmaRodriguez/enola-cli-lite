@@ -16,30 +16,35 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "service-type",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "SERVICE_TYPE"
             },
             {
               "name": "virtual-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "VIRTUAL_PORT"
             },
             {
               "name": "target-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "TARGET_PORT"
             },
             {
               "name": "ssl",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -56,6 +61,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -69,6 +75,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -82,12 +89,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -104,30 +113,35 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "virtual-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "VIRTUAL_PORT"
             },
             {
               "name": "nginx-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "NGINX_PORT"
             },
             {
               "name": "target-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "TARGET_PORT"
             },
             {
               "name": "auto-ports",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -144,6 +158,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -162,6 +177,7 @@
               "flags": [
                 {
                   "name": "service",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
@@ -175,6 +191,7 @@
               "flags": [
                 {
                   "name": "service",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
@@ -188,6 +205,7 @@
               "flags": [
                 {
                   "name": "service",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
@@ -201,18 +219,21 @@
               "flags": [
                 {
                   "name": "service",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
                 },
                 {
                   "name": "client",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "CLIENT"
                 },
                 {
                   "name": "pubkey",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "PUBKEY"
@@ -226,12 +247,14 @@
               "flags": [
                 {
                   "name": "service",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
                 },
                 {
                   "name": "client",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "CLIENT"
@@ -245,6 +268,7 @@
               "flags": [
                 {
                   "name": "client",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "CLIENT"
@@ -258,18 +282,21 @@
               "flags": [
                 {
                   "name": "service",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
                 },
                 {
                   "name": "client",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "CLIENT"
                 },
                 {
                   "name": "pubkey",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "PUBKEY"
@@ -298,12 +325,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "ssl",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -313,24 +342,28 @@
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PORT"
             },
             {
               "name": "ssh-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PORT"
             },
             {
               "name": "admin-user",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "USERNAME"
             },
             {
               "name": "admin-password",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PASSWORD"
@@ -344,6 +377,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -357,6 +391,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -370,6 +405,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -383,12 +419,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -405,12 +443,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "enable",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -420,6 +460,7 @@
             },
             {
               "name": "disable",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -429,6 +470,7 @@
             },
             {
               "name": "status",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -445,30 +487,35 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "HTTP_PORT"
             },
             {
               "name": "https-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "HTTPS_PORT"
             },
             {
               "name": "ssh-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "SSH_PORT"
             },
             {
               "name": "auto-ports",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -485,12 +532,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "ssl",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -507,6 +556,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -525,18 +575,21 @@
               "flags": [
                 {
                   "name": "server",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVER"
                 },
                 {
                   "name": "admin-user",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "USERNAME"
                 },
                 {
                   "name": "admin-pass",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PASSWORD"
@@ -550,30 +603,35 @@
               "flags": [
                 {
                   "name": "server",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVER"
                 },
                 {
                   "name": "username",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "USERNAME"
                 },
                 {
                   "name": "email",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "EMAIL"
                 },
                 {
                   "name": "password",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PASSWORD"
                 },
                 {
                   "name": "admin",
+                  "positional": false,
                   "possible_values": [
                     "true",
                     "false"
@@ -583,12 +641,14 @@
                 },
                 {
                   "name": "admin-user",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "USERNAME"
                 },
                 {
                   "name": "admin-pass",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PASSWORD"
@@ -602,24 +662,28 @@
               "flags": [
                 {
                   "name": "server",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVER"
                 },
                 {
                   "name": "username",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "USERNAME"
                 },
                 {
                   "name": "admin-user",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "USERNAME"
                 },
                 {
                   "name": "admin-pass",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PASSWORD"
@@ -654,12 +718,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PORT"
@@ -673,6 +739,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -686,6 +753,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -699,6 +767,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -712,12 +781,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -734,6 +805,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -747,6 +819,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -760,6 +833,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -773,6 +847,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -786,6 +861,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -799,24 +875,28 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "HTTP_PORT"
             },
             {
               "name": "https-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "HTTPS_PORT"
             },
             {
               "name": "ssl",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -826,6 +906,7 @@
             },
             {
               "name": "auto-ports",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -855,12 +936,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
@@ -874,6 +957,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -887,6 +971,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -900,12 +985,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -922,6 +1009,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -935,6 +1023,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -948,6 +1037,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -961,12 +1051,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "HTTP_PORT"
@@ -993,12 +1085,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
@@ -1012,6 +1106,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1025,6 +1120,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1038,12 +1134,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1060,6 +1158,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1073,6 +1172,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1086,6 +1186,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1099,12 +1200,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "HTTP_PORT"
@@ -1131,12 +1234,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
@@ -1150,6 +1255,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1163,6 +1269,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1176,12 +1283,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1198,6 +1307,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1211,6 +1321,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1224,6 +1335,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1250,12 +1362,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
@@ -1269,6 +1383,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1282,6 +1397,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1295,12 +1411,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1317,6 +1435,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1330,6 +1449,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1343,6 +1463,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1356,6 +1477,7 @@
           "flags": [
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1385,12 +1507,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "http-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
@@ -1404,6 +1528,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1417,6 +1542,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1430,12 +1556,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1452,6 +1580,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1465,6 +1594,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1478,6 +1608,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1504,12 +1635,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "auth",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1519,6 +1652,7 @@
             },
             {
               "name": "ssl",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1535,12 +1669,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PORT"
@@ -1554,12 +1690,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1576,6 +1714,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -1632,6 +1771,7 @@
           "flags": [
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1641,6 +1781,7 @@
             },
             {
               "name": "dry-run",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1657,6 +1798,7 @@
           "flags": [
             {
               "name": "keep",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "KEEP"
@@ -1670,6 +1812,7 @@
           "flags": [
             {
               "name": "max-backups",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "MAX_BACKUPS"
@@ -1683,12 +1826,14 @@
           "flags": [
             {
               "name": "target",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "TARGET"
             },
             {
               "name": "dry-run",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1698,6 +1843,7 @@
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1707,6 +1853,7 @@
             },
             {
               "name": "keep-days",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "KEEP_DAYS"
@@ -1769,6 +1916,20 @@
           "flags": [],
           "name": "resources",
           "subcommands": []
+        },
+        {
+          "description": "Probe a .onion address through Tor (SOCKS5h) and report reachability",
+          "flags": [
+            {
+              "name": "address",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "ADDRESS"
+            }
+          ],
+          "name": "onion",
+          "subcommands": []
         }
       ]
     },
@@ -1782,6 +1943,7 @@
           "flags": [
             {
               "name": "filter",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "FILTER"
@@ -1832,18 +1994,21 @@
           "flags": [
             {
               "name": "source",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "SOURCE"
             },
             {
               "name": "lines",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "LINES"
             },
             {
               "name": "follow",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1879,6 +2044,7 @@
           "flags": [
             {
               "name": "json",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1902,12 +2068,14 @@
           "flags": [
             {
               "name": "ssh-port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "SSH_PORT"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -1930,18 +2098,21 @@
           "flags": [
             {
               "name": "port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
             },
             {
               "name": "proto",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PROTO"
             },
             {
               "name": "from",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "FROM"
@@ -1955,12 +2126,14 @@
           "flags": [
             {
               "name": "port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PORT"
             },
             {
               "name": "proto",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PROTO"
@@ -1981,12 +2154,14 @@
           "flags": [
             {
               "name": "mode",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "MODE"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2009,6 +2184,7 @@
           "flags": [
             {
               "name": "enforce",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2018,6 +2194,7 @@
             },
             {
               "name": "complain",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2027,6 +2204,7 @@
             },
             {
               "name": "disable",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2036,6 +2214,7 @@
             },
             {
               "name": "profile",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PROFILE"
@@ -2056,24 +2235,28 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "port",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "PORT"
             },
             {
               "name": "subnet",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "SUBNET"
             },
             {
               "name": "autostart",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2083,6 +2266,7 @@
             },
             {
               "name": "sync-firewall",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2092,6 +2276,7 @@
             },
             {
               "name": "tor",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2108,6 +2293,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -2121,6 +2307,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -2134,6 +2321,7 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
@@ -2153,12 +2341,14 @@
           "flags": [
             {
               "name": "name",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2168,6 +2358,7 @@
             },
             {
               "name": "sync-firewall",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2189,30 +2380,35 @@
               "flags": [
                 {
                   "name": "interface",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "INTERFACE"
                 },
                 {
                   "name": "peer_name",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "PEER_NAME"
                 },
                 {
                   "name": "endpoint",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "ENDPOINT"
                 },
                 {
                   "name": "dns",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "DNS"
                 },
                 {
                   "name": "psk",
+                  "positional": false,
                   "possible_values": [
                     "true",
                     "false"
@@ -2222,12 +2418,14 @@
                 },
                 {
                   "name": "ip",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "IP"
                 },
                 {
                   "name": "tor",
+                  "positional": false,
                   "possible_values": [
                     "true",
                     "false"
@@ -2244,24 +2442,28 @@
               "flags": [
                 {
                   "name": "interface",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "INTERFACE"
                 },
                 {
                   "name": "peer_name",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "PEER_NAME"
                 },
                 {
                   "name": "public_key",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "PUBLIC_KEY"
                 },
                 {
                   "name": "ip",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "IP"
@@ -2275,12 +2477,14 @@
               "flags": [
                 {
                   "name": "interface",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "INTERFACE"
                 },
                 {
                   "name": "public_key",
+                  "positional": true,
                   "possible_values": [],
                   "required": true,
                   "value_name": "PUBLIC_KEY"
@@ -2303,18 +2507,21 @@
           "flags": [
             {
               "name": "user",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "USER"
             },
             {
               "name": "pubkey",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "PUBKEY"
             },
             {
               "name": "comment",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "COMMENT"
@@ -2328,18 +2535,21 @@
           "flags": [
             {
               "name": "name",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
             },
             {
               "name": "onion-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "ONION_PORT"
             },
             {
               "name": "local-ssh-port",
+              "positional": false,
               "possible_values": [],
               "required": true,
               "value_name": "LOCAL_SSH_PORT"
@@ -2355,6 +2565,7 @@
       "flags": [
         {
           "name": "all",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2364,6 +2575,7 @@
         },
         {
           "name": "vpn",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2373,6 +2585,7 @@
         },
         {
           "name": "security",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2382,6 +2595,7 @@
         },
         {
           "name": "pqc-tls",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2398,6 +2612,7 @@
       "flags": [
         {
           "name": "security",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2426,24 +2641,28 @@
       "flags": [
         {
           "name": "file",
+          "positional": true,
           "possible_values": [],
           "required": true,
           "value_name": "FILE"
         },
         {
           "name": "pqsig",
+          "positional": false,
           "possible_values": [],
           "required": false,
           "value_name": "PQSIG"
         },
         {
           "name": "pubkey",
+          "positional": false,
           "possible_values": [],
           "required": false,
           "value_name": "PUBKEY"
         },
         {
           "name": "json",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2460,6 +2679,7 @@
       "flags": [
         {
           "name": "yes",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2469,6 +2689,7 @@
         },
         {
           "name": "keep-data",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2478,12 +2699,14 @@
         },
         {
           "name": "only",
+          "positional": false,
           "possible_values": [],
           "required": false,
           "value_name": "ONLY"
         },
         {
           "name": "force",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2493,6 +2716,7 @@
         },
         {
           "name": "remove-deps",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2509,6 +2733,7 @@
       "flags": [
         {
           "name": "json",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2525,6 +2750,7 @@
       "flags": [
         {
           "name": "reachable",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2534,6 +2760,7 @@
         },
         {
           "name": "json",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2561,6 +2788,7 @@
           "flags": [
             {
               "name": "group",
+              "positional": true,
               "possible_values": [],
               "required": false,
               "value_name": "GROUP"
@@ -2574,6 +2802,7 @@
           "flags": [
             {
               "name": "topic",
+              "positional": true,
               "possible_values": [],
               "required": false,
               "value_name": "TOPIC"
@@ -2587,6 +2816,7 @@
           "flags": [
             {
               "name": "filter",
+              "positional": true,
               "possible_values": [],
               "required": false,
               "value_name": "FILTER"
@@ -2600,6 +2830,7 @@
           "flags": [
             {
               "name": "case",
+              "positional": true,
               "possible_values": [],
               "required": false,
               "value_name": "CASE"
@@ -2613,6 +2844,7 @@
           "flags": [
             {
               "name": "term",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "TERM"
@@ -2657,6 +2889,7 @@
           "flags": [
             {
               "name": "json",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2666,6 +2899,7 @@
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2682,6 +2916,7 @@
           "flags": [
             {
               "name": "json",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2698,18 +2933,21 @@
           "flags": [
             {
               "name": "source",
+              "positional": true,
               "possible_values": [],
               "required": true,
               "value_name": "SOURCE"
             },
             {
               "name": "signature",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "SIGNATURE"
             },
             {
               "name": "json",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2726,6 +2964,7 @@
           "flags": [
             {
               "name": "yes",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2735,6 +2974,7 @@
             },
             {
               "name": "dry-run",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2744,6 +2984,7 @@
             },
             {
               "name": "json",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2753,6 +2994,7 @@
             },
             {
               "name": "force",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2762,6 +3004,7 @@
             },
             {
               "name": "allow-unsigned",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2778,12 +3021,14 @@
           "flags": [
             {
               "name": "binary",
+              "positional": false,
               "possible_values": [],
               "required": false,
               "value_name": "BINARY"
             },
             {
               "name": "json",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2793,6 +3038,7 @@
             },
             {
               "name": "allow-unsigned",
+              "positional": false,
               "possible_values": [
                 "true",
                 "false"
@@ -2811,6 +3057,7 @@
       "flags": [
         {
           "name": "port",
+          "positional": false,
           "possible_values": [],
           "required": false,
           "value_name": "PORT"
@@ -2834,12 +3081,14 @@
               "flags": [
                 {
                   "name": "name",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "NAME"
                 },
                 {
                   "name": "http-port",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PORT"
@@ -2860,30 +3109,35 @@
               "flags": [
                 {
                   "name": "name",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "NAME"
                 },
                 {
                   "name": "service-type",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "SERVICE_TYPE"
                 },
                 {
                   "name": "virtual-port",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "VIRTUAL_PORT"
                 },
                 {
                   "name": "target-port",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "TARGET_PORT"
                 },
                 {
                   "name": "ssl",
+                  "positional": false,
                   "possible_values": [
                     "true",
                     "false"
@@ -2907,12 +3161,14 @@
               "flags": [
                 {
                   "name": "name",
+                  "positional": false,
                   "possible_values": [],
                   "required": true,
                   "value_name": "NAME"
                 },
                 {
                   "name": "ssl",
+                  "positional": false,
                   "possible_values": [
                     "true",
                     "false"
@@ -2922,12 +3178,14 @@
                 },
                 {
                   "name": "http-port",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PORT"
                 },
                 {
                   "name": "ssh-port",
+                  "positional": false,
                   "possible_values": [],
                   "required": false,
                   "value_name": "PORT"
@@ -2945,6 +3203,7 @@
       "flags": [
         {
           "name": "allow-write",
+          "positional": false,
           "possible_values": [
             "true",
             "false"
@@ -2954,6 +3213,7 @@
         },
         {
           "name": "allow-tools",
+          "positional": false,
           "possible_values": [],
           "required": false,
           "value_name": "TOOLS"

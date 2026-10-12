@@ -148,9 +148,26 @@ fn build_flag_argv(leaf: &Value, args: &Value) -> Result<Vec<String>> {
 
     validated.sort_by(|a, b| a.0.cmp(&b.0));
     let mut argv = Vec::with_capacity(validated.len() * 2 + 2);
-    for (key, value) in validated {
+    // Posicionales primero, en su orden de declaración clap (sin `--`).
+    // Las flags nombradas van después como pares `--flag valor`.
+    let mut positional: Vec<(usize, &String, &String)> = Vec::new();
+    let mut named: Vec<(&String, &String)> = Vec::new();
+    for (key, value) in &validated {
+        if let Some(idx) = flags.iter().position(|f| {
+            f["name"].as_str() == Some(key.as_str()) && f["positional"].as_bool() == Some(true)
+        }) {
+            positional.push((idx, key, value));
+        } else {
+            named.push((key, value));
+        }
+    }
+    positional.sort_by_key(|(idx, _, _)| *idx);
+    for (_, _, value) in positional {
+        argv.push(value.clone());
+    }
+    for (key, value) in named {
         argv.push(format!("--{key}"));
-        argv.push(value);
+        argv.push(value.clone());
     }
     // Fuerza salida JSON: además del `--format json` global, si el hoja expone
     // una flag nativa `--json` y el llamador no la pasó, se añade `--json true`.
@@ -366,12 +383,12 @@ mod tests {
 
     #[tokio::test]
     async fn dispatches_readonly_subcommand_with_flags() {
+        // `wp status` toma `name` como posicional → se emite como valor suelto.
         let mock = ok_runner(vec![
             "--format".into(),
             "json".into(),
             "wp".into(),
             "status".into(),
-            "--name".into(),
             "mysite".into(),
         ]);
         let h = handler_with(mock);
@@ -418,7 +435,6 @@ mod tests {
             "json".into(),
             "wp".into(),
             "status".into(),
-            "--name".into(),
             payload.to_string(),
         ]);
         let h = handler_with(mock);
