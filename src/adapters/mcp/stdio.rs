@@ -133,6 +133,6 @@ mod tests {
         let rc = unsafe { libc::fstat(fd, st.as_mut_ptr()) };
         assert_eq!(rc, 0, "fstat({fd}) failed");
         let st = unsafe { st.assume_init() };
-        (st.st_dev as u64, st.st_ino as u64)
+        (st.st_dev, st.st_ino)
     }
 }

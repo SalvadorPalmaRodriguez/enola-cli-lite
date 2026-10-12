@@ -229,10 +229,10 @@ impl<T: McpTransport> McpServer<T> {
     }
 
     fn handle_notification(&self, request: &Request) {
-        match request.method.as_str() {
-            "notifications/initialized" => {}
-            _ => {} // notificación desconocida → ignorada en silencio (spec)
+        if request.method.as_str() == "notifications/initialized" {
+            // handshake completo: nada que hacer
         }
+        // cualquier otra notificación desconocida se ignora en silencio (spec MCP)
     }
 
     async fn send_response(&mut self, resp: Response) -> Result<()> {

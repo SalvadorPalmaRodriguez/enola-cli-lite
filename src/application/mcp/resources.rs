@@ -125,7 +125,7 @@ mod tests {
     async fn docs_search_returns_matching_docs() {
         let h = DocsSearchHandler;
         let out = h.call(json!({"query": "onion"})).await.unwrap();
-        assert!(out["matches"].as_array().unwrap().len() > 0);
+        assert!(!out["matches"].as_array().unwrap().is_empty());
         assert!(h.call(json!({})).await.is_err());
     }
 }
