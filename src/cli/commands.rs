@@ -3312,107 +3312,18 @@ pub mod wordpress {
     use crate::application::toggle_wordpress::ToggleWordPress;
     use crate::ports::container::ContainerPort;
 
-    /// WordPress site info
-    #[derive(Debug, Clone, serde::Serialize)]
-    pub struct WordPressSiteInfo {
-        pub name: String,
-        pub wp_container: String,
-        pub db_container: String,
-        pub status: String,
-        pub port: Option<u16>,
-        pub onion_address: Option<String>,
-    }
+    pub use crate::application::list_wordpress_sites::WordPressSiteInfo;
 
     /// List WordPress sites
     pub async fn list() -> CliResult<Vec<WordPressSiteInfo>> {
-        use std::collections::HashMap;
-        use std::process::Command;
+        use crate::adapters::infra::docker::BollardDockerAdapter;
+        use crate::application::list_wordpress_sites::ListWordPressSites;
 
-        // List Docker containers that match wp-* pattern (WordPress containers)
-        let output = Command::new("docker")
-            .args([
-                "ps",
-                "-a",
-                "--filter",
-                "name=wp-",
-                "--format",
-                "{{.Names}}\t{{.Status}}\t{{.Ports}}",
-            ])
-            .output()?;
-
-        let mut sites: HashMap<String, WordPressSiteInfo> = HashMap::new();
-
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 2 {
-                let container_name = parts[0].to_string();
-                let status = if parts[1].contains("Up") {
-                    "running"
-                } else {
-                    "stopped"
-                };
-
-                // Parse name: wp-<site> or db-<site>
-                let (prefix, site_name) = if container_name.starts_with("wp-") {
-                    (
-                        "wp",
-                        container_name
-                            .strip_prefix("wp-")
-                            .unwrap_or(&container_name),
-                    )
-                } else if container_name.starts_with("db-") {
-                    (
-                        "db",
-                        container_name
-                            .strip_prefix("db-")
-                            .unwrap_or(&container_name),
-                    )
-                } else {
-                    continue;
-                };
-
-                let site =
-                    sites
-                        .entry(site_name.to_string())
-                        .or_insert_with(|| WordPressSiteInfo {
-                            name: site_name.to_string(),
-                            wp_container: String::new(),
-                            db_container: String::new(),
-                            status: "unknown".to_string(),
-                            port: None,
-                            onion_address: None,
-                        });
-
-                if prefix == "wp" {
-                    site.wp_container = container_name;
-                    site.status = status.to_string();
-                    // Try to parse port from ports string
-                    if let Some(ports_str) = parts.get(2) {
-                        if let Some(port) = extract_port(ports_str) {
-                            site.port = Some(port);
-                        }
-                    }
-                } else {
-                    site.db_container = container_name;
-                }
-            }
-        }
-
-        // Try to get onion addresses
-        for site in sites.values_mut() {
-            site.onion_address = get_wp_onion(&site.name).await;
-        }
-
-        Ok(sites.into_values().collect())
-    }
-
-    fn extract_port(ports_str: &str) -> Option<u16> {
-        // Format: "0.0.0.0:8080->80/tcp"
-        ports_str
-            .split(':')
-            .nth(1)
-            .and_then(|s| s.split('-').next())
-            .and_then(|s| s.parse().ok())
+        let adapter = Arc::new(BollardDockerAdapter::new().map_err(CliError::from)?);
+        ListWordPressSites::new(adapter)
+            .execute()
+            .await
+            .map_err(CliError::from)
     }
 
     async fn get_wp_onion(name: &str) -> Option<String> {

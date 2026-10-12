@@ -5,6 +5,7 @@
 // externas reciben el PORT inyectado desde la composición (no importan adapters).
 
 use crate::application::list_tor_services::ListTorServices;
+use crate::application::list_wordpress_sites::ListWordPressSites;
 use crate::application::mcp::registry::{ToolHandler, ToolRegistry};
 use crate::application::nginx_status_checker::NginxStatusChecker;
 use crate::application::plan_service::PlanService;
@@ -89,6 +90,16 @@ pub fn register(
         json!({"type": "object"}),
         ToolKind::ReadOnly,
         Arc::new(UpdateCheckHandler),
+    )?;
+    register_tool(
+        registry,
+        "wp_list",
+        "List WordPress sites (containers, port, onion address).",
+        json!({"type": "object"}),
+        ToolKind::ReadOnly,
+        Arc::new(WpListHandler {
+            container: container.clone(),
+        }),
     )?;
     register_tool(
         registry,
@@ -229,6 +240,20 @@ impl ToolHandler for UpdateCheckHandler {
     }
 }
 
+struct WpListHandler {
+    container: Arc<dyn ContainerPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for WpListHandler {
+    async fn call(&self, _args: Value) -> Result<Value> {
+        let sites = ListWordPressSites::new(self.container.clone())
+            .execute()
+            .await?;
+        Ok(json!({ "sites": sites }))
+    }
+}
+
 struct WpStatusHandler {
     container: Arc<dyn ContainerPort + Send + Sync>,
 }
@@ -358,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn register_adds_ten_readonly_tools() {
+    fn register_adds_eleven_readonly_tools() {
         let mut registry = ToolRegistry::new();
         register(
             &mut registry,
@@ -370,7 +395,7 @@ mod tests {
         )
         .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
         assert!(tools.iter().all(|t| t.kind == ToolKind::ReadOnly));
         for name in [
             "tor_list",
@@ -380,6 +405,7 @@ mod tests {
             "diag_summary",
             "diag_nginx",
             "update_check",
+            "wp_list",
             "wp_status",
             "plan_wp_create",
             "plan_tor_create",
