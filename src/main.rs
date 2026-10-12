@@ -72,6 +72,7 @@ fn check_root_permissions(cli: &Cli) -> Result<(), Box<dyn Error>> {
         | Commands::Docs(_)
         | Commands::Verify { .. } // RELEASE-VERIFY (PQC-030): verificar descargas no requiere root
         | Commands::Update(_)
+        | Commands::Mcp { .. } // MCP: no eleva privilegios por su cuenta
     );
     if exempt {
         return Ok(());
@@ -144,7 +145,8 @@ fn should_show_update_hint(cli: &Cli) -> bool {
         | Commands::License
         | Commands::Doctor { .. }
         | Commands::Uninstall { .. }
-        | Commands::Verify { .. } => false,
+        | Commands::Verify { .. }
+        | Commands::Mcp { .. } => false,
 
         // Resto: sí, salida humana.
         _ => true,
@@ -203,6 +205,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // honren los overrides del usuario sin refactorizar cadena env>file>default.
     apply_global_overrides(&cli);
     let show_update_hint = should_show_update_hint(&cli);
+    // MCP: el servidor stdio escribe su protocolo directamente a stdout; el
+    // flujo normal no debe imprimir nada más (ni una línea vacía).
+    let is_mcp = matches!(&cli.command, Commands::Mcp { .. });
 
     // Create tokio runtime and execute
     let rt = tokio::runtime::Runtime::new()?;
@@ -228,7 +233,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match result {
         Ok((output, update_hint)) => {
-            println!("{}", output);
+            if !is_mcp {
+                println!("{}", output);
+            }
             if let Some(hint) = update_hint {
                 if !hint.trim().is_empty() {
                     eprintln!("\n{}", hint);

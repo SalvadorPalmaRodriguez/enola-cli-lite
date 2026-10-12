@@ -4,12 +4,10 @@
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Tamaño máximo de un frame entrante (1 MiB).
-#[allow(dead_code)] // MCP-003: usado por StdioTransport (Fase 3)
 pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 /// Lee el siguiente frame NDJSON (una línea no vacía), ignorando líneas en
 /// blanco. Devuelve `Ok(None)` en EOF.
-#[allow(dead_code)] // MCP-003: usado por StdioTransport (Fase 3)
 pub(crate) async fn read_frame<R>(reader: &mut R) -> std::io::Result<Option<String>>
 where
     R: AsyncBufRead + Unpin,
@@ -36,7 +34,6 @@ where
 
 /// Escribe `msg` como una línea NDJSON. Rechaza mensajes con `\n` sin escapar
 /// (el mensaje debe ser una única línea).
-#[allow(dead_code)] // MCP-003: usado por StdioTransport (Fase 3)
 pub(crate) async fn write_frame<W>(writer: &mut W, msg: &str) -> std::io::Result<()>
 where
     W: AsyncWrite + Unpin,

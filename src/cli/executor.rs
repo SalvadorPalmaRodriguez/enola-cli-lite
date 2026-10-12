@@ -20,13 +20,20 @@ use crate::ports::manifest::ManifestPort;
 
 /// Execute a CLI command and return the result
 pub async fn execute(cli: Cli) -> CliResult<String> {
-    // ── LIC-002: License Acceptance Guard ──
-    // Must accept proprietary license before ANY command (except --help/--version).
-    // Persists acceptance in ~/.enola/license_accepted.json.
-    check_license_acceptance()?;
+    // MCP entra por debajo del flujo normal: sin license+preflight aquí. La
+    // licencia se comprueba una vez dentro de execute_mcp, tras instalar la
+    // guardia de stdout (para que nada contamine el canal JSON-RPC).
+    let is_mcp = matches!(&cli.command, Commands::Mcp { .. });
 
-    // ── PRE-FLIGHT: instalar dependencias del sistema si faltan ───────────────
-    maybe_run_preflight(&cli).await?;
+    if !is_mcp {
+        // ── LIC-002: License Acceptance Guard ──
+        // Must accept proprietary license before ANY command (except --help/--version).
+        // Persists acceptance in ~/.enola/license_accepted.json.
+        check_license_acceptance()?;
+
+        // ── PRE-FLIGHT: instalar dependencias del sistema si faltan ───────────────
+        maybe_run_preflight(&cli).await?;
+    }
 
     match cli.command {
         Commands::Tor(cmd) => execute_tor(cmd, cli.format.as_str()).await,
@@ -88,7 +95,34 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             Ok(String::new())
         }
         Commands::Plan(cmd) => execute_plan(cmd, cli.format.as_str()).await,
+        Commands::Mcp {
+            allow_write,
+            allow_tools,
+        } => execute_mcp(allow_write, allow_tools.as_deref()).await,
     }
+}
+
+/// MCP-003: arranca el servidor MCP por stdio.
+///
+/// Instala la guardia de stdout ANTES de comprobar la licencia (la licencia se
+/// comprueba UNA vez, no por llamada). El bucle de protocolo corre hasta EOF.
+/// `allow_write`/`allow_tools` se conectan a la política de escritura en Fase 7.
+async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResult<String> {
+    use crate::adapters::mcp::server::McpServer;
+    use crate::adapters::mcp::stdio::StdioTransport;
+
+    let transport = StdioTransport::new()
+        .map_err(|e| CliError::Generic(format!("failed to init MCP stdio: {e}")))?;
+
+    // Licencia UNA vez (la salida va a stderr gracias a la guardia ya instalada).
+    check_license_acceptance()?;
+
+    McpServer::new(transport)
+        .run()
+        .await
+        .map_err(|e| CliError::Generic(format!("MCP server error: {e}")))?;
+
+    Ok(String::new())
 }
 
 /// RELEASE-VERIFY (PQC-030): verifica la autenticidad de un release descargado
@@ -131,7 +165,8 @@ fn command_requires_system_dependencies(cmd: &Commands) -> bool {
         | Commands::ConfigValidate { .. }
         | Commands::Docs(_)
         | Commands::Verify { .. }
-        | Commands::Update(_) => false,
+        | Commands::Update(_)
+        | Commands::Mcp { .. } => false,
 
         // El resto de familias usan Docker/Nginx/Tor/UFW/AppArmor/WireGuard
         _ => true,

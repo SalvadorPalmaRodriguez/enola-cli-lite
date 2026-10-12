@@ -116,6 +116,10 @@
       "--force",
       "--dry-run"
     ],
+    "mcp": [
+      "--allow-write",
+      "--allow-tools"
+    ],
     "plan.git": [
       "--name",
       "--ssl",
@@ -281,7 +285,8 @@
     "docs",
     "update",
     "web",
-    "plan"
+    "plan",
+    "mcp"
   ],
   "subcommands": {
     "apparmor": [

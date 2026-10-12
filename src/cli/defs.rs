@@ -485,6 +485,28 @@ pub enum Commands {
     ///   enola-cli --format json plan wp create --name foo
     #[command(subcommand)]
     Plan(PlanCommands),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MCP (🔌 Model Context Protocol — servidor stdio para agentes IA)
+    // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/mcp/commands-mcp.md
+    /// Start the MCP server (Model Context Protocol) over stdio.
+    ///
+    /// Read-only by default: mutating tools require `--allow-write` plus an
+    /// explicit allowlist in config.toml ([mcp].allowed_tools).
+    ///
+    /// Examples:
+    ///   enola-cli mcp
+    ///   enola-cli mcp --allow-write --allow-tools wp_create,wp_publish
+    Mcp {
+        /// Allow mutating tools (default: false)
+        #[arg(long)]
+        allow_write: bool,
+
+        /// Comma-separated allowlist of tool names
+        #[arg(long, value_name = "TOOLS")]
+        allow_tools: Option<String>,
+    },
 }
 
 /// UPD-CLI-001: subcomandos del comando `update`.

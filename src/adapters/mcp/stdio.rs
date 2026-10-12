@@ -1,4 +1,4 @@
-// MCP-002 — Guardia de stdout.
+// MCP-002/003 — Transporte stdio NDJSON + guardia de stdout.
 //
 // El protocolo MCP viaja por stdout en exclusiva. El resto del código (476+
 // `println!` en el árbol) escribe por stdout; para que no rompa el JSON-RPC,
@@ -6,19 +6,21 @@
 // redirige stdout a stderr. El transporte escribe SOLO por el fd duplicado.
 
 #[cfg(unix)]
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{FromRawFd, RawFd};
+
+use crate::adapters::mcp::framing;
+use crate::domain::error::Result;
+use crate::ports::mcp_transport::McpTransport;
 
 /// RAII que guarda el stdout original como fd de protocolo y redirige stdout
 /// a stderr mientras está viva. Al soltarla, restaura stdout.
 #[cfg(unix)]
-#[allow(dead_code)] // MCP-003: instalado por execute_mcp (Fase 3)
 #[must_use = "the guard redirects stdout and restores it on drop; keep it alive for the server lifetime"]
 pub struct StdoutGuard {
     protocol_fd: RawFd,
 }
 
 #[cfg(unix)]
-#[allow(dead_code)] // MCP-003: instalado por execute_mcp (Fase 3)
 impl StdoutGuard {
     /// Instala la guardia: `dup(1)` (fd de protocolo) + `dup2(2, 1)`.
     pub fn install() -> std::io::Result<Self> {
@@ -49,6 +51,48 @@ impl Drop for StdoutGuard {
             libc::dup2(self.protocol_fd, libc::STDOUT_FILENO);
             libc::close(self.protocol_fd);
         }
+    }
+}
+
+/// Transporte stdio que lee de stdin y escribe por el fd de protocolo.
+#[cfg(unix)]
+pub struct StdioTransport {
+    _guard: StdoutGuard,
+    stdin: tokio::io::BufReader<tokio::io::Stdin>,
+    writer: tokio::fs::File,
+}
+
+#[cfg(unix)]
+impl StdioTransport {
+    pub fn new() -> std::io::Result<Self> {
+        let guard = StdoutGuard::install()?;
+        let write_fd = unsafe { libc::dup(guard.protocol_fd()) };
+        if write_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let file = unsafe { std::fs::File::from_raw_fd(write_fd) };
+        let writer = tokio::fs::File::from_std(file);
+        Ok(Self {
+            _guard: guard,
+            stdin: tokio::io::BufReader::new(tokio::io::stdin()),
+            writer,
+        })
+    }
+}
+
+#[cfg(unix)]
+#[async_trait::async_trait]
+impl McpTransport for StdioTransport {
+    async fn recv(&mut self) -> Result<Option<String>> {
+        framing::read_frame(&mut self.stdin)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn send(&mut self, msg: &str) -> Result<()> {
+        framing::write_frame(&mut self.writer, msg)
+            .await
+            .map_err(Into::into)
     }
 }
 
