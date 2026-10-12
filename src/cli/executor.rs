@@ -110,7 +110,6 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
 async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResult<String> {
     use crate::adapters::mcp::server::McpServer;
     use crate::adapters::mcp::stdio::StdioTransport;
-    use crate::application::mcp::registry::ToolRegistry;
     use std::sync::Arc;
 
     let transport = StdioTransport::new()
@@ -119,22 +118,50 @@ async fn execute_mcp(_allow_write: bool, _allow_tools: Option<&str>) -> CliResul
     // Licencia UNA vez (la salida va a stderr gracias a la guardia ya instalada).
     check_license_acceptance()?;
 
-    let mut registry = ToolRegistry::new();
-    crate::application::mcp::command_catalog::register(&mut registry)
-        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
-    let tor: Arc<dyn crate::ports::tor::TorManagerPort + Send + Sync> =
-        Arc::new(crate::adapters::tor::TorConfigAdapter::new());
-    let port_checker: Arc<dyn crate::ports::port_checker::PortCheckerPort> =
-        Arc::new(crate::adapters::infra::port_checker::PortCheckerAdapter::new());
-    crate::application::mcp::builtin_tools::register(&mut registry, tor, port_checker)
-        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+    let registry = Arc::new(build_mcp_registry()?);
 
-    McpServer::new(transport, Arc::new(registry))
+    McpServer::new(transport, registry)
         .run()
         .await
         .map_err(|e| CliError::Generic(format!("MCP server error: {e}")))?;
 
     Ok(String::new())
+}
+
+/// Compone el ToolRegistry inyectando los adapters concretos en los handlers.
+fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegistry> {
+    use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::adapters::infra::nginx::NginxAdapter;
+    use crate::adapters::infra::port_checker::PortCheckerAdapter;
+    use crate::adapters::infra::systemd::SystemdAdapter;
+    use crate::adapters::tor::TorConfigAdapter;
+    use crate::application::mcp::registry::ToolRegistry;
+    use std::sync::Arc;
+
+    let mut registry = ToolRegistry::new();
+    crate::application::mcp::command_catalog::register(&mut registry)
+        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+
+    let tor = Arc::new(TorConfigAdapter::new());
+    let port_checker = Arc::new(PortCheckerAdapter::new());
+    let container = Arc::new(
+        BollardDockerAdapter::new()
+            .map_err(|e| CliError::Generic(format!("failed to connect to Docker for MCP: {e}")))?,
+    );
+    let service_manager = Arc::new(SystemdAdapter);
+    let nginx = Arc::new(NginxAdapter::new());
+
+    crate::application::mcp::builtin_tools::register(
+        &mut registry,
+        tor,
+        port_checker,
+        container,
+        service_manager,
+        nginx,
+    )
+    .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+
+    Ok(registry)
 }
 
 /// RELEASE-VERIFY (PQC-030): verifica la autenticidad de un release descargado

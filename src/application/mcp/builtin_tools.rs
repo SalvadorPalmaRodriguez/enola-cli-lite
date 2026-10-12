@@ -6,28 +6,46 @@
 
 use crate::application::list_tor_services::ListTorServices;
 use crate::application::mcp::registry::{ToolHandler, ToolRegistry};
+use crate::application::nginx_status_checker::NginxStatusChecker;
 use crate::application::plan_service::PlanService;
 use crate::application::system_health_check::SystemHealthCheck;
+use crate::application::wordpress_status_check::WordPressStatusCheck;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::tool::{ToolKind, ToolSpec};
+use crate::ports::container::ContainerPort;
 use crate::ports::port_checker::PortCheckerPort;
+use crate::ports::service::ServiceManagerPort;
 use crate::ports::tor::TorManagerPort;
+use crate::ports::web::NginxManagerPort;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 /// Registra las tools de lectura de primera clase en el registry.
+#[allow(clippy::too_many_arguments)]
 pub fn register(
     registry: &mut ToolRegistry,
     tor: Arc<dyn TorManagerPort + Send + Sync>,
     port_checker: Arc<dyn PortCheckerPort>,
+    container: Arc<dyn ContainerPort + Send + Sync>,
+    service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
+    nginx: Arc<dyn NginxManagerPort + Send + Sync>,
 ) -> Result<()> {
+    let tor_handler: Arc<dyn ToolHandler> = Arc::new(TorListHandler { tor });
     register_tool(
         registry,
         "tor_list",
         "List configured Tor hidden services.",
         json!({"type": "object"}),
         ToolKind::ReadOnly,
-        Arc::new(TorListHandler { tor }),
+        tor_handler.clone(),
+    )?;
+    register_tool(
+        registry,
+        "diag_tor",
+        "Tor hidden service status (same as tor_list).",
+        json!({"type": "object"}),
+        ToolKind::ReadOnly,
+        tor_handler,
     )?;
     register_tool(
         registry,
@@ -55,11 +73,34 @@ pub fn register(
     )?;
     register_tool(
         registry,
+        "diag_nginx",
+        "Nginx status (active, sites, HTTP check, version).",
+        json!({"type": "object"}),
+        ToolKind::ReadOnly,
+        Arc::new(DiagNginxHandler {
+            service_manager,
+            nginx,
+        }),
+    )?;
+    register_tool(
+        registry,
         "update_check",
         "Check for available updates and security advisories.",
         json!({"type": "object"}),
         ToolKind::ReadOnly,
         Arc::new(UpdateCheckHandler),
+    )?;
+    register_tool(
+        registry,
+        "wp_status",
+        "Status of a WordPress site (wp + db containers, HTTP, health).",
+        json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"]
+        }),
+        ToolKind::ReadOnly,
+        Arc::new(WpStatusHandler { container }),
     )?;
     register_tool(
         registry,
@@ -162,6 +203,21 @@ impl ToolHandler for DiagSummaryHandler {
     }
 }
 
+struct DiagNginxHandler {
+    service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
+    nginx: Arc<dyn NginxManagerPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for DiagNginxHandler {
+    async fn call(&self, _args: Value) -> Result<Value> {
+        let report = NginxStatusChecker::new(self.service_manager.clone(), self.nginx.clone())
+            .execute()
+            .await?;
+        Ok(json!({ "report": report }))
+    }
+}
+
 struct UpdateCheckHandler;
 
 #[async_trait::async_trait]
@@ -170,6 +226,21 @@ impl ToolHandler for UpdateCheckHandler {
         let url = crate::application::update_checker::feed_url();
         let report = crate::application::update_checker::check_for_updates(&url).await;
         Ok(json!({ "report": report }))
+    }
+}
+
+struct WpStatusHandler {
+    container: Arc<dyn ContainerPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for WpStatusHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let status = WordPressStatusCheck::new(self.container.clone())
+            .execute(name)
+            .await?;
+        Ok(json!({ "status": status }))
     }
 }
 
@@ -223,8 +294,11 @@ impl ToolHandler for PlanTorCreateHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::container::MockContainerPort;
     use crate::ports::port_checker::{MockPortCheckerPort, PortCheckResult};
+    use crate::ports::service::MockServiceManagerPort;
     use crate::ports::tor::{MockTorManagerPort, TorServiceInfo};
+    use crate::ports::web::MockNginxManagerPort;
 
     #[tokio::test]
     async fn tor_list_returns_services() {
@@ -284,23 +358,29 @@ mod tests {
     }
 
     #[test]
-    fn register_adds_seven_readonly_tools() {
+    fn register_adds_ten_readonly_tools() {
         let mut registry = ToolRegistry::new();
         register(
             &mut registry,
             Arc::new(MockTorManagerPort::new()),
             Arc::new(MockPortCheckerPort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(MockServiceManagerPort::new()),
+            Arc::new(MockNginxManagerPort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 10);
         assert!(tools.iter().all(|t| t.kind == ToolKind::ReadOnly));
         for name in [
             "tor_list",
+            "diag_tor",
             "config_show",
             "doctor",
             "diag_summary",
+            "diag_nginx",
             "update_check",
+            "wp_status",
             "plan_wp_create",
             "plan_tor_create",
         ] {
