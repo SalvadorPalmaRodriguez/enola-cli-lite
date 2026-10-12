@@ -8,47 +8,9 @@
 
 use crate::cli::commands::CliResult;
 
-// Documentos embebidos en el binario en tiempo de compilación
-const DOCS_QUICKSTART: &str = include_str!("../../docs/user/guia/quickstart.md");
-const DOCS_COMMANDS_REF: &str = include_str!("../../docs/user/general/commands.md");
-const DOCS_CONCEPTS: &str = include_str!("../../docs/user/general/concepts.md");
-const DOCS_FAQ: &str = include_str!("../../docs/user/general/faq.md");
-const DOCS_EXAMPLES: &str = include_str!("../../docs/user/guia/examples.md");
-
-// Guías avanzadas embebidas (NAV-DOC-001, 2026-04-05)
-const DOCS_QUANTUM_SEC: &str = include_str!("../../docs/user/general/quantum-security.md");
-const DOCS_VERIFY_DL: &str = include_str!("../../docs/user/verify/verify-downloads.md");
-const DOCS_SECURITY: &str = include_str!("../../docs/user/general/SECURITY.md");
-const DOCS_INSTALL_ISO: &str = include_str!("../../docs/user/guia/install-from-iso.md");
-const DOCS_UNINSTALL: &str = include_str!("../../docs/user/uninstall/uninstall.md");
-
-// Referencias detalladas por familia de comandos. `commands.md` es solo el
-// índice: el detalle vive en un documento por familia (sin duplicar contenido).
-const DOCS_COMMANDS_TOR: &str = include_str!("../../docs/user/tor/commands-tor.md");
-const DOCS_COMMANDS_GIT: &str = include_str!("../../docs/user/git/commands-git.md");
-const DOCS_COMMANDS_WP: &str = include_str!("../../docs/user/wp/commands-wp.md");
-const DOCS_COMMANDS_DRUPAL: &str = include_str!("../../docs/user/drupal/commands-drupal.md");
-const DOCS_COMMANDS_GHOST: &str = include_str!("../../docs/user/ghost/commands-ghost.md");
-const DOCS_COMMANDS_MAGNOLIA: &str = include_str!("../../docs/user/magnolia/commands-magnolia.md");
-const DOCS_COMMANDS_STRAPI: &str = include_str!("../../docs/user/strapi/commands-strapi.md");
-const DOCS_COMMANDS_WAGTAIL: &str = include_str!("../../docs/user/wagtail/commands-wagtail.md");
-const DOCS_COMMANDS_FILES: &str = include_str!("../../docs/user/files/commands-files.md");
-const DOCS_COMMANDS_FIREWALL: &str = include_str!("../../docs/user/firewall/commands-firewall.md");
-const DOCS_COMMANDS_APPARMOR: &str = include_str!("../../docs/user/apparmor/commands-apparmor.md");
-const DOCS_COMMANDS_VPN: &str = include_str!("../../docs/user/vpn/commands-vpn.md");
-const DOCS_COMMANDS_PORTS: &str = include_str!("../../docs/user/ports/commands-ports.md");
-const DOCS_COMMANDS_MAINTENANCE: &str =
-    include_str!("../../docs/user/maintenance/commands-maintenance.md");
-const DOCS_COMMANDS_DIAG: &str = include_str!("../../docs/user/diag/commands-diag.md");
-const DOCS_COMMANDS_LOGS: &str = include_str!("../../docs/user/logs/commands-logs.md");
-const DOCS_COMMANDS_UPDATE: &str = include_str!("../../docs/user/update/commands-update.md");
-const DOCS_COMMANDS_SIMPLE: &str = include_str!("../../docs/user/general/commands-simple.md");
-const DOCS_COMMANDS_PLAN: &str = include_str!("../../docs/user/general/commands-plan.md");
-const DOCS_COMMANDS_SETUP: &str = include_str!("../../docs/user/setup/commands-setup.md");
-const DOCS_COMMANDS_TEST: &str = include_str!("../../docs/user/test/commands-test.md");
-const DOCS_WEB: &str = include_str!("../../docs/user/web/README.md");
-const DOCS_COMMANDS_DOCS: &str = include_str!("../../docs/user/docs/commands-docs.md");
-const DOCS_TOR_CLIENT_AUTH: &str = include_str!("../../docs/user/tor/tor-client-auth.md");
+// Los documentos embebidos viven en `domain::docs` (única fuente de verdad,
+// compartida con el catálogo MCP `resources/*` — MCP-005).
+use crate::domain::docs::*;
 
 /// Familias de comandos con documento de referencia propio.
 /// Cada entrada admite varios alias para que el usuario acierte sin memorizar.

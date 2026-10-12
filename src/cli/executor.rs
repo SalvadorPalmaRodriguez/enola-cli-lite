@@ -168,6 +168,9 @@ fn build_mcp_registry() -> CliResult<crate::application::mcp::registry::ToolRegi
     crate::application::mcp::run_command::register(&mut registry, runner)
         .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
+    crate::application::mcp::resources::register_search_tool(&mut registry)
+        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+
     Ok(registry)
 }
 

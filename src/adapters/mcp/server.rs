@@ -76,7 +76,22 @@ impl<T: McpTransport> McpServer<T> {
                 if !self.initialized {
                     return error_response(id, -32600, "Invalid Request: not initialized");
                 }
-                success_response(id, json!({ "resources": [] }))
+                success_response(id, crate::application::mcp::resources::list_resources())
+            }
+            "resources/read" => {
+                if !self.initialized {
+                    return error_response(id, -32600, "Invalid Request: not initialized");
+                }
+                let uri = request
+                    .params
+                    .as_ref()
+                    .and_then(|p| p.get("uri"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                match crate::application::mcp::resources::read_resource(uri) {
+                    Ok(result) => success_response(id, result),
+                    Err(e) => error_response(id, -32602, &format!("Invalid params: {e}")),
+                }
             }
             _ => error_response(id, -32601, "Method not found"),
         }

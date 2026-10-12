@@ -6,6 +6,7 @@ pub mod apparmor; // AA-001 (201) — AppArmor sandboxing domain types
 pub mod cms;
 pub mod connector;
 pub mod dependencies; // DEP-001..003 — System dependency management
+pub mod docs; // MCP-005 — documentación de usuario embebida + catálogo MCP
 pub mod error;
 pub mod firewall;
 pub mod git;
