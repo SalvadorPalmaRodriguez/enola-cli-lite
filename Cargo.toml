@@ -86,7 +86,7 @@ notify = "6.1"
 libc = "0.2"
 dirs = "5.0"
 regex = "1.10"
-base64 = "0.21"
+base64 = "0.22"
 
 # Archive/Compression
 flate2 = "1.0"
