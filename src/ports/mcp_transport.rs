@@ -7,7 +7,7 @@ use crate::domain::error::Result;
 /// puede probarse sin procesos ni tuberías.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
-pub trait McpTransport {
+pub(crate) trait McpTransport {
     /// Recibe el siguiente mensaje (una línea completa). `None` = EOF.
     async fn recv(&mut self) -> Result<Option<String>>;
 

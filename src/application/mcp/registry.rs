@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// Handler de una tool MCP: recibe los argumentos ya validados y devuelve un
 /// resultado JSON estructurado.
 #[async_trait::async_trait]
-pub trait ToolHandler: Send + Sync {
+pub(crate) trait ToolHandler: Send + Sync {
     async fn call(&self, args: Value) -> Result<Value>;
 }
 
@@ -24,17 +24,17 @@ struct RegisteredTool {
 
 /// Catálogo de tools + dispatch a handlers.
 #[derive(Default)]
-pub struct ToolRegistry {
+pub(crate) struct ToolRegistry {
     tools: HashMap<String, RegisteredTool>,
 }
 
 impl ToolRegistry {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Registra una tool. Rechaza nombres duplicados.
-    pub fn register(&mut self, spec: ToolSpec, handler: Arc<dyn ToolHandler>) -> Result<()> {
+    pub(crate) fn register(&mut self, spec: ToolSpec, handler: Arc<dyn ToolHandler>) -> Result<()> {
         if self.tools.contains_key(&spec.name) {
             return Err(EnolaError::ValidationError(format!(
                 "duplicate tool: {}",
@@ -47,7 +47,7 @@ impl ToolRegistry {
     }
 
     /// Devuelve las tools registradas, ordenadas por nombre.
-    pub fn list_tools(&self) -> Vec<ToolSpec> {
+    pub(crate) fn list_tools(&self) -> Vec<ToolSpec> {
         let mut specs: Vec<ToolSpec> = self.tools.values().map(|t| t.spec.clone()).collect();
         specs.sort_by(|a, b| a.name.cmp(&b.name));
         specs
@@ -55,12 +55,12 @@ impl ToolRegistry {
 
     /// Devuelve el `ToolKind` de una tool registrada (None si no existe).
     /// La política de escritura lo consulta ANTES del dispatch (MCP-007).
-    pub fn kind_of(&self, name: &str) -> Option<crate::domain::tool::ToolKind> {
+    pub(crate) fn kind_of(&self, name: &str) -> Option<crate::domain::tool::ToolKind> {
         self.tools.get(name).map(|t| t.spec.kind)
     }
 
     /// Despacha `name` con `args`, validando antes de invocar el handler.
-    pub async fn call(&self, name: &str, args: Value) -> Result<Value> {
+    pub(crate) async fn call(&self, name: &str, args: Value) -> Result<Value> {
         let tool = self
             .tools
             .get(name)

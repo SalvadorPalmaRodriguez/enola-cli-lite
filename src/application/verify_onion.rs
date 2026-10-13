@@ -64,6 +64,7 @@ impl VerifyOnion {
 
     /// Sondea `address` (admite `xxx…onion`, `http://xxx…onion`,
     /// `https://…`). La dirección se valida antes de cualquier acceso a red.
+    #[tracing::instrument(skip(self), fields(address = %address))]
     pub async fn execute(&self, address: &str) -> Result<OnionVerification> {
         let url = normalize_onion_url(address)?;
         let mut last_reason = "other".to_string();

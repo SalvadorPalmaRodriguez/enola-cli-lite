@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 /// Resultado de `resources/list`: todos los documentos embebidos.
-pub fn list_resources() -> Value {
+pub(crate) fn list_resources() -> Value {
     let resources: Vec<Value> = DOC_CATALOG
         .iter()
         .map(|d| {
@@ -32,7 +32,7 @@ pub fn list_resources() -> Value {
 ///
 /// Solo resuelve URIs del catálogo cerrado; cualquier otra (incluido
 /// traversal `..`) devuelve `EnolaError::NotFound`/`ValidationError`.
-pub fn read_resource(uri: &str) -> Result<Value> {
+pub(crate) fn read_resource(uri: &str) -> Result<Value> {
     if uri.is_empty() {
         return Err(EnolaError::ValidationError("missing 'uri'".into()));
     }
@@ -72,7 +72,7 @@ impl ToolHandler for DocsSearchHandler {
 }
 
 /// Registra la tool `docs_search` en el registry.
-pub fn register_search_tool(
+pub(crate) fn register_search_tool(
     registry: &mut crate::application::mcp::registry::ToolRegistry,
 ) -> Result<()> {
     use crate::domain::tool::{ToolKind, ToolSpec};

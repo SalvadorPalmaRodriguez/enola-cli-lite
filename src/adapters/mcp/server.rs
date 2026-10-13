@@ -10,7 +10,10 @@ use crate::application::mcp::audit::AuditLogger;
 use crate::application::mcp::policy::McpPolicy;
 use crate::application::mcp::registry::ToolRegistry;
 use crate::domain::error::{EnolaError, Result};
-use crate::domain::mcp::{self, Id, Request, Response, RpcError};
+use crate::domain::mcp::{
+    self, CallToolResult, Capability, Id, InitializeResult, Request, Response, RpcError,
+    ServerCapabilities, ServerInfo, ToolDescriptor,
+};
 use crate::domain::tool::{ToolKind, ToolSpec};
 use crate::ports::mcp_transport::McpTransport;
 use serde_json::{json, Value};
@@ -124,16 +127,20 @@ impl<T: McpTransport> McpServer<T> {
         match mcp::negotiate_protocol_version(requested) {
             Ok(version) => {
                 self.initialized = true;
+                let result = InitializeResult {
+                    protocol_version: version.to_string(),
+                    capabilities: ServerCapabilities {
+                        tools: Some(Capability::default()),
+                        resources: Some(Capability::default()),
+                    },
+                    server_info: ServerInfo {
+                        name: env!("CARGO_PKG_NAME").to_string(),
+                        version: env!("CARGO_PKG_VERSION").to_string(),
+                    },
+                };
                 success_response(
                     id,
-                    json!({
-                        "protocolVersion": version,
-                        "capabilities": { "tools": {}, "resources": {} },
-                        "serverInfo": {
-                            "name": env!("CARGO_PKG_NAME"),
-                            "version": env!("CARGO_PKG_VERSION"),
-                        }
-                    }),
+                    serde_json::to_value(&result).unwrap_or_else(|_| json!({})),
                 )
             }
             Err(_) => error_response(id, -32602, "Invalid params: unsupported protocolVersion"),
@@ -153,6 +160,7 @@ impl<T: McpTransport> McpServer<T> {
         success_response(id, json!({ "tools": tools }))
     }
 
+    #[tracing::instrument(skip_all, fields(tool = tracing::field::Empty))]
     async fn handle_tool_call(&self, request: &Request, id: Id) -> Response {
         if !self.initialized {
             return error_response(id, -32600, "Invalid Request: not initialized");
@@ -161,13 +169,18 @@ impl<T: McpTransport> McpServer<T> {
         let Some(name) = params.and_then(|p| p.get("name")).and_then(|v| v.as_str()) else {
             return error_response(id, -32602, "Invalid params: missing 'name'");
         };
+        tracing::Span::current().record("tool", name);
         let args = params
             .and_then(|p| p.get("arguments"))
             .cloned()
             .unwrap_or_else(|| json!({}));
 
         // MCP-007: política de escritura evaluada ANTES del dispatch.
-        let kind = self.registry.kind_of(name).unwrap_or(ToolKind::ReadOnly);
+        // Una tool no registrada se rechaza como parámetro inválido: no hay
+        // kind por defecto (default-deny real vive en `classify`).
+        let Some(kind) = self.registry.kind_of(name) else {
+            return error_response(id, -32602, &format!("Invalid params: unknown tool: {name}"));
+        };
         let is_mutating = kind == ToolKind::Mutating;
         if let Err(e) = self.policy.allows(kind, name) {
             if is_mutating {
@@ -175,10 +188,8 @@ impl<T: McpTransport> McpServer<T> {
             }
             return success_response(
                 id,
-                json!({
-                    "content": [{"type": "text", "text": format!("{e}")}],
-                    "isError": true,
-                }),
+                serde_json::to_value(CallToolResult::text(format!("{e}"), true))
+                    .unwrap_or_else(|_| json!({})),
             );
         }
 
@@ -206,10 +217,8 @@ impl<T: McpTransport> McpServer<T> {
                 let text = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
                 success_response(
                     id,
-                    json!({
-                        "content": [{"type": "text", "text": text}],
-                        "isError": false,
-                    }),
+                    serde_json::to_value(CallToolResult::text(text, false))
+                        .unwrap_or_else(|_| json!({})),
                 )
             }
             Err(e) => match e {
@@ -218,10 +227,8 @@ impl<T: McpTransport> McpServer<T> {
                 }
                 EnolaError::SecurityError(_) => success_response(
                     id,
-                    json!({
-                        "content": [{"type": "text", "text": format!("{e}")}],
-                        "isError": true,
-                    }),
+                    serde_json::to_value(CallToolResult::text(format!("{e}"), true))
+                        .unwrap_or_else(|_| json!({})),
                 ),
                 other => error_response(id, -32603, &other.to_string()),
             },
@@ -243,11 +250,12 @@ impl<T: McpTransport> McpServer<T> {
 }
 
 fn tool_to_value(spec: &ToolSpec) -> Value {
-    json!({
-        "name": spec.name,
-        "description": spec.description,
-        "inputSchema": spec.input_schema,
+    serde_json::to_value(&ToolDescriptor {
+        name: spec.name.clone(),
+        description: spec.description.clone(),
+        input_schema: spec.input_schema.clone(),
     })
+    .unwrap_or_else(|_| json!({}))
 }
 
 fn success_response(id: Id, result: Value) -> Response {
@@ -509,6 +517,20 @@ mod tests {
             out[1]["result"]["content"][0]["text"],
             r#"{"doubled":true}"#
         );
+    }
+
+    #[tokio::test]
+    async fn unknown_tool_call_returns_invalid_params() {
+        let out = run(vec![
+            initialize_msg(1),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "no_such_tool", "arguments": {}}}),
+        ])
+        .await;
+        assert_eq!(out[1]["error"]["code"], -32602);
+        assert!(out[1]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown tool"));
     }
 
     #[test]

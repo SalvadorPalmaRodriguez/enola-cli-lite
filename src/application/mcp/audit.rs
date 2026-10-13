@@ -26,7 +26,7 @@ const SECRET_KEYS: &[&str] = &[
 
 /// Sustituye por `[REDACTED]` el valor de cualquier clave cuyo nombre
 /// contenga un patrón de secreto (case-insensitive). Recursivo en objetos.
-pub fn sanitize_args(args: &Value) -> Value {
+pub(crate) fn sanitize_args(args: &Value) -> Value {
     match args {
         Value::Object(map) => {
             let mut out = serde_json::Map::new();
@@ -47,7 +47,7 @@ pub fn sanitize_args(args: &Value) -> Value {
 
 /// Destino del log de auditoría.
 #[derive(Debug, Clone)]
-pub enum AuditSink {
+pub(crate) enum AuditSink {
     /// `eprintln!` — nunca stdout.
     Stderr,
     /// Fichero append-only (una línea JSON por entrada).
@@ -55,13 +55,13 @@ pub enum AuditSink {
 }
 
 /// Logger de auditoría para llamadas mutantes.
-pub struct AuditLogger {
+pub(crate) struct AuditLogger {
     sink: AuditSink,
 }
 
 impl AuditLogger {
     /// Construye el logger. `path` vacío/None/`"stderr"` → stderr.
-    pub fn new(path: Option<&str>) -> Self {
+    pub(crate) fn new(path: Option<&str>) -> Self {
         let sink = match path {
             Some(p) if !p.trim().is_empty() && p.trim() != "stderr" => {
                 AuditSink::File(PathBuf::from(p))
@@ -75,7 +75,7 @@ impl AuditLogger {
     ///
     /// `outcome` es `"ok"`, `"rejected"` o `"error: <msg>"`. Errores de
     /// escritura del propio log no rompen la llamada (best-effort, a stderr).
-    pub fn log_call(&self, tool: &str, args: &Value, outcome: &str) {
+    pub(crate) fn log_call(&self, tool: &str, args: &Value, outcome: &str) {
         let entry = json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "tool": tool,

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Clasificación de seguridad de una tool MCP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ToolKind {
+pub(crate) enum ToolKind {
     /// No muta el sistema: listar, consultar, planificar, verificar.
     ReadOnly,
     /// Puede mutar el sistema: crear, borrar, publicar, configurar.
@@ -13,17 +13,17 @@ pub enum ToolKind {
 
 /// Especificación de una tool MCP (nombre, descripción, schema y clase).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ToolSpec {
-    pub name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
-    pub kind: ToolKind,
+pub(crate) struct ToolSpec {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) input_schema: serde_json::Value,
+    pub(crate) kind: ToolKind,
 }
 
 impl ToolSpec {
     /// Construye una `ToolSpec` validando que el schema es un JSON Schema de
     /// tipo `object` (lo que los clientes MCP esperan para `inputSchema`).
-    pub fn new(
+    pub(crate) fn new(
         name: &str,
         description: &str,
         input_schema: serde_json::Value,
@@ -49,16 +49,9 @@ impl ToolSpec {
     }
 }
 
-/// Resultado de una ejecución de tool, con marca de truncado.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ToolOutcome {
-    pub content: String,
-    pub truncated: bool,
-}
-
 /// Trunca `text` a `max` bytes respetando límites de caracteres UTF-8.
 /// Devuelve `(texto, si_truncó)`.
-pub fn truncate_output(text: &str, max: usize) -> (String, bool) {
+pub(crate) fn truncate_output(text: &str, max: usize) -> (String, bool) {
     if text.len() <= max {
         return (text.to_string(), false);
     }
@@ -73,7 +66,7 @@ pub fn truncate_output(text: &str, max: usize) -> (String, bool) {
 ///
 /// Default-deny: cualquier (familia, subcomando) no listado aquí se clasifica
 /// como `Mutating`. Un comando nuevo NUNCA se cuela como lectura por descuido.
-pub const READ_ONLY_SUBCOMMANDS: &[(&str, &str)] = &[
+pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &str)] = &[
     ("tor", "list"),
     ("git", "list"),
     ("git", "status"),
@@ -129,7 +122,7 @@ pub const READ_ONLY_SUBCOMMANDS: &[(&str, &str)] = &[
 ];
 
 /// Familias HOJA (sin subcomando) que son de LECTURA.
-pub const READ_ONLY_LEAF_FAMILIES: &[&str] = &[
+pub(crate) const READ_ONLY_LEAF_FAMILIES: &[&str] = &[
     "doctor",
     "quickref",
     "license",
@@ -139,7 +132,7 @@ pub const READ_ONLY_LEAF_FAMILIES: &[&str] = &[
 ];
 
 /// Clasifica un comando como lectura o mutación (default-deny).
-pub fn classify(family: &str, subcommand: Option<&str>) -> ToolKind {
+pub(crate) fn classify(family: &str, subcommand: Option<&str>) -> ToolKind {
     match subcommand {
         Some(sub) => {
             if READ_ONLY_SUBCOMMANDS.contains(&(family, sub)) {
@@ -160,7 +153,10 @@ pub fn classify(family: &str, subcommand: Option<&str>) -> ToolKind {
 
 /// Valida `args` contra un subconjunto de JSON Schema: `type: object`,
 /// `required`, `properties` (con `type` y `enum`). Devuelve error descriptivo.
-pub fn validate_input(schema: &serde_json::Value, args: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn validate_input(
+    schema: &serde_json::Value,
+    args: &serde_json::Value,
+) -> Result<(), String> {
     if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
         return Err("schema must declare type: object".to_string());
     }

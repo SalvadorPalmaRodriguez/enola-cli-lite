@@ -17,7 +17,7 @@ pub(crate) fn load_tree() -> Value {
 }
 
 /// Devuelve el descubrimiento de comandos según los filtros opcionales.
-pub fn list_commands(family: Option<&str>, query: Option<&str>) -> Value {
+pub(crate) fn list_commands(family: Option<&str>, query: Option<&str>) -> Value {
     let tree = load_tree();
     let families = tree["families"].as_array().cloned().unwrap_or_default();
 
@@ -74,7 +74,7 @@ impl ToolHandler for ListCommandsHandler {
 }
 
 /// Registra la meta-tool `enola_list_commands` en el registry.
-pub fn register(registry: &mut ToolRegistry) -> Result<()> {
+pub(crate) fn register(registry: &mut ToolRegistry) -> Result<()> {
     let spec = ToolSpec::new(
         "enola_list_commands",
         "Discover the commands available to enola_run_command. Filter by family or text.",

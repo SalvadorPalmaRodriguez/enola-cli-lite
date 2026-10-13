@@ -221,8 +221,20 @@ fn generate_console_commands_json() {
 
     let json_str =
         serde_json::to_string_pretty(&json).expect("no se pudo serializar console_commands.json");
-    std::fs::write("assets/console_commands.json", json_str)
-        .expect("no se pudo escribir assets/console_commands.json");
+    write_if_changed("assets/console_commands.json", &json_str);
+}
+
+/// Escribe `content` en `path` solo si difiere del contenido actual.
+///
+/// Los artefactos generados viven commiteados en el árbol de fuentes: una
+/// escritura incondicional actualizaría el mtime aunque el contenido no
+/// cambiara, ensuciando el working tree y disparando rebuilds innecesarios.
+fn write_if_changed(path: &str, content: &str) {
+    match std::fs::read_to_string(path) {
+        Ok(existing) if existing == content => {}
+        _ => std::fs::write(path, content)
+            .unwrap_or_else(|e| panic!("no se pudo escribir {path}: {e}")),
+    }
 }
 
 /// Primera línea útil de un doc comment clap (ignora marcadores DOC-SYNC).
@@ -293,8 +305,7 @@ fn generate_mcp_tools_json() {
     let tree = build_command_tree();
     let json_str =
         serde_json::to_string_pretty(&tree).expect("no se pudo serializar mcp_tools.json");
-    std::fs::write("assets/mcp_tools.json", json_str)
-        .expect("no se pudo escribir assets/mcp_tools.json");
+    write_if_changed("assets/mcp_tools.json", &json_str);
 }
 
 #[cfg(test)]

@@ -202,6 +202,10 @@ struct RunCommandHandler {
 
 #[async_trait::async_trait]
 impl ToolHandler for RunCommandHandler {
+    #[tracing::instrument(
+        skip_all,
+        fields(family = tracing::field::Empty, command = tracing::field::Empty)
+    )]
     async fn call(&self, args: Value) -> Result<Value> {
         let family = args
             .get("family")
@@ -211,6 +215,9 @@ impl ToolHandler for RunCommandHandler {
         let tree = load_tree();
         let family_node = find_family(&tree, family)?;
         let (tokens, leaf) = resolve_leaf(family_node, subcommand)?;
+        let span = tracing::Span::current();
+        span.record("family", family);
+        span.record("command", tokens.join(" ").as_str());
 
         // Política de escritura (Fase 7): el nombre evaluado es `family:sub`
         // para que la allowlist pueda limitar comandos concretos. La llamada
@@ -256,7 +263,7 @@ impl ToolHandler for RunCommandHandler {
 }
 
 /// Registra la meta-tool `enola_run_command` en el registry.
-pub fn register(
+pub(crate) fn register(
     registry: &mut crate::application::mcp::registry::ToolRegistry,
     runner: Arc<dyn ProcessRunnerPort + Send + Sync>,
     policy: Arc<McpPolicy>,

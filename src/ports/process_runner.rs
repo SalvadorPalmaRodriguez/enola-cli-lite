@@ -9,19 +9,19 @@ use std::time::Duration;
 
 /// Salida capturada de un subproceso `enola-cli`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProcessOutput {
+pub(crate) struct ProcessOutput {
     /// Código de salida del proceso (-1 si fue terminado por señal).
-    pub exit_code: i32,
+    pub(crate) exit_code: i32,
     /// stdout capturado (con `--format json` debe ser JSON o vacío).
-    pub stdout: String,
+    pub(crate) stdout: String,
     /// stderr capturado (diagnósticos, licencias, warnings).
-    pub stderr: String,
+    pub(crate) stderr: String,
 }
 
 /// Ejecuta `enola-cli` con un argv ya validado. Nunca invoca una shell.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
-pub trait ProcessRunnerPort {
+pub(crate) trait ProcessRunnerPort {
     /// Lanza el proceso con `argv`, espera hasta `timeout` y captura salida.
     ///
     /// En timeout el proceso hijo se mata (`kill_on_drop`) antes de devolver

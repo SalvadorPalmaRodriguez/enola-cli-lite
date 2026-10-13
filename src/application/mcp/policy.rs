@@ -18,18 +18,18 @@ use std::collections::HashMap;
 
 /// Política efectiva del servidor MCP (ya resuelta).
 #[derive(Debug, Clone, PartialEq)]
-pub struct McpPolicy {
+pub(crate) struct McpPolicy {
     /// Permite ejecutar tools `Mutating`.
-    pub allow_write: bool,
+    pub(crate) allow_write: bool,
     /// Allowlist de nombres de tool (`wp_create`) o rutas de comando
     /// (`family:sub` p.ej. `wp:create`). Vacía = todas las mutantes.
-    pub allowed_tools: Vec<String>,
+    pub(crate) allowed_tools: Vec<String>,
     /// Límite de bytes para stdout/stderr devueltos por tools.
-    pub max_output_bytes: usize,
+    pub(crate) max_output_bytes: usize,
     /// Path del log de auditoría (None = stderr).
-    pub audit_log: Option<String>,
+    pub(crate) audit_log: Option<String>,
     /// Timeout por llamada a tool, en segundos.
-    pub request_timeout_secs: u64,
+    pub(crate) request_timeout_secs: u64,
 }
 
 impl Default for McpPolicy {
@@ -49,7 +49,7 @@ impl McpPolicy {
     ///
     /// Para `enola_run_command` el nombre evaluado es `family:sub` (p.ej.
     /// `wp:create`), así una allowlist puede limitar la meta-tool por comando.
-    pub fn allows(&self, kind: ToolKind, tool_name: &str) -> Result<()> {
+    pub(crate) fn allows(&self, kind: ToolKind, tool_name: &str) -> Result<()> {
         match kind {
             ToolKind::ReadOnly => Ok(()),
             ToolKind::Mutating => {
@@ -74,17 +74,17 @@ impl McpPolicy {
 
 /// Overrides de flags CLI (None = no aportado → baja al siguiente nivel).
 #[derive(Debug, Default, Clone)]
-pub struct McpFlagOverrides {
+pub(crate) struct McpFlagOverrides {
     /// `--allow-write` (flag booleano; `Some(true)` si se pasó).
-    pub allow_write: Option<bool>,
+    pub(crate) allow_write: Option<bool>,
     /// `--allow-tools` CSV ya troceado.
-    pub allow_tools: Option<Vec<String>>,
+    pub(crate) allow_tools: Option<Vec<String>>,
     /// `--max-output-bytes`.
-    pub max_output_bytes: Option<usize>,
+    pub(crate) max_output_bytes: Option<usize>,
     /// `--audit-log` path.
-    pub audit_log: Option<String>,
+    pub(crate) audit_log: Option<String>,
     /// `--request-timeout-secs`.
-    pub request_timeout_secs: Option<u64>,
+    pub(crate) request_timeout_secs: Option<u64>,
 }
 
 fn env_truthy(key: &str) -> Option<bool> {
@@ -171,7 +171,7 @@ fn file_csv(section: &HashMap<String, String>, key: &str) -> Option<Vec<String>>
 /// Resuelve la política efectiva: flag > env > `~/.enola/config.toml [mcp]` >
 /// defaults seguros. `config_section` es la sección `[mcp]` del fichero
 /// (`infrastructure::config_loader::load_section("mcp")`, vacío si no existe).
-pub fn resolve_policy(
+pub(crate) fn resolve_policy(
     flags: &McpFlagOverrides,
     config_section: &HashMap<String, String>,
 ) -> McpPolicy {

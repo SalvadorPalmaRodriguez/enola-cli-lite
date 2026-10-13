@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 /// Registra las tools de lectura de primera clase en el registry.
 #[allow(clippy::too_many_arguments)]
-pub fn register(
+pub(crate) fn register(
     registry: &mut ToolRegistry,
     tor: Arc<dyn TorManagerPort + Send + Sync>,
     port_checker: Arc<dyn PortCheckerPort>,

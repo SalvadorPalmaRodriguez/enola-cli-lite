@@ -4,10 +4,10 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Versión del protocolo JSON-RPC (fija en la especificación 2.0).
-pub const JSONRPC_VERSION: &str = "2.0";
+pub(crate) const JSONRPC_VERSION: &str = "2.0";
 
 /// Revisión del protocolo MCP que implementa este servidor.
-pub const PROTOCOL_VERSION: &str = "2026-07-28";
+pub(crate) const PROTOCOL_VERSION: &str = "2026-07-28";
 
 /// Revisiones conocidas del protocolo MCP (anteriores + la nuestra).
 const KNOWN_PROTOCOL_VERSIONS: &[&str] =
@@ -16,7 +16,7 @@ const KNOWN_PROTOCOL_VERSIONS: &[&str] =
 /// Identificador JSON-RPC: cadena, número o nulo.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum Id {
+pub(crate) enum Id {
     Str(String),
     Num(i64),
     Null,
@@ -38,102 +38,116 @@ where
 
 /// Petición JSON-RPC 2.0. Un `id` ausente (`None`) es una notificación.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Request {
-    pub jsonrpc: String,
-    pub method: String,
+pub(crate) struct Request {
+    pub(crate) jsonrpc: String,
+    pub(crate) method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<serde_json::Value>,
+    pub(crate) params: Option<serde_json::Value>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,
         deserialize_with = "deserialize_some"
     )]
-    pub id: Option<Id>,
+    pub(crate) id: Option<Id>,
 }
 
 impl Request {
     /// `true` si la petición no lleva `id` (notificación JSON-RPC).
-    pub fn is_notification(&self) -> bool {
+    pub(crate) fn is_notification(&self) -> bool {
         self.id.is_none()
     }
 }
 
 /// Respuesta JSON-RPC 2.0. Exactamente uno de `result`/`error` debe ir presente.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Response {
-    pub jsonrpc: String,
+pub(crate) struct Response {
+    pub(crate) jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
+    pub(crate) result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<RpcError>,
-    pub id: Id,
+    pub(crate) error: Option<RpcError>,
+    pub(crate) id: Id,
 }
 
 /// Objeto de error JSON-RPC 2.0 (`code`, `message`, `data` opcional).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RpcError {
-    pub code: i64,
-    pub message: String,
+pub(crate) struct RpcError {
+    pub(crate) code: i64,
+    pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 /// Capacidades del servidor MCP anunciadas en `initialize`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ServerCapabilities {
+pub(crate) struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Capability>,
+    pub(crate) tools: Option<Capability>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub resources: Option<Capability>,
+    pub(crate) resources: Option<Capability>,
 }
 
 /// Capacidad MCP (objeto vacío o con flags opcionales).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Capability {
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Capability {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub list_changed: Option<bool>,
+    pub(crate) list_changed: Option<bool>,
 }
 
 /// Información del servidor (`name`, `version`) en `initialize`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerInfo {
-    pub name: String,
-    pub version: String,
+pub(crate) struct ServerInfo {
+    pub(crate) name: String,
+    pub(crate) version: String,
 }
 
 /// Resultado de `initialize`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InitializeResult {
-    pub protocol_version: String,
-    pub capabilities: ServerCapabilities,
-    pub server_info: ServerInfo,
+pub(crate) struct InitializeResult {
+    pub(crate) protocol_version: String,
+    pub(crate) capabilities: ServerCapabilities,
+    pub(crate) server_info: ServerInfo,
 }
 
 /// Descriptor de una tool MCP (para `tools/list`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolDescriptor {
-    pub name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
+pub(crate) struct ToolDescriptor {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) input_schema: serde_json::Value,
 }
 
 /// Resultado de `tools/call`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CallToolResult {
-    pub content: Vec<ContentBlock>,
+pub(crate) struct CallToolResult {
+    pub(crate) content: Vec<ContentBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_error: Option<bool>,
+    pub(crate) is_error: Option<bool>,
 }
 
 /// Bloque de contenido (texto) dentro de `CallToolResult`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ContentBlock {
+pub(crate) struct ContentBlock {
     #[serde(rename = "type")]
-    pub content_type: String,
-    pub text: String,
+    pub(crate) content_type: String,
+    pub(crate) text: String,
+}
+
+impl CallToolResult {
+    /// Resultado de `tools/call` con un único bloque de texto.
+    pub(crate) fn text(text: impl Into<String>, is_error: bool) -> Self {
+        Self {
+            content: vec![ContentBlock {
+                content_type: "text".to_string(),
+                text: text.into(),
+            }],
+            is_error: Some(is_error),
+        }
+    }
 }
 
 /// Negocia la versión de protocolo MCP.
@@ -141,7 +155,7 @@ pub struct ContentBlock {
 /// Acepta la nuestra (`2026-07-28`) y cualquier revisión anterior conocida
 /// (respondiendo siempre con la nuestra); rechaza versiones desconocidas con
 /// un error claro, sin panic.
-pub fn negotiate_protocol_version(
+pub(crate) fn negotiate_protocol_version(
     requested: &str,
 ) -> Result<&'static str, crate::domain::error::EnolaError> {
     if KNOWN_PROTOCOL_VERSIONS.contains(&requested) {
