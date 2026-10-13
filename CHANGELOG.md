@@ -3,6 +3,48 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0-alpha] — 2026-10-13
+
+### Added
+- **MCP server (`enola-cli mcp`)** — Model Context Protocol server over stdio
+  (JSON-RPC 2.0, NDJSON, protocolVersion `2026-07-28`) exposing Enola to AI
+  agents. Methods: `initialize`, `notifications/initialized`, `ping`,
+  `tools/list`, `tools/call`, `resources/list`, `resources/read`. stdout carries
+  only JSON-RPC; logs and diagnostics go to stderr.
+- **21 MCP tools** — 13 read-only (`config_show`, `diag_nginx`, `diag_summary`,
+  `diag_tor`, `doctor`, `plan_tor_create`, `plan_wp_create`, `ports_list`,
+  `tor_list`, `update_check`, `verify_onion`, `wp_list`, `wp_status`), 6
+  mutating (`files_create`, `tor_create`, `tor_remove`, `wp_create`, `wp_hide`,
+  `wp_publish` — `tor_remove` and `wp_hide` require explicit `"force": true`)
+  and 2 meta-tools (`enola_list_commands`, `enola_run_command`).
+- **MCP write policy** — read-only by default; mutating tools require
+  `--allow-write` and can be limited with `--allow-tools` (empty allowlist +
+  `--allow-write` = all mutating tools enabled). Mutating calls are written to
+  an audit log with secret redaction.
+- **MCP resources** — the 36 embedded user documents are readable as
+  `enola://docs/<path>` resources.
+- **MCP configuration** — flags `--allow-write`, `--allow-tools`,
+  `--max-output-bytes`, `--audit-log`, `--request-timeout-secs`; env vars
+  `ENOLA_MCP_ALLOW_WRITE`, `ENOLA_MCP_ALLOWED_TOOLS`,
+  `ENOLA_MCP_MAX_OUTPUT_BYTES`, `ENOLA_MCP_AUDIT_LOG`,
+  `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; `[mcp]` section of
+  `~/.enola/config.toml`. Priority: CLI flag > env var > config file > safe
+  defaults.
+- **`diag onion`** — `diag onion <address>.onion [--format json]` probes a
+  `.onion` service through Tor's SOCKS5h proxy and returns structured
+  reachability (status, latency, title, failure reason:
+  `timeout`/`proxy_unavailable`/`site_unreachable`).
+
+### Removed
+- **`serde_yaml` dependency** — dead dependency; it pulled in `unsafe-libyaml`
+  (RUSTSEC-2024-0449).
+
+### Security
+- **`quinn-proto` 0.11.18** — fixes RUSTSEC-2026-0338, -0339, -0340, -0341 and
+  -0342 (transitive via `reqwest` HTTP/3).
+- **`chacha20` 0.10.2 and `der` 0.8.2** — replaces yanked versions.
+- **`base64` unified on 0.22** — removes the duplicated 0.21/0.22 entries.
+
 ## [0.6.0-alpha] — 2026-10-07
 
 ### Added

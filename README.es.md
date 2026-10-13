@@ -32,6 +32,7 @@
 - **🔐 Firmas de release post-cuánticas** — cada release se firma con minisign (Ed25519) **y** ML-DSA-65 (FIPS 204); verificación offline vía `enola-cli verify`.
 - **📚 Documentación offline embebida** — `enola-cli docs` funciona sin red.
 - **🌐 Dashboard web local** — GUI protegida con token, vinculada a `127.0.0.1`.
+- **🔌 Servidor MCP para agentes IA** — servidor Model Context Protocol (JSON-RPC 2.0 sobre stdio), de solo lectura por defecto con opt-in explícito `--allow-write`.
 
 ## 🏗️ Arquitectura
 
@@ -85,6 +86,7 @@ Modelo de tráfico para cada servicio: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_P
   - [📖 Quickref - Referencia Rápida](#-quickref---referencia-rápida)
   - [🌐 Web - Dashboard Local](#-web---dashboard-local)
   - [⚙️ Config - Configuración](#-config---configuración)
+  - [🔌 MCP — Model Context Protocol](#-mcp--model-context-protocol)
 - [Documentación Detallada](#-documentación-detallada)
 - [Opciones Globales](#️-opciones-globales)
 - [Ejemplos Prácticos](#-ejemplos-prácticos)
@@ -183,6 +185,7 @@ enola-cli
 ├── license     # Texto de la licencia
 ├── quickref    # Referencia rápida Docker ↔ Enola
 ├── web         # Dashboard web local (GUI)
+├── mcp         # Servidor MCP para agentes IA (JSON-RPC stdio)
 ├── config-show    # Mostrar configuración efectiva
 └── config-validate # Validar configuración
 ```
@@ -693,6 +696,9 @@ sudo enola-cli diag nginx-test
 
 # Ver recursos del sistema (RAM, Disco, GPU)
 sudo enola-cli diag resources
+
+# Sonda de alcanzabilidad de un servicio .onion (vía SOCKS5h de Tor)
+sudo enola-cli diag onion <dirección>.onion --format json
 ```
 
 ---
@@ -1015,6 +1021,24 @@ enola-cli config-validate --json
 
 ---
 
+## 🔌 MCP — Model Context Protocol
+
+`enola-cli mcp` ejecuta un servidor MCP sobre stdio (JSON-RPC 2.0, NDJSON) para que agentes IA puedan inspeccionar y operar tu instalación de Enola mediante tools. De solo lectura por defecto: las tools mutantes exigen `--allow-write` (restringible con `--allow-tools`), y las destructivas además requieren `"force": true`. Las llamadas mutantes quedan auditadas con redacción de secretos.
+
+```bash
+# Servidor de solo lectura (default seguro)
+sudo enola-cli mcp
+
+# Habilitar tools de escritura, limitadas a una allowlist
+sudo enola-cli mcp --allow-write --allow-tools wp_create,wp_publish
+```
+
+Configuración: flags `--allow-write`, `--allow-tools <CSV>`, `--max-output-bytes <BYTES>`, `--audit-log <PATH>`, `--request-timeout-secs <SECS>`; variables de entorno `ENOLA_MCP_ALLOW_WRITE`, `ENOLA_MCP_ALLOWED_TOOLS`, `ENOLA_MCP_MAX_OUTPUT_BYTES`, `ENOLA_MCP_AUDIT_LOG`, `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; o la sección `[mcp]` de `~/.enola/config.toml`. Prioridad: flag CLI > env > fichero de configuración > defaults seguros.
+
+21 tools (13 de solo lectura, 6 mutantes, 2 meta-tools) más 36 documentos de usuario embebidos como resources `enola://docs/<ruta>`. **stdout transporta solo JSON-RPC** — logs y diagnósticos van a stderr.
+
+---
+
 ## 📖 Documentación Detallada
 
 Cada módulo tiene una referencia de comandos dedicada con descripciones completas de flags y ejemplos:
@@ -1032,6 +1056,7 @@ Cada módulo tiene una referencia de comandos dedicada con descripciones complet
 | Files | [commands-files.md](docs/user/files/commands-files.md) |
 | VPN | [commands-vpn.md](docs/user/vpn/commands-vpn.md) |
 | Plan (dry-run) | [commands-plan.md](docs/user/general/commands-plan.md) |
+| MCP | [commands-mcp.md](docs/user/mcp/commands-mcp.md) |
 | Maintenance | [commands-simple.md](docs/user/general/commands-simple.md) |
 | Seguridad | [quantum-security.md](docs/user/general/quantum-security.md) · [SECURITY.md](docs/user/general/SECURITY.md) |
 | Verificación | [verify-downloads.md](docs/user/verify/verify-downloads.md) |

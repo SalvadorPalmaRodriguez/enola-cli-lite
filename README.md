@@ -32,6 +32,7 @@
 - **🔐 Post-quantum release signing** — every release is signed with minisign (Ed25519) **and** ML-DSA-65 (FIPS 204); verification is offline via `enola-cli verify`.
 - **📚 Embedded offline docs** — `enola-cli docs` works with no network.
 - **🌐 Local web dashboard** — token-protected GUI bound to `127.0.0.1`.
+- **🔌 MCP server for AI agents** — Model Context Protocol server (JSON-RPC 2.0 over stdio), read-only by default with explicit `--allow-write` opt-in.
 
 ## 🏗️ Architecture
 
@@ -83,6 +84,7 @@ Traffic model for every service: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_PORT �
   - [📖 Quickref](#-quickref)
   - [🌐 Web — Local Dashboard](#-web--local-dashboard)
   - [⚙️ Config](#️-config)
+  - [🔌 MCP — Model Context Protocol](#-mcp--model-context-protocol)
 - [Detailed Documentation](#-detailed-documentation)
 - [Global Options](#️-global-options)
 - [Practical Examples](#-practical-examples)
@@ -181,6 +183,7 @@ enola-cli
 ├── license     # License text
 ├── quickref    # Docker ↔ Enola quick reference
 ├── web         # Local web dashboard (GUI)
+├── mcp         # MCP server for AI agents (JSON-RPC stdio)
 ├── config-show    # Show effective configuration
 └── config-validate # Validate configuration
 ```
@@ -688,6 +691,9 @@ sudo enola-cli diag nginx-test
 
 # Show system resources (RAM, Disk, GPU)
 sudo enola-cli diag resources
+
+# Probe a .onion service reachability (via Tor SOCKS5h)
+sudo enola-cli diag onion <address>.onion --format json
 ```
 
 ---
@@ -1010,6 +1016,24 @@ enola-cli config-validate --json
 
 ---
 
+## 🔌 MCP — Model Context Protocol
+
+`enola-cli mcp` runs an MCP server over stdio (JSON-RPC 2.0, NDJSON) so AI agents can inspect and operate your Enola installation through tools. Read-only by default: mutating tools require `--allow-write` (optionally restricted with `--allow-tools`), and destructive tools also need `"force": true`. Mutating calls are audit-logged with secret redaction.
+
+```bash
+# Read-only server (safe default)
+sudo enola-cli mcp
+
+# Enable write tools, limited to an allowlist
+sudo enola-cli mcp --allow-write --allow-tools wp_create,wp_publish
+```
+
+Configuration: flags `--allow-write`, `--allow-tools <CSV>`, `--max-output-bytes <BYTES>`, `--audit-log <PATH>`, `--request-timeout-secs <SECS>`; env vars `ENOLA_MCP_ALLOW_WRITE`, `ENOLA_MCP_ALLOWED_TOOLS`, `ENOLA_MCP_MAX_OUTPUT_BYTES`, `ENOLA_MCP_AUDIT_LOG`, `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; or the `[mcp]` section of `~/.enola/config.toml`. Priority: CLI flag > env var > config file > safe defaults.
+
+21 tools (13 read-only, 6 mutating, 2 meta-tools) plus 36 embedded user docs as `enola://docs/<path>` resources. **stdout carries only JSON-RPC** — logs and diagnostics go to stderr.
+
+---
+
 ## 📖 Detailed Documentation
 
 Each module has a dedicated command reference with full flag descriptions and examples:
@@ -1027,6 +1051,7 @@ Each module has a dedicated command reference with full flag descriptions and ex
 | Files | [commands-files.md](docs/user/files/commands-files.md) |
 | VPN | [commands-vpn.md](docs/user/vpn/commands-vpn.md) |
 | Plan (dry-run) | [commands-plan.md](docs/user/general/commands-plan.md) |
+| MCP | [commands-mcp.md](docs/user/mcp/commands-mcp.md) |
 | Maintenance | [commands-simple.md](docs/user/general/commands-simple.md) |
 | Security | [quantum-security.md](docs/user/general/quantum-security.md) · [SECURITY.md](docs/user/general/SECURITY.md) |
 | Verification | [verify-downloads.md](docs/user/verify/verify-downloads.md) |

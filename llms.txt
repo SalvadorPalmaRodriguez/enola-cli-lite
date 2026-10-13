@@ -23,18 +23,20 @@ Important notes:
 
 ## Documentation
 
-- [README](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/README.md): Full command reference for all 29 commands
+- [README](https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/blob/main/README.md): Full command reference for all 31 commands
 - [Quickstart (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/quickstart): First steps: install, create your first .onion service
 - [Command reference (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/commands): Index of all commands by module
 - [Key concepts (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/concepts): Tor, ports, VPN, AppArmor, Docker, CMS, post-quantum crypto
 - [FAQ (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/faq): Frequently asked questions and troubleshooting
 - [Security model (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/security-model): User-facing security model
 - [Verify downloads (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/verify-downloads): SHA256 + minisign + ML-DSA-65 verification guide
+- [MCP server (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/commands-mcp): Model Context Protocol server for AI agents
 
 ## Documentation (Spanish)
 
 - [Documentación de usuario](https://salvadorpalmarodriguez.github.io/enola-cli-lite/user/): Complete per-module command docs in Spanish
 - [Seguridad post-cuántica](https://salvadorpalmarodriguez.github.io/enola-cli-lite/user/general/quantum-security): Post-quantum security guide
+- [Servidor MCP (ES)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/user/mcp/commands-mcp): Servidor MCP para agentes IA
 
 ## Optional
 

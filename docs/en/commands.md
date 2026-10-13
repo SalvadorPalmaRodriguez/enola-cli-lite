@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands.md`
-> **Version:** 3.5 | **Updated:** 2026-09-20
+> **Version:** 3.6 | **Updated:** 2026-10-13
 > **Status:** ✅ **CURRENT — Command Index**
 > **Spanish original:** [`docs/user/general/commands.md`](../user/general/commands.md)
 > **References:** commands.md
@@ -77,6 +77,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | Verify | `verify` | Verify download authenticity (PQC) | [commands-simple.md](../user/general/commands-simple.md#verify) |
 | Uninstall | `uninstall` | Safe CLI uninstall | [commands-simple.md](../user/general/commands-simple.md#uninstall) |
 | Web | `web` | Local web dashboard (GUI) | [web/README.md](../user/web/README.md) |
+| MCP | `mcp` | MCP server for AI agents (JSON-RPC over stdio) | [commands-mcp.md](commands-mcp.md) |
 
 ---
 

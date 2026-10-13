@@ -83,6 +83,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 
 ### diag — diagnostics
 - `diag summary|nginx|tor|ssh|wordpress|wp-sync|nginx-test|resources`
+- `diag onion <address.onion> [--format json]` — probes a .onion via Tor SOCKS5h; structured reachability (status, latency, title, failure reason: timeout|proxy_unavailable|site_unreachable)
 
 ### ssh — SSH access
 - `ssh add-key [--user <name>] -p <pubkey> [--comment <c>]` — append to ~/.ssh/authorized_keys (atomic, deduplicated)
@@ -127,6 +128,15 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `docs quickstart|commands [group]|concepts [topic]|faq [term]|examples [case]|search <term>`
 - `docs quantum-security|verify-downloads|security|install-from-iso`
 
+### mcp — MCP server for AI agents
+- `mcp` — JSON-RPC 2.0 over stdio (NDJSON), protocolVersion `2026-07-28`; methods: initialize, notifications/initialized, ping, tools/list, tools/call, resources/list, resources/read
+- flags: `--allow-write` `--allow-tools <CSV>` `--max-output-bytes <N>` `--audit-log <path>` `--request-timeout-secs <N>`
+- env: `ENOLA_MCP_ALLOW_WRITE` `ENOLA_MCP_ALLOWED_TOOLS` `ENOLA_MCP_MAX_OUTPUT_BYTES` `ENOLA_MCP_AUDIT_LOG` `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; TOML `[mcp]` in ~/.enola/config.toml; precedence flag > env > file > defaults (allow_write=false, max_output_bytes=65536, audit_log=stderr, request_timeout_secs=60)
+- policy: read-only by default; mutating tools need `--allow-write` (+ `--allow-tools` allowlist; empty allowlist + allow-write = all mutating allowed)
+- 21 tools: 13 read-only (config_show, diag_nginx, diag_summary, diag_tor, doctor, plan_tor_create, plan_wp_create, ports_list, tor_list, update_check, verify_onion, wp_list, wp_status), 6 mutating (files_create, tor_create, tor_remove, wp_create, wp_hide, wp_publish; tor_remove/wp_hide require `"force": true`), 2 meta (enola_list_commands, enola_run_command)
+- resources: 36 embedded user docs, URIs `enola://docs/<path>`
+- stdout carries ONLY JSON-RPC; logs/diagnostics go to stderr
+
 ### Other
 - `license` — full license text
 - `quickref` — Docker ↔ Enola equivalence table
@@ -141,6 +151,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - Tor client authorization uses x25519 keypairs (like SSH keys): client generates, sends public key to operator, operator authorizes.
 - Post-quantum measures: ML-DSA-65 release signatures, optional ML-KEM hybrid TLS stack (`setup --pqc-tls`), WireGuard preshared keys (`--psk`), SSH sntrup761x25519 KEX (`ssh-harden-pqc`), Tor auth key rotation.
 - Update security: advisory feed signed with minisign; binaries verified with SHA256 + minisign before applying; stable exit codes for scripting.
+- MCP server security: read-only by default; mutating tools require explicit `--allow-write` plus optional allowlist (`--allow-tools`/`ENOLA_MCP_ALLOWED_TOOLS`/`[mcp].allowed_tools`); destructive tools demand `"force": true`; mutating calls are audit-logged with secret redaction.
 
 ## Links
 
