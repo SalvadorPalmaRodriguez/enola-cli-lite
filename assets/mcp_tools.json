@@ -15,6 +15,7 @@
           "description": "Create a new Tor hidden service",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -22,6 +23,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "service-type",
               "positional": false,
               "possible_values": [],
@@ -29,6 +31,7 @@
               "value_name": "SERVICE_TYPE"
             },
             {
+              "boolean": false,
               "name": "virtual-port",
               "positional": false,
               "possible_values": [],
@@ -36,6 +39,7 @@
               "value_name": "VIRTUAL_PORT"
             },
             {
+              "boolean": false,
               "name": "target-port",
               "positional": false,
               "possible_values": [],
@@ -43,6 +47,7 @@
               "value_name": "TARGET_PORT"
             },
             {
+              "boolean": true,
               "name": "ssl",
               "positional": false,
               "possible_values": [
@@ -60,6 +65,7 @@
           "description": "Start a Tor hidden service",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -74,6 +80,7 @@
           "description": "Stop a Tor hidden service",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -88,6 +95,7 @@
           "description": "Remove a Tor hidden service",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -95,6 +103,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -112,6 +121,7 @@
           "description": "Edit service ports",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -119,6 +129,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "virtual-port",
               "positional": false,
               "possible_values": [],
@@ -126,6 +137,7 @@
               "value_name": "VIRTUAL_PORT"
             },
             {
+              "boolean": false,
               "name": "nginx-port",
               "positional": false,
               "possible_values": [],
@@ -133,6 +145,7 @@
               "value_name": "NGINX_PORT"
             },
             {
+              "boolean": false,
               "name": "target-port",
               "positional": false,
               "possible_values": [],
@@ -140,6 +153,7 @@
               "value_name": "TARGET_PORT"
             },
             {
+              "boolean": true,
               "name": "auto-ports",
               "positional": false,
               "possible_values": [
@@ -157,6 +171,7 @@
           "description": "Rotate .onion address (generate new identity)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -176,6 +191,7 @@
               "description": "List authorized clients for a service",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "service",
                   "positional": true,
                   "possible_values": [],
@@ -190,6 +206,7 @@
               "description": "Enable client authorization for a service",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "service",
                   "positional": true,
                   "possible_values": [],
@@ -204,6 +221,7 @@
               "description": "Disable client authorization for a service",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "service",
                   "positional": true,
                   "possible_values": [],
@@ -218,6 +236,7 @@
               "description": "Add an authorized client (SERVER-SIDE operation)",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "service",
                   "positional": true,
                   "possible_values": [],
@@ -225,6 +244,7 @@
                   "value_name": "SERVICE"
                 },
                 {
+                  "boolean": false,
                   "name": "client",
                   "positional": false,
                   "possible_values": [],
@@ -232,6 +252,7 @@
                   "value_name": "CLIENT"
                 },
                 {
+                  "boolean": false,
                   "name": "pubkey",
                   "positional": false,
                   "possible_values": [],
@@ -246,6 +267,7 @@
               "description": "Revoke a client's authorization",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "service",
                   "positional": true,
                   "possible_values": [],
@@ -253,6 +275,7 @@
                   "value_name": "SERVICE"
                 },
                 {
+                  "boolean": false,
                   "name": "client",
                   "positional": false,
                   "possible_values": [],
@@ -267,6 +290,7 @@
               "description": "Generate a new client keypair (CLIENT-SIDE operation)",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "client",
                   "positional": false,
                   "possible_values": [],
@@ -281,6 +305,7 @@
               "description": "Rotate a client's public key (PQC-013: mitigates harvest-now-decrypt-later by reducing key lifetime).",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "service",
                   "positional": true,
                   "possible_values": [],
@@ -288,6 +313,7 @@
                   "value_name": "SERVICE"
                 },
                 {
+                  "boolean": false,
                   "name": "client",
                   "positional": false,
                   "possible_values": [],
@@ -295,6 +321,7 @@
                   "value_name": "CLIENT"
                 },
                 {
+                  "boolean": false,
                   "name": "pubkey",
                   "positional": false,
                   "possible_values": [],
@@ -324,6 +351,7 @@
           "description": "Crea un nuevo servidor Git (Forgejo).",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -331,6 +359,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "ssl",
               "positional": false,
               "possible_values": [
@@ -341,6 +370,7 @@
               "value_name": "SSL"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -348,6 +378,7 @@
               "value_name": "PORT"
             },
             {
+              "boolean": false,
               "name": "ssh-port",
               "positional": false,
               "possible_values": [],
@@ -355,6 +386,7 @@
               "value_name": "PORT"
             },
             {
+              "boolean": false,
               "name": "admin-user",
               "positional": false,
               "possible_values": [],
@@ -362,6 +394,7 @@
               "value_name": "USERNAME"
             },
             {
+              "boolean": false,
               "name": "admin-password",
               "positional": false,
               "possible_values": [],
@@ -376,6 +409,7 @@
           "description": "Start a Git server",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -390,6 +424,7 @@
           "description": "Stop a Git server",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -404,6 +439,7 @@
           "description": "Show status of a Git server",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -418,6 +454,7 @@
           "description": "Delete a Git server",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -425,6 +462,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -442,6 +480,7 @@
           "description": "Enable or disable user self-registration on a Forgejo instance",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -449,6 +488,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "enable",
               "positional": false,
               "possible_values": [
@@ -459,6 +499,7 @@
               "value_name": "ENABLE"
             },
             {
+              "boolean": true,
               "name": "disable",
               "positional": false,
               "possible_values": [
@@ -469,6 +510,7 @@
               "value_name": "DISABLE"
             },
             {
+              "boolean": true,
               "name": "status",
               "positional": false,
               "possible_values": [
@@ -486,6 +528,7 @@
           "description": "Edit service ports",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -493,6 +536,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -500,6 +544,7 @@
               "value_name": "HTTP_PORT"
             },
             {
+              "boolean": false,
               "name": "https-port",
               "positional": false,
               "possible_values": [],
@@ -507,6 +552,7 @@
               "value_name": "HTTPS_PORT"
             },
             {
+              "boolean": false,
               "name": "ssh-port",
               "positional": false,
               "possible_values": [],
@@ -514,6 +560,7 @@
               "value_name": "SSH_PORT"
             },
             {
+              "boolean": true,
               "name": "auto-ports",
               "positional": false,
               "possible_values": [
@@ -531,6 +578,7 @@
           "description": "Publish Git server on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -538,6 +586,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "ssl",
               "positional": false,
               "possible_values": [
@@ -555,6 +604,7 @@
           "description": "Hide Git server from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -574,6 +624,7 @@
               "description": "Lista los usuarios del servidor Git.",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "server",
                   "positional": true,
                   "possible_values": [],
@@ -581,6 +632,7 @@
                   "value_name": "SERVER"
                 },
                 {
+                  "boolean": false,
                   "name": "admin-user",
                   "positional": false,
                   "possible_values": [],
@@ -588,6 +640,7 @@
                   "value_name": "USERNAME"
                 },
                 {
+                  "boolean": false,
                   "name": "admin-pass",
                   "positional": false,
                   "possible_values": [],
@@ -602,6 +655,7 @@
               "description": "Crea un usuario en el servidor Git via API REST (modo automático).",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "server",
                   "positional": true,
                   "possible_values": [],
@@ -609,6 +663,7 @@
                   "value_name": "SERVER"
                 },
                 {
+                  "boolean": false,
                   "name": "username",
                   "positional": false,
                   "possible_values": [],
@@ -616,6 +671,7 @@
                   "value_name": "USERNAME"
                 },
                 {
+                  "boolean": false,
                   "name": "email",
                   "positional": false,
                   "possible_values": [],
@@ -623,6 +679,7 @@
                   "value_name": "EMAIL"
                 },
                 {
+                  "boolean": false,
                   "name": "password",
                   "positional": false,
                   "possible_values": [],
@@ -630,6 +687,7 @@
                   "value_name": "PASSWORD"
                 },
                 {
+                  "boolean": true,
                   "name": "admin",
                   "positional": false,
                   "possible_values": [
@@ -640,6 +698,7 @@
                   "value_name": "ADMIN"
                 },
                 {
+                  "boolean": false,
                   "name": "admin-user",
                   "positional": false,
                   "possible_values": [],
@@ -647,6 +706,7 @@
                   "value_name": "USERNAME"
                 },
                 {
+                  "boolean": false,
                   "name": "admin-pass",
                   "positional": false,
                   "possible_values": [],
@@ -661,6 +721,7 @@
               "description": "Elimina un usuario del servidor Git",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "server",
                   "positional": true,
                   "possible_values": [],
@@ -668,6 +729,7 @@
                   "value_name": "SERVER"
                 },
                 {
+                  "boolean": false,
                   "name": "username",
                   "positional": false,
                   "possible_values": [],
@@ -675,6 +737,7 @@
                   "value_name": "USERNAME"
                 },
                 {
+                  "boolean": false,
                   "name": "admin-user",
                   "positional": false,
                   "possible_values": [],
@@ -682,6 +745,7 @@
                   "value_name": "USERNAME"
                 },
                 {
+                  "boolean": false,
                   "name": "admin-pass",
                   "positional": false,
                   "possible_values": [],
@@ -717,6 +781,7 @@
           "description": "Create a new WordPress site",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -724,6 +789,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -738,6 +804,7 @@
           "description": "Start a WordPress site",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -752,6 +819,7 @@
           "description": "Stop a WordPress site",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -766,6 +834,7 @@
           "description": "Restart a WordPress site",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -780,6 +849,7 @@
           "description": "Delete a WordPress site",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -787,6 +857,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -804,6 +875,7 @@
           "description": "Update WordPress (with backup)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -818,6 +890,7 @@
           "description": "Edit WordPress configuration",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -832,6 +905,7 @@
           "description": "Show WordPress status",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -846,6 +920,7 @@
           "description": "Publish site on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -860,6 +935,7 @@
           "description": "Hide site from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -874,6 +950,7 @@
           "description": "Edit WordPress site ports and SSL configuration",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -881,6 +958,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -888,6 +966,7 @@
               "value_name": "HTTP_PORT"
             },
             {
+              "boolean": false,
               "name": "https-port",
               "positional": false,
               "possible_values": [],
@@ -895,6 +974,7 @@
               "value_name": "HTTPS_PORT"
             },
             {
+              "boolean": false,
               "name": "ssl",
               "positional": false,
               "possible_values": [
@@ -905,6 +985,7 @@
               "value_name": "SSL"
             },
             {
+              "boolean": true,
               "name": "auto-ports",
               "positional": false,
               "possible_values": [
@@ -935,6 +1016,7 @@
           "description": "Create a new Drupal site",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -942,6 +1024,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -956,6 +1039,7 @@
           "description": "Start a Drupal site (DB first, then web)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -970,6 +1054,7 @@
           "description": "Stop a Drupal site (web first, then DB)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -984,6 +1069,7 @@
           "description": "Delete a Drupal site (containers, network; data preserved unless --purge)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -991,6 +1077,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1008,6 +1095,7 @@
           "description": "Show Drupal site status (running/stopped/initializing/not-found + port)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1022,6 +1110,7 @@
           "description": "Publish site on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1036,6 +1125,7 @@
           "description": "Hide site from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1050,6 +1140,7 @@
           "description": "Edit Drupal site HTTP port (recreates the web container atomically)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1057,6 +1148,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -1084,6 +1176,7 @@
           "description": "Create a new Ghost blog",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -1091,6 +1184,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -1105,6 +1199,7 @@
           "description": "Start a Ghost blog",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1119,6 +1214,7 @@
           "description": "Stop a Ghost blog",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1133,6 +1229,7 @@
           "description": "Delete a Ghost blog (container + network; data preserved on /srv unless purged)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1140,6 +1237,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1157,6 +1255,7 @@
           "description": "Show Ghost blog status (running/stopped/initializing/not-found + port)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1171,6 +1270,7 @@
           "description": "Publish blog on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1185,6 +1285,7 @@
           "description": "Hide blog from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1199,6 +1300,7 @@
           "description": "Edit Ghost blog HTTP port (atomic container recreation)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1206,6 +1308,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -1233,6 +1336,7 @@
           "description": "Create a new Magnolia instance",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -1240,6 +1344,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -1254,6 +1359,7 @@
           "description": "Start a Magnolia instance",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1268,6 +1374,7 @@
           "description": "Stop a Magnolia instance",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1282,6 +1389,7 @@
           "description": "Delete a Magnolia instance (data preserved on /srv unless purged)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1289,6 +1397,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1306,6 +1415,7 @@
           "description": "Show Magnolia instance status",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1320,6 +1430,7 @@
           "description": "Publish Magnolia instance on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1334,6 +1445,7 @@
           "description": "Hide Magnolia instance from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1361,6 +1473,7 @@
           "description": "Create a new Strapi instance (Node + Postgres 16)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -1368,6 +1481,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -1382,6 +1496,7 @@
           "description": "Start a Strapi instance (web + db containers)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1396,6 +1511,7 @@
           "description": "Stop a Strapi instance (web + db)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1410,6 +1526,7 @@
           "description": "Delete a Strapi instance",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1417,6 +1534,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1434,6 +1552,7 @@
           "description": "Show Strapi instance status",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1448,6 +1567,7 @@
           "description": "Publish Strapi instance on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1462,6 +1582,7 @@
           "description": "Hide Strapi instance from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1476,6 +1597,7 @@
           "description": "Build the Strapi production Docker image (multi-stage, Node 20, Strapi 5.49).",
           "flags": [
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1506,6 +1628,7 @@
           "description": "Create a new Wagtail instance (Python/Django + Postgres)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -1513,6 +1636,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "http-port",
               "positional": false,
               "possible_values": [],
@@ -1527,6 +1651,7 @@
           "description": "Start a Wagtail instance (web + db)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1541,6 +1666,7 @@
           "description": "Stop a Wagtail instance (web + db)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1555,6 +1681,7 @@
           "description": "Delete a Wagtail instance",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1562,6 +1689,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1579,6 +1707,7 @@
           "description": "Show Wagtail instance status",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1593,6 +1722,7 @@
           "description": "Publish Wagtail instance on Tor (create hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1607,6 +1737,7 @@
           "description": "Hide Wagtail instance from Tor (remove hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1634,6 +1765,7 @@
           "description": "Create a new anonymous file share accessible via Tor .onion",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -1641,6 +1773,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "auth",
               "positional": false,
               "possible_values": [
@@ -1651,6 +1784,7 @@
               "value_name": "AUTH"
             },
             {
+              "boolean": true,
               "name": "ssl",
               "positional": false,
               "possible_values": [
@@ -1668,6 +1802,7 @@
           "description": "Edit file share configuration",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1675,6 +1810,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "port",
               "positional": false,
               "possible_values": [],
@@ -1689,6 +1825,7 @@
           "description": "Delete a file share (removes Nginx config and Tor hidden service)",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1696,6 +1833,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1713,6 +1851,7 @@
           "description": "Fix ownership and permissions on a file share directory",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -1770,6 +1909,7 @@
           "description": "Harden SSH host configuration with post-quantum-safe algorithms (PQC-012) Adds sntrup761x25519-sha512 KEX (OpenSSH 9.0+) as first preferred algorithm. This is a TRANSITIONAL measure until full PQC is standardized. Run again after OpenSSH upgrade to apply improved algorithms",
           "flags": [
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1780,6 +1920,7 @@
               "value_name": "FORCE"
             },
             {
+              "boolean": true,
               "name": "dry-run",
               "positional": false,
               "possible_values": [
@@ -1797,6 +1938,7 @@
           "description": "Create system backup",
           "flags": [
             {
+              "boolean": false,
               "name": "keep",
               "positional": false,
               "possible_values": [],
@@ -1811,6 +1953,7 @@
           "description": "Show or set the backup retention policy (persisted in config.toml [backup])",
           "flags": [
             {
+              "boolean": false,
               "name": "max-backups",
               "positional": false,
               "possible_values": [],
@@ -1825,6 +1968,7 @@
           "description": "Cleanup temporary files and residual data",
           "flags": [
             {
+              "boolean": false,
               "name": "target",
               "positional": false,
               "possible_values": [],
@@ -1832,6 +1976,7 @@
               "value_name": "TARGET"
             },
             {
+              "boolean": true,
               "name": "dry-run",
               "positional": false,
               "possible_values": [
@@ -1842,6 +1987,7 @@
               "value_name": "DRY_RUN"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -1852,6 +1998,7 @@
               "value_name": "FORCE"
             },
             {
+              "boolean": false,
               "name": "keep-days",
               "positional": false,
               "possible_values": [],
@@ -1921,6 +2068,7 @@
           "description": "Probe a .onion address through Tor (SOCKS5h) and report reachability",
           "flags": [
             {
+              "boolean": false,
               "name": "address",
               "positional": true,
               "possible_values": [],
@@ -1942,6 +2090,7 @@
           "description": "Run all system tests",
           "flags": [
             {
+              "boolean": false,
               "name": "filter",
               "positional": false,
               "possible_values": [],
@@ -1993,6 +2142,7 @@
           "description": "View logs from a specific source",
           "flags": [
             {
+              "boolean": false,
               "name": "source",
               "positional": true,
               "possible_values": [],
@@ -2000,6 +2150,7 @@
               "value_name": "SOURCE"
             },
             {
+              "boolean": false,
               "name": "lines",
               "positional": false,
               "possible_values": [],
@@ -2007,6 +2158,7 @@
               "value_name": "LINES"
             },
             {
+              "boolean": true,
               "name": "follow",
               "positional": false,
               "possible_values": [
@@ -2043,6 +2195,7 @@
           "description": "List all ports used by Enola services",
           "flags": [
             {
+              "boolean": true,
               "name": "json",
               "positional": false,
               "possible_values": [
@@ -2067,6 +2220,7 @@
           "description": "Configure UFW with a secure default policy",
           "flags": [
             {
+              "boolean": false,
               "name": "ssh-port",
               "positional": false,
               "possible_values": [],
@@ -2074,6 +2228,7 @@
               "value_name": "SSH_PORT"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -2097,6 +2252,7 @@
           "description": "Allow traffic on a port",
           "flags": [
             {
+              "boolean": false,
               "name": "port",
               "positional": false,
               "possible_values": [],
@@ -2104,6 +2260,7 @@
               "value_name": "PORT"
             },
             {
+              "boolean": false,
               "name": "proto",
               "positional": false,
               "possible_values": [],
@@ -2111,6 +2268,7 @@
               "value_name": "PROTO"
             },
             {
+              "boolean": false,
               "name": "from",
               "positional": false,
               "possible_values": [],
@@ -2125,6 +2283,7 @@
           "description": "Deny traffic on a port",
           "flags": [
             {
+              "boolean": false,
               "name": "port",
               "positional": false,
               "possible_values": [],
@@ -2132,6 +2291,7 @@
               "value_name": "PORT"
             },
             {
+              "boolean": false,
               "name": "proto",
               "positional": false,
               "possible_values": [],
@@ -2153,6 +2313,7 @@
           "description": "Load base AppArmor profiles (nginx, tor, docker-base)",
           "flags": [
             {
+              "boolean": false,
               "name": "mode",
               "positional": false,
               "possible_values": [],
@@ -2160,6 +2321,7 @@
               "value_name": "MODE"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -2183,6 +2345,7 @@
           "description": "Change mode of AppArmor profiles (enforce/complain/disable)",
           "flags": [
             {
+              "boolean": true,
               "name": "enforce",
               "positional": false,
               "possible_values": [
@@ -2193,6 +2356,7 @@
               "value_name": "ENFORCE"
             },
             {
+              "boolean": true,
               "name": "complain",
               "positional": false,
               "possible_values": [
@@ -2203,6 +2367,7 @@
               "value_name": "COMPLAIN"
             },
             {
+              "boolean": true,
               "name": "disable",
               "positional": false,
               "possible_values": [
@@ -2213,6 +2378,7 @@
               "value_name": "DISABLE"
             },
             {
+              "boolean": false,
               "name": "profile",
               "positional": false,
               "possible_values": [],
@@ -2234,6 +2400,7 @@
           "description": "Create a new WireGuard VPN interface and start it.",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -2241,6 +2408,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "port",
               "positional": false,
               "possible_values": [],
@@ -2248,6 +2416,7 @@
               "value_name": "PORT"
             },
             {
+              "boolean": false,
               "name": "subnet",
               "positional": false,
               "possible_values": [],
@@ -2255,6 +2424,7 @@
               "value_name": "SUBNET"
             },
             {
+              "boolean": true,
               "name": "autostart",
               "positional": false,
               "possible_values": [
@@ -2265,6 +2435,7 @@
               "value_name": "AUTOSTART"
             },
             {
+              "boolean": true,
               "name": "sync-firewall",
               "positional": false,
               "possible_values": [
@@ -2275,6 +2446,7 @@
               "value_name": "SYNC_FIREWALL"
             },
             {
+              "boolean": true,
               "name": "tor",
               "positional": false,
               "possible_values": [
@@ -2292,6 +2464,7 @@
           "description": "Start a stopped WireGuard interface (wg-quick up).",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -2306,6 +2479,7 @@
           "description": "Stop a running WireGuard interface (wg-quick down).",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -2320,6 +2494,7 @@
           "description": "Show status of a WireGuard interface (connected peers, traffic).",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -2340,6 +2515,7 @@
           "description": "Delete a WireGuard interface (stop + remove config).",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": true,
               "possible_values": [],
@@ -2347,6 +2523,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -2357,6 +2534,7 @@
               "value_name": "FORCE"
             },
             {
+              "boolean": true,
               "name": "sync-firewall",
               "positional": false,
               "possible_values": [
@@ -2379,6 +2557,7 @@
               "description": "Add a new peer to a VPN interface.",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "interface",
                   "positional": true,
                   "possible_values": [],
@@ -2386,6 +2565,7 @@
                   "value_name": "INTERFACE"
                 },
                 {
+                  "boolean": false,
                   "name": "peer_name",
                   "positional": true,
                   "possible_values": [],
@@ -2393,6 +2573,7 @@
                   "value_name": "PEER_NAME"
                 },
                 {
+                  "boolean": false,
                   "name": "endpoint",
                   "positional": false,
                   "possible_values": [],
@@ -2400,6 +2581,7 @@
                   "value_name": "ENDPOINT"
                 },
                 {
+                  "boolean": false,
                   "name": "dns",
                   "positional": false,
                   "possible_values": [],
@@ -2407,6 +2589,7 @@
                   "value_name": "DNS"
                 },
                 {
+                  "boolean": true,
                   "name": "psk",
                   "positional": false,
                   "possible_values": [
@@ -2417,6 +2600,7 @@
                   "value_name": "PSK"
                 },
                 {
+                  "boolean": false,
                   "name": "ip",
                   "positional": false,
                   "possible_values": [],
@@ -2424,6 +2608,7 @@
                   "value_name": "IP"
                 },
                 {
+                  "boolean": true,
                   "name": "tor",
                   "positional": false,
                   "possible_values": [
@@ -2441,6 +2626,7 @@
               "description": "Add a peer using their existing public key (client manages own keys).",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "interface",
                   "positional": true,
                   "possible_values": [],
@@ -2448,6 +2634,7 @@
                   "value_name": "INTERFACE"
                 },
                 {
+                  "boolean": false,
                   "name": "peer_name",
                   "positional": true,
                   "possible_values": [],
@@ -2455,6 +2642,7 @@
                   "value_name": "PEER_NAME"
                 },
                 {
+                  "boolean": false,
                   "name": "public_key",
                   "positional": true,
                   "possible_values": [],
@@ -2462,6 +2650,7 @@
                   "value_name": "PUBLIC_KEY"
                 },
                 {
+                  "boolean": false,
                   "name": "ip",
                   "positional": true,
                   "possible_values": [],
@@ -2476,6 +2665,7 @@
               "description": "Remove a peer from a VPN interface by public key.",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "interface",
                   "positional": true,
                   "possible_values": [],
@@ -2483,6 +2673,7 @@
                   "value_name": "INTERFACE"
                 },
                 {
+                  "boolean": false,
                   "name": "public_key",
                   "positional": true,
                   "possible_values": [],
@@ -2506,6 +2697,7 @@
           "description": "The key is appended only if not already present (deduplicated by body). Written atomically with 0o600 permissions and a file lock (anti-TOCTOU).",
           "flags": [
             {
+              "boolean": false,
               "name": "user",
               "positional": false,
               "possible_values": [],
@@ -2513,6 +2705,7 @@
               "value_name": "USER"
             },
             {
+              "boolean": false,
               "name": "pubkey",
               "positional": false,
               "possible_values": [],
@@ -2520,6 +2713,7 @@
               "value_name": "PUBKEY"
             },
             {
+              "boolean": false,
               "name": "comment",
               "positional": false,
               "possible_values": [],
@@ -2534,6 +2728,7 @@
           "description": "Ensures sshd is running and publishes it only via a .onion address, without exposing SSH to the public network.",
           "flags": [
             {
+              "boolean": false,
               "name": "name",
               "positional": false,
               "possible_values": [],
@@ -2541,6 +2736,7 @@
               "value_name": "NAME"
             },
             {
+              "boolean": false,
               "name": "onion-port",
               "positional": false,
               "possible_values": [],
@@ -2548,6 +2744,7 @@
               "value_name": "ONION_PORT"
             },
             {
+              "boolean": false,
               "name": "local-ssh-port",
               "positional": false,
               "possible_values": [],
@@ -2564,6 +2761,7 @@
       "description": "Examples: sudo enola-cli setup              # Install core dependencies sudo enola-cli setup --all        # Install ALL dependencies sudo enola-cli setup --vpn        # Install VPN (WireGuard) only sudo enola-cli setup --security   # Install security tools (UFW, AppArmor) sudo enola-cli setup --pqc-tls    # Install official OpenSSL 3.5 + Nginx PQC stack",
       "flags": [
         {
+          "boolean": true,
           "name": "all",
           "positional": false,
           "possible_values": [
@@ -2574,6 +2772,7 @@
           "value_name": "ALL"
         },
         {
+          "boolean": true,
           "name": "vpn",
           "positional": false,
           "possible_values": [
@@ -2584,6 +2783,7 @@
           "value_name": "VPN"
         },
         {
+          "boolean": true,
           "name": "security",
           "positional": false,
           "possible_values": [
@@ -2594,6 +2794,7 @@
           "value_name": "SECURITY"
         },
         {
+          "boolean": true,
           "name": "pqc-tls",
           "positional": false,
           "possible_values": [
@@ -2611,6 +2812,7 @@
       "description": "Examples: sudo enola-cli doctor sudo enola-cli doctor --security",
       "flags": [
         {
+          "boolean": true,
           "name": "security",
           "positional": false,
           "possible_values": [
@@ -2640,6 +2842,7 @@
       "description": "Comprueba que el archivo descargado está firmado con la clave post-cuántica ML-DSA-65 (FIPS 204) del proyecto, usando la clave pública embebida en este binario. No requiere red, login ni herramientas externas (no necesitas `enola-sign-pqc`, que es una herramienta de desarrollo).",
       "flags": [
         {
+          "boolean": false,
           "name": "file",
           "positional": true,
           "possible_values": [],
@@ -2647,6 +2850,7 @@
           "value_name": "FILE"
         },
         {
+          "boolean": false,
           "name": "pqsig",
           "positional": false,
           "possible_values": [],
@@ -2654,6 +2858,7 @@
           "value_name": "PQSIG"
         },
         {
+          "boolean": false,
           "name": "pubkey",
           "positional": false,
           "possible_values": [],
@@ -2661,6 +2866,7 @@
           "value_name": "PUBKEY"
         },
         {
+          "boolean": true,
           "name": "json",
           "positional": false,
           "possible_values": [
@@ -2678,6 +2884,7 @@
       "description": "Borra de forma limpia binario, servicios, contenedores, configs de Tor/Nginx/AppArmor/UFW/systemd y datos (/srv/enola-*, /opt/enola/). Por defecto ejecuta en modo --dry-run: solo lista lo que se borraría.",
       "flags": [
         {
+          "boolean": true,
           "name": "yes",
           "positional": false,
           "possible_values": [
@@ -2688,6 +2895,7 @@
           "value_name": "YES"
         },
         {
+          "boolean": true,
           "name": "keep-data",
           "positional": false,
           "possible_values": [
@@ -2698,6 +2906,7 @@
           "value_name": "KEEP_DATA"
         },
         {
+          "boolean": false,
           "name": "only",
           "positional": false,
           "possible_values": [],
@@ -2705,6 +2914,7 @@
           "value_name": "ONLY"
         },
         {
+          "boolean": true,
           "name": "force",
           "positional": false,
           "possible_values": [
@@ -2715,6 +2925,7 @@
           "value_name": "FORCE"
         },
         {
+          "boolean": true,
           "name": "remove-deps",
           "positional": false,
           "possible_values": [
@@ -2732,6 +2943,7 @@
       "description": "Muestra el valor efectivo resuelto para cada clave junto con su fuente (flag > env > file > default) y la variable de entorno equivalente. Los valores sensibles (API keys, tokens, secrets) se muestran como `[REDACTED]`.",
       "flags": [
         {
+          "boolean": true,
           "name": "json",
           "positional": false,
           "possible_values": [
@@ -2749,6 +2961,7 @@
       "description": "Ejecuta comprobaciones: TOML parseable, permisos 0600, sintaxis de URLs, Tor disponible si hay `.onion` en la config, y opcionalmente alcanzabilidad HTTP de `auth_url` y `web_public_url`.",
       "flags": [
         {
+          "boolean": true,
           "name": "reachable",
           "positional": false,
           "possible_values": [
@@ -2759,6 +2972,7 @@
           "value_name": "REACHABLE"
         },
         {
+          "boolean": true,
           "name": "json",
           "positional": false,
           "possible_values": [
@@ -2787,6 +3001,7 @@
           "description": "Muestra la referencia de todos los comandos, con ejemplos",
           "flags": [
             {
+              "boolean": false,
               "name": "group",
               "positional": true,
               "possible_values": [],
@@ -2801,6 +3016,7 @@
           "description": "Explica conceptos clave de Enola",
           "flags": [
             {
+              "boolean": false,
               "name": "topic",
               "positional": true,
               "possible_values": [],
@@ -2815,6 +3031,7 @@
           "description": "Muestra preguntas frecuentes y solución de problemas",
           "flags": [
             {
+              "boolean": false,
               "name": "filter",
               "positional": true,
               "possible_values": [],
@@ -2829,6 +3046,7 @@
           "description": "Muestra ejemplos de uso por caso de uso",
           "flags": [
             {
+              "boolean": false,
               "name": "case",
               "positional": true,
               "possible_values": [],
@@ -2843,6 +3061,7 @@
           "description": "Busca un término en toda la documentación embebida",
           "flags": [
             {
+              "boolean": false,
               "name": "term",
               "positional": true,
               "possible_values": [],
@@ -2888,6 +3107,7 @@
           "description": "Check for available updates and security advisories.",
           "flags": [
             {
+              "boolean": true,
               "name": "json",
               "positional": false,
               "possible_values": [
@@ -2898,6 +3118,7 @@
               "value_name": "JSON"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -2915,6 +3136,7 @@
           "description": "Show the current advisory feed schema (for operators creating their own feed)",
           "flags": [
             {
+              "boolean": true,
               "name": "json",
               "positional": false,
               "possible_values": [
@@ -2932,6 +3154,7 @@
           "description": "Verify a signed advisory feed manually from URL or local path.",
           "flags": [
             {
+              "boolean": false,
               "name": "source",
               "positional": true,
               "possible_values": [],
@@ -2939,6 +3162,7 @@
               "value_name": "SOURCE"
             },
             {
+              "boolean": false,
               "name": "signature",
               "positional": false,
               "possible_values": [],
@@ -2946,6 +3170,7 @@
               "value_name": "SIGNATURE"
             },
             {
+              "boolean": true,
               "name": "json",
               "positional": false,
               "possible_values": [
@@ -2963,6 +3188,7 @@
           "description": "Download the latest binary from the update feed.",
           "flags": [
             {
+              "boolean": true,
               "name": "yes",
               "positional": false,
               "possible_values": [
@@ -2973,6 +3199,7 @@
               "value_name": "YES"
             },
             {
+              "boolean": true,
               "name": "dry-run",
               "positional": false,
               "possible_values": [
@@ -2983,6 +3210,7 @@
               "value_name": "DRY_RUN"
             },
             {
+              "boolean": true,
               "name": "json",
               "positional": false,
               "possible_values": [
@@ -2993,6 +3221,7 @@
               "value_name": "JSON"
             },
             {
+              "boolean": true,
               "name": "force",
               "positional": false,
               "possible_values": [
@@ -3003,6 +3232,7 @@
               "value_name": "FORCE"
             },
             {
+              "boolean": true,
               "name": "allow-unsigned",
               "positional": false,
               "possible_values": [
@@ -3020,6 +3250,7 @@
           "description": "Apply a previously downloaded update.",
           "flags": [
             {
+              "boolean": false,
               "name": "binary",
               "positional": false,
               "possible_values": [],
@@ -3027,6 +3258,7 @@
               "value_name": "BINARY"
             },
             {
+              "boolean": true,
               "name": "json",
               "positional": false,
               "possible_values": [
@@ -3037,6 +3269,7 @@
               "value_name": "JSON"
             },
             {
+              "boolean": true,
               "name": "allow-unsigned",
               "positional": false,
               "possible_values": [
@@ -3056,6 +3289,7 @@
       "description": "The server binds to 127.0.0.1 only and requires a token shown in the terminal.",
       "flags": [
         {
+          "boolean": false,
           "name": "port",
           "positional": false,
           "possible_values": [],
@@ -3080,6 +3314,7 @@
               "description": "Plan a WordPress site creation (dry-run)",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "name",
                   "positional": false,
                   "possible_values": [],
@@ -3087,6 +3322,7 @@
                   "value_name": "NAME"
                 },
                 {
+                  "boolean": false,
                   "name": "http-port",
                   "positional": false,
                   "possible_values": [],
@@ -3108,6 +3344,7 @@
               "description": "Plan a Tor hidden service creation (dry-run)",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "name",
                   "positional": false,
                   "possible_values": [],
@@ -3115,6 +3352,7 @@
                   "value_name": "NAME"
                 },
                 {
+                  "boolean": false,
                   "name": "service-type",
                   "positional": false,
                   "possible_values": [],
@@ -3122,6 +3360,7 @@
                   "value_name": "SERVICE_TYPE"
                 },
                 {
+                  "boolean": false,
                   "name": "virtual-port",
                   "positional": false,
                   "possible_values": [],
@@ -3129,6 +3368,7 @@
                   "value_name": "VIRTUAL_PORT"
                 },
                 {
+                  "boolean": false,
                   "name": "target-port",
                   "positional": false,
                   "possible_values": [],
@@ -3136,6 +3376,7 @@
                   "value_name": "TARGET_PORT"
                 },
                 {
+                  "boolean": true,
                   "name": "ssl",
                   "positional": false,
                   "possible_values": [
@@ -3160,6 +3401,7 @@
               "description": "Plan a Git server creation (dry-run)",
               "flags": [
                 {
+                  "boolean": false,
                   "name": "name",
                   "positional": false,
                   "possible_values": [],
@@ -3167,6 +3409,7 @@
                   "value_name": "NAME"
                 },
                 {
+                  "boolean": true,
                   "name": "ssl",
                   "positional": false,
                   "possible_values": [
@@ -3177,6 +3420,7 @@
                   "value_name": "SSL"
                 },
                 {
+                  "boolean": false,
                   "name": "http-port",
                   "positional": false,
                   "possible_values": [],
@@ -3184,6 +3428,7 @@
                   "value_name": "PORT"
                 },
                 {
+                  "boolean": false,
                   "name": "ssh-port",
                   "positional": false,
                   "possible_values": [],
@@ -3202,6 +3447,7 @@
       "description": "Read-only by default: mutating tools require `--allow-write` plus an explicit allowlist in config.toml ([mcp].allowed_tools).",
       "flags": [
         {
+          "boolean": true,
           "name": "allow-write",
           "positional": false,
           "possible_values": [
@@ -3212,6 +3458,7 @@
           "value_name": "ALLOW_WRITE"
         },
         {
+          "boolean": false,
           "name": "allow-tools",
           "positional": false,
           "possible_values": [],
@@ -3219,6 +3466,7 @@
           "value_name": "TOOLS"
         },
         {
+          "boolean": false,
           "name": "max-output-bytes",
           "positional": false,
           "possible_values": [],
@@ -3226,6 +3474,7 @@
           "value_name": "BYTES"
         },
         {
+          "boolean": false,
           "name": "audit-log",
           "positional": false,
           "possible_values": [],
@@ -3233,6 +3482,7 @@
           "value_name": "PATH"
         },
         {
+          "boolean": false,
           "name": "request-timeout-secs",
           "positional": false,
           "possible_values": [],

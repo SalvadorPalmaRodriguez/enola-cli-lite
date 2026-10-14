@@ -73,15 +73,39 @@ impl AuditLogger {
 
     /// Registra una llamada `tools/call`: tool, args saneados y resultado.
     ///
-    /// `outcome` es `"ok"`, `"rejected"` o `"error: <msg>"`. Errores de
-    /// escritura del propio log no rompen la llamada (best-effort, a stderr).
+    /// `outcome` describe el estado: `"requested"`, `"rejected"`,
+    /// `"simulated"`, `"confirmation_requested"`, `"authorized"`, `"ok"` o
+    /// `"error: <msg>"`. Errores de escritura del propio log no rompen la
+    /// llamada (best-effort, a stderr).
     pub(crate) fn log_call(&self, tool: &str, args: &Value, outcome: &str) {
-        let entry = json!({
+        self.log_call_op(tool, args, outcome, None);
+    }
+
+    /// Igual que `log_call` pero correlaciona la entrada con `op_id`
+    /// (típicamente el `confirm_token` de una operación destructiva), de modo
+    /// que request → authorized → ok/error compartan identificador.
+    ///
+    /// `outcome` se trunca a 500 chars: los mensajes de error pueden arrastrar
+    /// fragmentos de salida y el log debe mantenerse manejable.
+    pub(crate) fn log_call_op(&self, tool: &str, args: &Value, outcome: &str, op_id: Option<&str>) {
+        let outcome = if outcome.len() > 500 {
+            crate::domain::tool::truncate_output(outcome, 500).0
+        } else {
+            outcome.to_string()
+        };
+        let mut entry = json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "tool": tool,
             "args": sanitize_args(args),
             "result": outcome,
         });
+        if let Some(op) = op_id {
+            // Solo el prefijo: el token completo no debe quedar en el log
+            // (bastaría para confirmar la operación pendiente). 12 chars
+            // de un token de 32 bastan para correlacionar estados.
+            let prefix: String = op.chars().take(12).collect();
+            entry["op"] = json!(format!("{prefix}…"));
+        }
         let line = entry.to_string();
         if let Err(e) = self.write(&line) {
             eprintln!("mcp audit: failed to write log entry: {e}");
@@ -99,13 +123,49 @@ impl AuditLogger {
                 if let Some(parent) = path.parent() {
                     if !parent.as_os_str().is_empty() {
                         std::fs::create_dir_all(parent)?;
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(
+                                parent,
+                                std::fs::Permissions::from_mode(0o700),
+                            );
+                        }
                     }
                 }
-                let mut f = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path)?;
-                writeln!(f, "{line}")
+                // R-4: rotación simple por tamaño — un flood de rechazos no
+                // debe hacer crecer el log sin límite (10 MiB → .1, se pierde
+                // la rotación anterior).
+                const MAX_AUDIT_BYTES: u64 = 10 * 1024 * 1024;
+                if let Ok(meta) = std::fs::metadata(path) {
+                    if meta.len() >= MAX_AUDIT_BYTES {
+                        let rotated = path.with_file_name(format!(
+                            "{}.1",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        ));
+                        let _ = std::fs::rename(path, &rotated);
+                    }
+                }
+                let mut opts = std::fs::OpenOptions::new();
+                opts.create(true).append(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    // 0600 en creación + O_NOFOLLOW: un symlink preexistente
+                    // no puede hacer escribir al proceso (posiblemente root)
+                    // sobre un fichero arbitrario.
+                    opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+                }
+                let mut f = opts.open(path)?;
+                // Si el fichero ya existía con perms laxos, endurecerlos.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
+                }
+                writeln!(f, "{line}")?;
+                // fsync: la entrada de audit debe sobrevivir a un crash.
+                f.sync_all()
             }
         }
     }
@@ -161,5 +221,23 @@ mod tests {
         assert!(matches!(logger.sink, AuditSink::Stderr));
         let logger = AuditLogger::new(Some("   "));
         assert!(matches!(logger.sink, AuditSink::Stderr));
+    }
+
+    /// R-4: el fichero de auditoría se crea con 0600 y el directorio con 0700.
+    #[cfg(unix)]
+    #[test]
+    fn audit_file_created_with_restrictive_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("enola-audit-test-{}", std::process::id()));
+        let path = dir.join("audit.log");
+        let logger = AuditLogger::new(Some(path.to_str().unwrap()));
+        logger.log_call("t", &json!({}), "ok");
+
+        let file_mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o600, "audit log debe ser 0600");
+        let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700, "directorio de audit debe ser 0700");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -273,6 +273,14 @@ fn extract_flags(cmd: &clap::Command) -> serde_json::Value {
             "name": name,
             "required": arg.is_required_set(),
             "positional": arg.get_long().is_none(),
+            // R-11: distingue flags de presencia (clap SetTrue/SetFalse,
+            // `--flag` sin valor) de las que toman valor (`--flag x`). Los
+            // bool clap reportan possible_values ["true","false"] aunque no
+            // acepten valor — la acción es el discriminador real.
+            "boolean": matches!(
+                arg.get_action(),
+                clap::ArgAction::SetTrue | clap::ArgAction::SetFalse
+            ),
             "value_name": arg.get_value_names().and_then(|v| v.first()).map(|s| s.to_string()),
             "possible_values": arg.get_possible_values().iter().map(|p| p.get_name().to_string()).collect::<Vec<_>>(),
         }));

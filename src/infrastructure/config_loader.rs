@@ -71,6 +71,40 @@ pub fn load_section(section: &str) -> HashMap<String, String> {
     load_section_from_path(config_path(), section)
 }
 
+/// `true` si el fichero pertenece a root (uid 0) y no es escribible por
+/// grupo ni otros — condición para que su contenido fije política de un
+/// proceso privilegiado (R-5).
+#[cfg(unix)]
+fn is_root_owned_secure(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::metadata(path) {
+        Ok(m) => m.uid() == 0 && (m.mode() & 0o022) == 0,
+        Err(_) => false,
+    }
+}
+
+/// Variante no-unix: sin noción de uid/mode, el fichero no es de confianza.
+#[cfg(not(unix))]
+fn is_root_owned_secure(_path: &std::path::Path) -> bool {
+    false
+}
+
+/// Lee una sección desde `/etc/enola/config.toml` **solo si el fichero es
+/// root-owned y no escribible por grupo/otros**. Si no cumple, devuelve un
+/// mapa vacío (la sección simplemente no aporta valores).
+///
+/// Pensada para configuración que fija política cuando el proceso corre
+/// como root (R-5): el `config.toml` del usuario es escribible por el
+/// usuario/agente no privilegiado y no debe gobernar un proceso root.
+pub fn load_section_root_owned(section: &str) -> HashMap<String, String> {
+    let path = PathBuf::from("/etc/enola/config.toml");
+    if is_root_owned_secure(&path) {
+        load_section_from_path(Some(path), section)
+    } else {
+        HashMap::new()
+    }
+}
+
 fn load_section_from_path(path: Option<PathBuf>, section: &str) -> HashMap<String, String> {
     let Some(path) = path else {
         return HashMap::new();
@@ -389,5 +423,19 @@ binary_base_url = "https://dl.example.com"  # inline
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "config.toml must be 0600, got {:o}", mode);
         }
+    }
+
+    /// R-5: un fichero NO root-owned (o world/group-writable, o inexistente)
+    /// nunca aporta sección a la política privilegiada. Bajo tests no-root el
+    /// chequeo de uid ya basta; el de modo queda cubierto por el mismo gate.
+    #[test]
+    fn non_root_owned_config_contributes_nothing() {
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let path = tmp.path().join("config.toml");
+        std::fs::write(&path, "[mcp]\nallow_write = true\n").unwrap();
+        // El test corre como usuario → uid != 0 → no es de confianza.
+        assert!(!super::is_root_owned_secure(&path));
+        // Inexistente → tampoco.
+        assert!(!super::is_root_owned_secure(&tmp.path().join("nope")));
     }
 }

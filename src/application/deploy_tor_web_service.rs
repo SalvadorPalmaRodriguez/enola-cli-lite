@@ -38,12 +38,9 @@ impl DeployTorWebService {
     }
 
     pub async fn execute(&self, request: DeployTorWebServiceRequest) -> Result<String> {
-        // 1. Validate Input
-        if request.service_name.is_empty() {
-            return Err(EnolaError::ValidationError(
-                "Service name cannot be empty".to_string(),
-            ));
-        }
+        // 1. Validate Input — el nombre se interpola en configs Nginx
+        // (`proxy_{name}.conf`) y en rutas Tor: validación estricta (R-12).
+        crate::domain::naming::validate_service_name(&request.service_name)?;
 
         // 2. Create Nginx Reverse Proxy Config
         eprintln!("   📝 Creating Nginx proxy config...");
@@ -171,7 +168,7 @@ mod tests {
         let result = service.execute(request).await;
         assert!(result.is_err());
         match result {
-            Err(EnolaError::ValidationError(msg)) => assert!(msg.contains("empty")),
+            Err(EnolaError::ValidationError(_)) => {}
             _ => panic!("Expected ValidationError"),
         }
     }
@@ -263,5 +260,28 @@ mod tests {
         };
         let result = service.execute(request).await;
         assert!(result.is_ok());
+    }
+
+    /// R-12: el nombre llega a `proxy_{name}.conf` de Nginx — rechazar
+    /// traversal/absoluto/newline antes de crear la config.
+    #[tokio::test]
+    async fn test_deploy_tor_web_service_rejects_unsafe_names() {
+        for name in ["../x", "/etc/nginx/x", "a\nb", ""] {
+            let service = DeployTorWebService::new(
+                Arc::new(MockNginxManagerPort::new()),
+                Arc::new(MockTorManagerPort::new()),
+                Arc::new(MockServiceManagerPort::new()),
+                Arc::new(mock_manifest()),
+            );
+            let result = service
+                .execute(DeployTorWebServiceRequest {
+                    service_name: name.to_string(),
+                    backend_port: 3000,
+                    nginx_port: 8081,
+                    enable_auth: false,
+                })
+                .await;
+            assert!(result.is_err(), "name {name:?} debe ser rechazado");
+        }
     }
 }

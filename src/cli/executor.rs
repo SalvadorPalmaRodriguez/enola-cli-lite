@@ -150,16 +150,42 @@ async fn execute_mcp(
         audit_log: audit_log.map(String::from),
         request_timeout_secs,
     };
-    let config_section = crate::infrastructure::config_loader::load_section("mcp");
+    // R-5: con euid 0 la política [mcp] solo puede venir de
+    // `/etc/enola/config.toml` (root-owned, no escribible por grupo/otros).
+    // El `~/.enola/config.toml` del usuario es controlable por quien lanza
+    // el proceso y no debe fijar la política del servidor privilegiado.
+    let config_section = if is_root() {
+        let root_section = crate::infrastructure::config_loader::load_section_root_owned("mcp");
+        if root_section.is_empty()
+            && !crate::infrastructure::config_loader::load_section("mcp").is_empty()
+        {
+            eprintln!(
+                "⚠️  [mcp] de la config del usuario se ignora al correr como root; \
+                 usar /etc/enola/config.toml (root-owned 0644-) para la política."
+            );
+        }
+        root_section
+    } else {
+        crate::infrastructure::config_loader::load_section("mcp")
+    };
     let policy = Arc::new(resolve_policy(&flags, &config_section));
     let audit = std::sync::Arc::new(crate::application::mcp::audit::AuditLogger::new(
         policy.audit_log.as_deref(),
     ));
+    // MCP-009: store de confirmaciones destructivas compartido entre el
+    // servidor (tools de primera clase) y la meta-tool enola_run_command.
+    let confirmations =
+        std::sync::Arc::new(crate::application::mcp::confirmation::ConfirmationStore::new());
 
-    let registry = Arc::new(build_mcp_registry(policy.clone(), audit.clone())?);
+    let registry = Arc::new(build_mcp_registry(
+        policy.clone(),
+        audit.clone(),
+        confirmations.clone(),
+    )?);
 
     McpServer::new(transport, registry)
         .with_policy((*policy).clone(), audit)
+        .with_confirmations(confirmations)
         .run()
         .await
         .map_err(|e| CliError::Generic(format!("MCP server error: {e}")))?;
@@ -171,6 +197,7 @@ async fn execute_mcp(
 fn build_mcp_registry(
     policy: Arc<crate::application::mcp::policy::McpPolicy>,
     audit: Arc<crate::application::mcp::audit::AuditLogger>,
+    confirmations: Arc<crate::application::mcp::confirmation::ConfirmationStore>,
 ) -> CliResult<crate::application::mcp::registry::ToolRegistry> {
     use crate::adapters::infra::docker::BollardDockerAdapter;
     use crate::adapters::infra::nginx::NginxAdapter;
@@ -213,8 +240,14 @@ fn build_mcp_registry(
         crate::adapters::process_runner::SubprocessRunner::new()
             .map_err(|e| CliError::Generic(format!("failed to init MCP runner: {e}")))?,
     );
-    crate::application::mcp::run_command::register(&mut registry, runner, policy, audit)
-        .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
+    crate::application::mcp::run_command::register(
+        &mut registry,
+        runner,
+        policy,
+        audit,
+        confirmations,
+    )
+    .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
     crate::application::mcp::resources::register_search_tool(&mut registry)
         .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
@@ -289,6 +322,11 @@ fn is_root() -> bool {
 /// Preflight: si faltan dependencias y el comando las requiere,
 /// ofrece ejecutar `setup --all` automáticamente.
 async fn maybe_run_preflight(cli: &Cli) -> CliResult<()> {
+    // R-3: los hijos despachados por el servidor MCP nunca ejecutan setup
+    // automático — un dispatch ReadOnly no puede mutar el sistema.
+    if std::env::var("ENOLA_MCP_CHILD").is_ok() {
+        return Ok(());
+    }
     if !command_requires_system_dependencies(&cli.command) {
         return Ok(());
     }
@@ -3457,16 +3495,22 @@ async fn execute_setup(all: bool, vpn: bool, security: bool, pqc_tls: bool) -> C
     let mut out = mgr.format_setup_result(&result);
 
     if pqc_tls {
-        let script_path = "/tmp/enola_install_pqc_tls_stack.sh";
+        // R-8/G-2: el installer se escribe en un directorio temporal privado
+        // (0700, nombre aleatorio) — una ruta fija en /tmp sería un vector de
+        // pre-plantado/symlink para código ejecutado como root.
+        let tmp = tempfile::tempdir()
+            .map_err(|e| CliError::Generic(format!("Failed to create PQC TLS tempdir: {}", e)))?;
+        let script_path = tmp.path().join("enola_install_pqc_tls_stack.sh");
         tokio::fs::write(
-            script_path,
+            &script_path,
             crate::infrastructure::pqc_tls::embedded_installer_script(),
         )
         .await
         .map_err(|e| CliError::Generic(format!("Failed to write PQC TLS installer: {}", e)))?;
 
         let status = Command::new("chmod")
-            .args(["700", script_path])
+            .args(["700"])
+            .arg(&script_path)
             .status()
             .await
             .map_err(|e| CliError::Generic(format!("Failed to chmod PQC TLS installer: {}", e)))?;
@@ -3477,7 +3521,7 @@ async fn execute_setup(all: bool, vpn: bool, security: bool, pqc_tls: bool) -> C
         }
 
         let output = Command::new("bash")
-            .arg(script_path)
+            .arg(&script_path)
             .output()
             .await
             .map_err(|e| CliError::Generic(format!("Failed to run PQC TLS installer: {}", e)))?;
@@ -3515,6 +3559,28 @@ async fn execute_doctor(security: bool) -> CliResult<String> {
     }
 }
 
+/// R-8/F-08: rutas candidatas a `uninstall.sh` — SOLO absolutas.
+///
+/// El script se ejecuta con `bash` heredando los privilegios del proceso
+/// (típicamente root): un path relativo al cwd permitiría a un directorio
+/// hostil plantar un `scripts/ops/uninstall.sh` arbitrario. El candidato
+/// derivado de `current_exe` solo se conserva si resuelve absoluto.
+fn uninstall_script_candidates() -> Vec<std::path::PathBuf> {
+    let exe_relative = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("../share/enola/uninstall.sh")))
+        .filter(|p| p.is_absolute());
+    [
+        Some(std::path::PathBuf::from(
+            "/usr/local/share/enola/uninstall.sh",
+        )),
+        exe_relative,
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 pub(crate) async fn execute_uninstall(
     yes: bool,
     keep_data: bool,
@@ -3524,20 +3590,13 @@ pub(crate) async fn execute_uninstall(
 ) -> crate::cli::commands::CliResult<String> {
     use crate::cli::commands::CliError;
     use crate::domain::error::EnolaError;
-    use std::path::PathBuf;
     use std::process::Command;
 
-    let candidates: Vec<PathBuf> = vec![
-        PathBuf::from("/usr/local/share/enola/uninstall.sh"),
-        PathBuf::from("scripts/ops/uninstall.sh"),
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("../share/enola/uninstall.sh")))
-            .unwrap_or_else(|| PathBuf::from("scripts/ops/uninstall.sh")),
-    ];
-    let script = candidates.into_iter().find(|p| p.exists())
+    let script = uninstall_script_candidates()
+        .into_iter()
+        .find(|p| p.exists())
         .ok_or_else(|| CliError::Domain(EnolaError::InfrastructureError(
-            "No se encontró scripts/ops/uninstall.sh ni /usr/local/share/enola/uninstall.sh. Reinstala el CLI o descarga la release completa.".to_string()
+            "No se encontró /usr/local/share/enola/uninstall.sh. Reinstala el CLI o descarga la release completa.".to_string()
         )))?;
 
     let mut args: Vec<String> = vec![script.to_string_lossy().to_string()];
@@ -3821,5 +3880,35 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                 Err(e) => Err(CliError::Generic(format!("update apply: {}", e))),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::uninstall_script_candidates;
+
+    #[test]
+    fn uninstall_candidates_are_always_absolute() {
+        // R-8/F-08: ningún candidato puede ser relativo al cwd — un
+        // `scripts/ops/uninstall.sh` plantado en un directorio hostil
+        // ejecutaría bash como root.
+        let candidates = uninstall_script_candidates();
+        assert!(
+            candidates.iter().all(|p| p.is_absolute()),
+            "relative uninstall.sh candidate leaked: {candidates:?}"
+        );
+    }
+
+    #[test]
+    fn uninstall_candidates_exclude_repo_relative_path() {
+        // Regresión: `scripts/ops/uninstall.sh` (relativo) ya no es candidato
+        // ni fallback.
+        let candidates = uninstall_script_candidates();
+        assert!(
+            !candidates
+                .iter()
+                .any(|p| p == &std::path::PathBuf::from("scripts/ops/uninstall.sh")),
+            "repo-relative candidate still present: {candidates:?}"
+        );
     }
 }

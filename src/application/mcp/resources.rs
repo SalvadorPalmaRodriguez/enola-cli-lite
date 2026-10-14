@@ -81,8 +81,9 @@ pub(crate) fn register_search_tool(
         "Search the embedded user documentation (all enola-cli docs).",
         json!({
             "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"]
+            "properties": {"query": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "required": ["query"],
+            "additionalProperties": false
         }),
         ToolKind::ReadOnly,
     )

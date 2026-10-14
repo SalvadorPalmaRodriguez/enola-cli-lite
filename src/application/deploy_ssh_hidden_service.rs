@@ -30,6 +30,11 @@ impl DeploySshHiddenService {
         onion_port: u16,
         local_ssh_port: u16,
     ) -> Result<String> {
+        // 0. Validate service name — se interpola en rutas/config de Tor
+        // vía DeployTorService (R-12; defensa en profundidad aunque el
+        // caso de uso delegado también valida).
+        crate::domain::naming::validate_service_name(service_name)?;
+
         // 1. Ensure SSH Server is running on localhost
         // Try 'ssh' or 'sshd'. Ubuntu usually uses 'ssh'.
         if !self.service_manager.is_active("ssh").await? {
@@ -151,5 +156,22 @@ mod tests {
 
         let result = use_case.execute("test", 22, 22).await;
         assert!(result.is_ok());
+    }
+
+    /// R-12: el nombre se interpola en rutas/config Tor vía DeployTorService —
+    /// el caso de uso valida también en su entrada (defensa en profundidad).
+    #[tokio::test]
+    async fn test_deploy_ssh_hidden_rejects_unsafe_names() {
+        for name in ["../x", "/etc/ssh/sshd_config.d/00-x", "a\nb", ""] {
+            let use_case = DeploySshHiddenService::new(
+                Arc::new(MockTorManagerPort::new()),
+                Arc::new(MockServiceManagerPort::new()),
+                Arc::new(mock_manifest()),
+            );
+            assert!(
+                use_case.execute(name, 22, 22).await.is_err(),
+                "name {name:?} debe ser rechazado"
+            );
+        }
     }
 }

@@ -15,6 +15,20 @@ use std::sync::Arc;
 #[async_trait::async_trait]
 pub(crate) trait ToolHandler: Send + Sync {
     async fn call(&self, args: Value) -> Result<Value>;
+
+    /// MCP-009 — Simulación (`try_run`) de la operación.
+    ///
+    /// Contrato: NUNCA produce efectos secundarios. Devuelve un JSON con
+    /// `simulated: true` y la descripción estructurada de lo que haría la
+    /// operación, o `simulated: false` + `reason` cuando la operación no
+    /// admite una simulación fiable. La implementación por defecto marca la
+    /// tool como no simulable — es el fallback seguro.
+    async fn try_run(&self, _args: Value) -> Result<Value> {
+        Ok(serde_json::json!({
+            "simulated": false,
+            "reason": "this tool does not provide a reliable simulation"
+        }))
+    }
 }
 
 struct RegisteredTool {
@@ -59,6 +73,17 @@ impl ToolRegistry {
         self.tools.get(name).map(|t| t.spec.kind)
     }
 
+    /// Valida `args` contra el schema de `name` sin invocar el handler.
+    /// El servidor lo usa para validar ANTES de emitir un challenge de
+    /// confirmación: un token nunca se crea sobre argumentos inválidos.
+    pub(crate) fn validate(&self, name: &str, args: &Value) -> Result<()> {
+        let tool = self
+            .tools
+            .get(name)
+            .ok_or_else(|| EnolaError::NotFound(format!("unknown tool: {name}")))?;
+        validate_input(&tool.spec.input_schema, args).map_err(EnolaError::ValidationError)
+    }
+
     /// Despacha `name` con `args`, validando antes de invocar el handler.
     pub(crate) async fn call(&self, name: &str, args: Value) -> Result<Value> {
         let tool = self
@@ -67,6 +92,20 @@ impl ToolRegistry {
             .ok_or_else(|| EnolaError::NotFound(format!("unknown tool: {name}")))?;
         validate_input(&tool.spec.input_schema, &args).map_err(EnolaError::ValidationError)?;
         tool.handler.call(args).await
+    }
+
+    /// MCP-009 — Simulación de `name` con `args`.
+    ///
+    /// Aplica la MISMA validación de entrada que `call` (los parámetros se
+    /// validan también en simulación) pero invoca `try_run`, que nunca
+    /// ejecuta la operación real.
+    pub(crate) async fn try_call(&self, name: &str, args: Value) -> Result<Value> {
+        let tool = self
+            .tools
+            .get(name)
+            .ok_or_else(|| EnolaError::NotFound(format!("unknown tool: {name}")))?;
+        validate_input(&tool.spec.input_schema, &args).map_err(EnolaError::ValidationError)?;
+        tool.handler.try_run(args).await
     }
 }
 
@@ -161,5 +200,53 @@ mod tests {
         let out = reg.call("a", json!({"name": "foo"})).await.unwrap();
         assert_eq!(out, json!({"ok": true}));
         assert_eq!(*handler.calls.lock().unwrap(), vec![json!({"name": "foo"})]);
+    }
+
+    // ── MCP-009: try_call ──
+
+    #[tokio::test]
+    async fn try_call_does_not_invoke_call() {
+        let handler = stub(json!({}));
+        let mut reg = ToolRegistry::new();
+        reg.register(spec("a"), handler.clone()).unwrap();
+
+        let out = reg.try_call("a", json!({"name": "foo"})).await.unwrap();
+        assert_eq!(out["simulated"], false);
+        // El handler real NO se invocó durante la simulación.
+        assert!(handler.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn try_call_validates_input_like_call() {
+        let handler = stub(json!({}));
+        let mut reg = ToolRegistry::new();
+        reg.register(spec("a"), handler.clone()).unwrap();
+
+        assert!(matches!(
+            reg.try_call("a", json!({})).await,
+            Err(EnolaError::ValidationError(_))
+        ));
+        assert!(matches!(
+            reg.try_call("nope", json!({})).await,
+            Err(EnolaError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn try_call_uses_handler_try_run() {
+        struct SimHandler;
+        #[async_trait::async_trait]
+        impl ToolHandler for SimHandler {
+            async fn call(&self, _args: Value) -> Result<Value> {
+                panic!("call must not run during try_run")
+            }
+            async fn try_run(&self, args: Value) -> Result<Value> {
+                Ok(json!({"simulated": true, "would": args["name"]}))
+            }
+        }
+        let mut reg = ToolRegistry::new();
+        reg.register(spec("sim"), Arc::new(SimHandler)).unwrap();
+        let out = reg.try_call("sim", json!({"name": "x"})).await.unwrap();
+        assert_eq!(out, json!({"simulated": true, "would": "x"}));
     }
 }

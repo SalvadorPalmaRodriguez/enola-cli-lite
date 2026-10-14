@@ -81,9 +81,10 @@ pub(crate) fn register(registry: &mut ToolRegistry) -> Result<()> {
         json!({
             "type": "object",
             "properties": {
-                "family": {"type": "string"},
-                "query": {"type": "string"}
-            }
+                "family": {"type": "string", "maxLength": 64},
+                "query": {"type": "string", "maxLength": 256}
+            },
+            "additionalProperties": false
         }),
         ToolKind::ReadOnly,
     )

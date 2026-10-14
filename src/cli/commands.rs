@@ -1759,6 +1759,11 @@ pub mod ssh {
         onion_port: u16,
         local_ssh_port: u16,
     ) -> CliResult<String> {
+        // R-12: `name` se interpola en rutas y contenido de la conf Tor —
+        // validar aquí además de en el caso de uso (defensa en profundidad).
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::Generic(e.to_string()))?;
+
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let service_adapter: Arc<dyn crate::ports::service::ServiceManagerPort + Send + Sync> =
             Arc::new(SystemdAdapter);
@@ -2294,6 +2299,11 @@ pub mod git {
 
     /// Delete a Git server
     pub async fn delete(name: &str) -> CliResult<()> {
+        // R-12: `name` se interpola en `/srv/enola-git/{name}`
+        // (remove_dir_all) — rechazar `..`/absolutos antes de borrar.
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::Generic(e.to_string()))?;
+
         let docker_adapter =
             Arc::new(BollardDockerAdapter::new().map_err(|e| CliError::Generic(e.to_string()))?);
         docker_adapter
@@ -3573,6 +3583,11 @@ pub mod wordpress {
 
     /// Delete a WordPress site
     pub async fn delete(name: &str) -> CliResult<()> {
+        // R-12: `name` se interpola en `/srv/enola-wordpress/{name}`
+        // (remove_dir_all) — rechazar `..`/absolutos antes de borrar.
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::Generic(e.to_string()))?;
+
         let docker_adapter =
             Arc::new(BollardDockerAdapter::new().map_err(|e| CliError::Generic(e.to_string()))?);
 
@@ -4764,6 +4779,11 @@ pub mod files {
 
     /// Create a file share
     pub async fn create(name: &str, auth: bool, ssl: bool) -> CliResult<String> {
+        // R-12: `name` se interpola en `/srv/enola-files/{name}` y en la conf
+        // `fileserver_{name}` de Nginx — validar antes de tocar el filesystem.
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::Generic(e.to_string()))?;
+
         use crate::application::deploy_tor_service::{DeployTorService, DeployTorServiceRequest};
         use crate::ports::file::FileManagerPort;
         use crate::ports::service::ServiceManagerPort;

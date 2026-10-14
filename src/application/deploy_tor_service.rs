@@ -31,12 +31,10 @@ impl DeployTorService {
     }
 
     pub async fn execute(&self, request: DeployTorServiceRequest) -> Result<String> {
-        // 1. Validate Input
-        if request.service_name.is_empty() {
-            return Err(EnolaError::ValidationError(
-                "Service name cannot be empty".to_string(),
-            ));
-        }
+        // 1. Validate Input — el nombre se interpola en rutas de config Tor
+        // (`{name}.conf`, HiddenServiceDir) y en su contenido: debe ser un
+        // nombre de servicio válido, no solo no-vacío (R-12).
+        crate::domain::naming::validate_service_name(&request.service_name)?;
         if request.ports.is_empty() {
             return Err(EnolaError::ValidationError(
                 "At least one port mapping is required".to_string(),
@@ -247,7 +245,9 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            EnolaError::ValidationError(msg) => assert!(msg.contains("empty")),
+            // R-12: la validación delega en naming::validate_service_name —
+            // el mensaje exacto es detalle del dominio.
+            EnolaError::ValidationError(_) => {}
             _ => panic!("Expected ValidationError"),
         }
     }
@@ -286,5 +286,36 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    /// R-12: el nombre se interpola en `{name}.conf` y `HiddenServiceDir` —
+    /// rutas absolutas, `..` y `\n` deben rechazarse antes de tocar el
+    /// adapter (deploy nunca se invoca).
+    #[tokio::test]
+    async fn test_deploy_tor_service_rejects_unsafe_names() {
+        for name in [
+            "../etc/x",
+            "/etc/ssh/sshd_config.d/00-x",
+            "a\nSocksPort 0.0.0.0:9050",
+            "a\0b",
+            "Name With Space",
+            "",
+        ] {
+            let tor = Arc::new(MockTorManager::new());
+            let called = Arc::clone(&tor);
+            let svc = Arc::new(MockServiceManager::active());
+            let use_case = DeployTorService::new(tor, svc, Arc::new(mock_manifest()));
+            let result = use_case
+                .execute(DeployTorServiceRequest {
+                    service_name: name.into(),
+                    ports: vec![(80, 8080)],
+                })
+                .await;
+            assert!(result.is_err(), "name {name:?} debe ser rechazado");
+            assert!(
+                !called.deploy_called.load(Ordering::SeqCst),
+                "deploy no debe invocarse con name {name:?}"
+            );
+        }
     }
 }

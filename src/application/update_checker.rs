@@ -933,6 +933,34 @@ fn verify_minisign_signature(
     }
     Ok(())
 }
+
+/// Verifica la firma minisign de un fichero en disco con `minisign -V`.
+///
+/// Devuelve `true` solo si el proceso sale con éxito (firma válida bajo
+/// `pubkey`). Cualquier fallo — clave vacía, minisign no ejecutable,
+/// firma ausente o inválida — devuelve `false`; el llamador decide si el
+/// resultado es error o warning. R-7: helper compartido entre
+/// `download_update` y la re-verificación de `apply_update`.
+fn verify_file_minisign(msg_path: &Path, sig_path: &Path, pubkey: &str) -> bool {
+    if pubkey.trim().is_empty() {
+        return false;
+    }
+    let minisign_bin = resolve_minisign_binary();
+    Command::new(&minisign_bin)
+        .args([
+            "-V",
+            "-m",
+            &msg_path.to_string_lossy(),
+            "-x",
+            &sig_path.to_string_lossy(),
+            "-P",
+            pubkey,
+        ])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
 async fn fetch_feed(url: &str) -> UpdateFeedResult<UpdateFeed> {
     let feed_bytes = fetch_feed_bytes(url).await?;
     let signature = fetch_feed_signature(&signature_url(url)).await?;
@@ -1202,13 +1230,20 @@ fn sync_installed_pqsig(bin_path: &str, share_dir: &Path) {
 }
 
 /// Save metadata about the last download so `update apply` can find it.
-fn save_last_download(path: &str, sha256: &str, signature_verified: bool) {
-    let meta = serde_json::json!({
+///
+/// `sig_path` (R-7) apunta al `.minisig` persistido junto al binario staged;
+/// `apply` lo usa para re-verificar la firma real. El flag
+/// `signature_verified` queda solo como hint de UX, no como trust anchor.
+fn save_last_download(path: &str, sha256: &str, signature_verified: bool, sig_path: Option<&str>) {
+    let mut meta = serde_json::json!({
         "binary_path": path,
         "sha256": sha256,
         "signature_verified": signature_verified,
         "saved_at": now_ts(),
     });
+    if let Some(sig) = sig_path {
+        meta["sig_path"] = serde_json::json!(sig);
+    }
     let meta_path = last_download_meta_path();
     if let Some(parent) = meta_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1220,8 +1255,8 @@ fn save_last_download(path: &str, sha256: &str, signature_verified: bool) {
 }
 
 /// Load metadata about the last download.
-/// Returns (binary_path, sha256, signature_verified).
-fn load_last_download() -> Option<(String, String, bool)> {
+/// Returns (binary_path, sha256, signature_verified_hint, sig_path).
+fn load_last_download() -> Option<(String, String, bool, Option<String>)> {
     let meta_path = last_download_meta_path();
     let content = std::fs::read_to_string(&meta_path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -1231,7 +1266,8 @@ fn load_last_download() -> Option<(String, String, bool)> {
         .get("signature_verified")
         .and_then(|b| b.as_bool())
         .unwrap_or(false);
-    Some((path, sha, sig_verified))
+    let sig_path = v.get("sig_path").and_then(|s| s.as_str()).map(String::from);
+    Some((path, sha, sig_verified, sig_path))
 }
 
 /// Download the latest binary from the update feed.
@@ -1329,6 +1365,10 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
 
     // Download and verify minisign signature
     let mut signature_verified = false;
+    // R-7: si la .minisig se descargó, se persiste como hermano del binario
+    // staged para que `apply` pueda re-verificarla (el flag del meta no es
+    // trust anchor).
+    let mut sig_fetched = false;
     let resp = client
         .get(&sig_url)
         .header("User-Agent", format!("enola-cli/{}", CURRENT_VERSION))
@@ -1338,24 +1378,9 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
         if resp.status().is_success() {
             if let Ok(sig_content) = resp.text().await {
                 std::fs::write(&sig_path, &sig_content).ok();
+                sig_fetched = true;
                 let pubkey = update_minisign_pubkey();
-                if !pubkey.is_empty() {
-                    let minisign_bin = resolve_minisign_binary();
-                    let output = Command::new(&minisign_bin)
-                        .args([
-                            "-V",
-                            "-m",
-                            &binary_path.to_string_lossy(),
-                            "-x",
-                            &sig_path.to_string_lossy(),
-                            "-P",
-                            &pubkey,
-                        ])
-                        .output();
-                    if let Ok(out) = output {
-                        signature_verified = out.status.success();
-                    }
-                }
+                signature_verified = verify_file_minisign(&binary_path, &sig_path, &pubkey);
             }
         }
     }
@@ -1393,12 +1418,22 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
     if pqsig_present {
         let _ = std::fs::copy(&pqsig_tmp, format!("{}.pqsig", persist_str));
     }
+    // R-7: persistir el .minisig como hermano del binario staged; `apply`
+    // lo re-verifica en lugar de fiarse del flag del meta JSON. El nombre
+    // enola-cli-<ver>.minisig queda cubierto por el prefijo enola-cli- de
+    // prune_download_residuals.
+    let sig_persisted = if sig_fetched {
+        let dst = format!("{}.minisig", persist_str);
+        std::fs::copy(&sig_path, &dst).ok().map(|_| dst)
+    } else {
+        None
+    };
 
     // MED-05: fail if signature was not verified, unless escape hatch is set.
     if !signature_verified {
         if std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1") {
             // Still save metadata so user can inspect the binary, but return error.
-            save_last_download(&persist_str, &actual_sha, false);
+            save_last_download(&persist_str, &actual_sha, false, sig_persisted.as_deref());
             return Err(format!(
                 "Signature verification failed or minisign unavailable. \
                  Binary saved at: {}. \
@@ -1409,7 +1444,12 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
         eprintln!("⚠️  WARNING: applying update without minisign signature verification.");
     }
 
-    save_last_download(&persist_str, &actual_sha, signature_verified);
+    save_last_download(
+        &persist_str,
+        &actual_sha,
+        signature_verified,
+        sig_persisted.as_deref(),
+    );
 
     Ok(DownloadResult {
         current_version: report.current_version,
@@ -1422,6 +1462,30 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
         dry_run: false,
         error: None,
     })
+}
+
+/// R-7/G-1: con euid 0, los artefactos staged deben ser root-owned y no
+/// escribibles por grupo/otros.
+///
+/// Bajo `sudo -E` se preserva el HOME del usuario: sin este check, un
+/// `last_download.json` forjado por el usuario apuntaría `apply` a un
+/// binario elegido por él. Todo lo que el usuario puede forjar es
+/// necesariamente no-root-owned → queda detectado aquí.
+fn staged_artifacts_root_owned(paths: &[PathBuf]) -> std::result::Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    for path in paths {
+        let md = std::fs::metadata(path)
+            .map_err(|e| format!("cannot stat {}: {}", path.display(), e))?;
+        if md.uid() != 0 || md.mode() & 0o022 != 0 {
+            return Err(format!(
+                "Refusing to apply update: {} must be root-owned and not \
+                 group/world-writable when running as root. \
+                 Re-run 'sudo enola-cli update download'.",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Apply a downloaded update: replace the current binary atomically.
@@ -1470,14 +1534,32 @@ pub fn apply_update(
             (p.to_string(), sha, known_verified)
         }
         None => {
-            let (p, stored_sha, sig) = load_last_download().ok_or_else(|| {
+            let (p, stored_sha, _sig_hint, meta_sig) = load_last_download().ok_or_else(|| {
                 "No previous download found. Run 'enola-cli update download' first.".to_string()
             })?;
-            // MED-05: reject if signature was not verified, unless escape hatch is set.
+
+            // R-7/G-1: con euid 0 el meta y el directorio staged deben ser
+            // root-owned y no escribibles por grupo/otros — un HOME de
+            // usuario preservado por `sudo -E` no puede forjarlos.
+            if unsafe { libc::geteuid() } == 0 {
+                staged_artifacts_root_owned(&[downloads_dir(), last_download_meta_path()])?;
+            }
+
+            // R-7: el flag `signature_verified` del JSON es solo un hint de
+            // UX, no un trust anchor — se re-verifica la firma minisign REAL
+            // del binario staged contra el `.minisig` persistido por
+            // `update download` (o el hermano `<bin>.minisig` por defecto).
+            let sig_path = meta_sig
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(format!("{}.minisig", p)));
+            let pubkey = update_minisign_pubkey();
+            let sig = verify_file_minisign(Path::new(&p), &sig_path, &pubkey);
             if !sig {
                 if std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1") {
                     return Err(
-                        "Cannot apply update: the downloaded binary was not signature-verified. \
+                        "Cannot apply update: the downloaded binary is not signature-verified \
+                         (minisign re-verification failed or .minisig missing). \
+                         Re-run 'enola-cli update download'. \
                          To override, set ENOLA_ALLOW_UNSIGNED_UPDATE=1 or use --allow-unsigned."
                             .to_string(),
                     );
@@ -1619,6 +1701,45 @@ mod tests {
         std::env::remove_var("ENOLA_UPDATE_FEED_URL");
         std::env::remove_var("ENOLA_UPDATE_SIGNATURE_URL");
         std::env::remove_var("ENOLA_UPDATE_MINISIGN_PUBKEY");
+    }
+
+    /// R-7: genera un keypair minisign efímero, firma `msg` y devuelve
+    /// (dir vivo, pubkey, sig_path). Devuelve `None` si minisign no está
+    /// disponible — el test que lo use debe hacer return (skip graceful).
+    fn sign_fixture_with_minisign(msg: &Path) -> Option<(tempfile::TempDir, String, PathBuf)> {
+        let dir = tempfile::tempdir().ok()?;
+        let pub_path = dir.path().join("t.pub");
+        let sec_path = dir.path().join("t.sec");
+        let gen = Command::new("minisign")
+            .args(["-G", "-W", "-p"])
+            .arg(&pub_path)
+            .args(["-s"])
+            .arg(&sec_path)
+            .output()
+            .ok()?;
+        if !gen.status.success() {
+            return None;
+        }
+        let sig_path = dir.path().join("msg.minisig");
+        let sign = Command::new("minisign")
+            .args(["-S", "-s"])
+            .arg(&sec_path)
+            .args(["-x"])
+            .arg(&sig_path)
+            .args(["-m"])
+            .arg(msg)
+            .output()
+            .ok()?;
+        if !sign.status.success() {
+            return None;
+        }
+        let pubkey = std::fs::read_to_string(&pub_path)
+            .ok()?
+            .lines()
+            .find(|l| l.starts_with("RW"))?
+            .trim()
+            .to_string();
+        Some((dir, pubkey, sig_path))
     }
 
     // ── SEC-003: Tests for resolve_minisign_binary ──────────────────────────
@@ -2389,6 +2510,7 @@ mod tests {
             &dir.join("enola-cli-1.5.0").to_string_lossy(),
             "deadbeef",
             true,
+            None,
         );
         assert!(last_download_meta_path().exists());
 
@@ -2440,11 +2562,7 @@ mod tests {
         // Simulate a download metadata with signature_verified = false
         let fake_bin = tmp.path().join("fake-binary");
         std::fs::write(&fake_bin, b"fake binary content").expect("write fake bin");
-        save_last_download(
-            &fake_bin.to_string_lossy(),
-            "abc123",
-            false, // signature NOT verified
-        );
+        save_last_download(&fake_bin.to_string_lossy(), "abc123", false, None);
 
         let result = apply_update(None, None, false);
         assert!(
@@ -2469,11 +2587,7 @@ mod tests {
         // Simulate a download metadata with signature_verified = false
         let fake_bin = tmp.path().join("fake-binary-escape");
         std::fs::write(&fake_bin, b"fake binary content").expect("write fake bin");
-        save_last_download(
-            &fake_bin.to_string_lossy(),
-            "abc123",
-            false, // signature NOT verified
-        );
+        save_last_download(&fake_bin.to_string_lossy(), "abc123", false, None);
 
         // apply_update should proceed past the signature check. With the T3
         // integrity re-check, it now stops at the SHA256 mismatch (the stored
@@ -2548,12 +2662,21 @@ mod tests {
 
         // Signature was verified at download time, but the staged file no longer
         // matches the stored SHA256 (tampered between download and apply).
+        // R-7: la firma se re-verifica de verdad — para llegar al check de
+        // integridad el binario staged necesita un .minisig válido real.
         let fake_bin = tmp.path().join("tampered-binary");
         std::fs::write(&fake_bin, b"tampered content").expect("write fake bin");
+        let Some((_sigdir, pubkey, sig_path)) = sign_fixture_with_minisign(&fake_bin) else {
+            // minisign no disponible en este entorno: skip graceful.
+            teardown_test_home(tmp, guard);
+            return;
+        };
+        std::env::set_var("ENOLA_UPDATE_MINISIGN_PUBKEY", &pubkey);
         save_last_download(
             &fake_bin.to_string_lossy(),
             "deadbeefdeadbeef", // WRONG: does not match file content
-            true,               // signature WAS verified
+            true,
+            sig_path.to_str(),
         );
 
         let result = apply_update(None, None, false);
@@ -2569,6 +2692,79 @@ mod tests {
         );
 
         teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn apply_update_rejects_forged_meta_claiming_verified() {
+        // R-7 (F-01 residual): un last_download.json forjado con
+        // signature_verified=true y sha coherente pero SIN .minisig válido
+        // se rechaza — el flag del JSON ya no es trust anchor.
+        let (tmp, guard) = setup_test_home();
+        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+
+        let fake_bin = tmp.path().join("forged-binary");
+        std::fs::write(&fake_bin, b"attacker binary").expect("write bin");
+        let sha = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(b"attacker binary");
+            format!("{:x}", h.finalize())
+        };
+        save_last_download(&fake_bin.to_string_lossy(), &sha, true, None);
+
+        let r = apply_update(None, None, false);
+        let e = r.expect_err("forged meta must be rejected");
+        assert!(e.contains("not signature-verified"), "got: {e}");
+
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn apply_update_rejects_wrong_signature_for_binary() {
+        // R-7: un .minisig de OTRO fichero no verifica el binario staged —
+        // reutilizar artefactos firmados no equivale a tener la clave.
+        let (tmp, guard) = setup_test_home();
+        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
+
+        let other = tmp.path().join("other-msg");
+        std::fs::write(&other, b"legit signed content").expect("write other");
+        let Some((_sigdir, pubkey, sig_path)) = sign_fixture_with_minisign(&other) else {
+            teardown_test_home(tmp, guard);
+            return; // minisign no disponible: skip
+        };
+        std::env::set_var("ENOLA_UPDATE_MINISIGN_PUBKEY", &pubkey);
+
+        let fake_bin = tmp.path().join("unsigned-binary");
+        std::fs::write(&fake_bin, b"different content").expect("write bin");
+        save_last_download(
+            &fake_bin.to_string_lossy(),
+            "abc123",
+            true,
+            sig_path.to_str(),
+        );
+
+        let r = apply_update(None, None, false);
+        let e = r.expect_err("foreign signature must be rejected");
+        assert!(e.contains("not signature-verified"), "got: {e}");
+
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn staged_artifacts_root_owned_rejects_non_root_files() {
+        // R-7/G-1: bajo euid 0 los artefactos staged deben ser root-owned y
+        // no escribibles por grupo/otros. Como test no-root, los ficheros
+        // temporales nunca son uid 0 → el check siempre debe rechazar.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // corriendo como root el tmp sí sería uid 0: skip
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let f = dir.path().join("meta.json");
+        std::fs::write(&f, b"{}").expect("write meta");
+        assert!(
+            staged_artifacts_root_owned(std::slice::from_ref(&f)).is_err(),
+            "user-owned artifact must be rejected"
+        );
     }
 
     #[test]
@@ -2597,17 +2793,19 @@ mod tests {
     fn load_last_download_preserves_signature_flag() {
         let (tmp, guard) = setup_test_home();
 
-        save_last_download("/tmp/fake", "deadbeef", true);
-        let (path, sha, sig) = load_last_download().expect("metadata should load");
+        save_last_download("/tmp/fake", "deadbeef", true, Some("/tmp/fake.minisig"));
+        let (path, sha, sig, sig_path) = load_last_download().expect("metadata should load");
         assert_eq!(path, "/tmp/fake");
         assert_eq!(sha, "deadbeef");
         assert!(sig, "signature_verified must be true");
+        assert_eq!(sig_path.as_deref(), Some("/tmp/fake.minisig"));
 
-        save_last_download("/tmp/fake2", "cafe", false);
-        let (path2, sha2, sig2) = load_last_download().expect("metadata should load");
+        save_last_download("/tmp/fake2", "cafe", false, None);
+        let (path2, sha2, sig2, sig_path2) = load_last_download().expect("metadata should load");
         assert_eq!(path2, "/tmp/fake2");
         assert_eq!(sha2, "cafe");
         assert!(!sig2, "signature_verified must be false");
+        assert!(sig_path2.is_none());
 
         teardown_test_home(tmp, guard);
     }
@@ -2859,12 +3057,18 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("create downloads dir");
         std::fs::write(dir.join("enola-cli-1.5.0"), b"bin").expect("write bin");
         std::fs::write(dir.join("enola-cli-1.5.0.pqsig"), b"sig").expect("write pqsig");
+        // R-7: el .minisig persistido por download también cae en el prefijo.
+        std::fs::write(dir.join("enola-cli-1.5.0.minisig"), b"sig").expect("write minisig");
 
         prune_download_residuals();
 
         assert!(
             !dir.join("enola-cli-1.5.0.pqsig").exists(),
             "el .pqsig staged debe podarse con el prefijo enola-cli-"
+        );
+        assert!(
+            !dir.join("enola-cli-1.5.0.minisig").exists(),
+            "el .minisig staged debe podarse con el prefijo enola-cli-"
         );
         assert!(!dir.exists(), "downloads dir vacío debe eliminarse");
         teardown_test_home(tmp, guard);

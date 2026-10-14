@@ -7,6 +7,7 @@
 // compartido (también lo usará `ask` en la Fase 9).
 
 use crate::application::mcp::audit::AuditLogger;
+use crate::application::mcp::confirmation::{confirmation_required_result, ConfirmationStore};
 use crate::application::mcp::policy::McpPolicy;
 use crate::application::mcp::registry::ToolRegistry;
 use crate::domain::error::{EnolaError, Result};
@@ -26,6 +27,7 @@ pub(crate) struct McpServer<T: McpTransport> {
     registry: Arc<ToolRegistry>,
     policy: McpPolicy,
     audit: Arc<AuditLogger>,
+    confirmations: Arc<ConfirmationStore>,
 }
 
 impl<T: McpTransport> McpServer<T> {
@@ -36,6 +38,7 @@ impl<T: McpTransport> McpServer<T> {
             registry,
             policy: McpPolicy::default(),
             audit: Arc::new(AuditLogger::new(None)),
+            confirmations: Arc::new(ConfirmationStore::new()),
         }
     }
 
@@ -43,6 +46,12 @@ impl<T: McpTransport> McpServer<T> {
     pub(crate) fn with_policy(mut self, policy: McpPolicy, audit: Arc<AuditLogger>) -> Self {
         self.policy = policy;
         self.audit = audit;
+        self
+    }
+
+    /// MCP-009: inyecta el store de confirmaciones compartido con el registry.
+    pub(crate) fn with_confirmations(mut self, store: Arc<ConfirmationStore>) -> Self {
+        self.confirmations = store;
         self
     }
 
@@ -181,9 +190,9 @@ impl<T: McpTransport> McpServer<T> {
         let Some(kind) = self.registry.kind_of(name) else {
             return error_response(id, -32602, &format!("Invalid params: unknown tool: {name}"));
         };
-        let is_mutating = kind == ToolKind::Mutating;
+        let writes = kind.writes();
         if let Err(e) = self.policy.allows(kind, name) {
-            if is_mutating {
+            if writes {
                 self.audit.log_call(name, &args, "rejected");
             }
             return success_response(
@@ -193,23 +202,94 @@ impl<T: McpTransport> McpServer<T> {
             );
         }
 
+        // MCP-009: `try_run` enruta a la simulación del handler. La política
+        // ya se aplicó arriba (una simulación exige los mismos permisos que
+        // la ejecución) y la validación de schema corre dentro de try_call.
+        let try_run = args.get("try_run").and_then(|v| v.as_bool()) == Some(true);
+
+        // Auditoría del ciclo de vida: la operación queda registrada como
+        // solicitada en cuanto pasa la política; estados posteriores la
+        // completan (rejected/confirmation_requested/authorized/simulated/
+        // ok/error).
+        if writes {
+            self.audit.log_call(name, &args, "requested");
+        }
+
+        // Validación temprana del schema: un challenge de confirmación nunca
+        // se emite sobre argumentos inválidos.
+        if let Err(e) = self.registry.validate(name, &args) {
+            if writes {
+                self.audit.log_call(name, &args, &format!("rejected: {e}"));
+            }
+            return error_response(id, -32602, &format!("Invalid params: {e}"));
+        }
+
+        // MCP-009: las destructivas exigen una confirmación de dos pasos
+        // vinculada a (tool + args). `force: true` solo no autoriza nada.
+        let mut op_id: Option<String> = None;
+        if kind == ToolKind::Destructive && !try_run {
+            match args.get("confirm_token").and_then(|v| v.as_str()) {
+                Some(token) => {
+                    if let Err(e) = self.confirmations.consume(token, name, &args) {
+                        self.audit.log_call_op(name, &args, "rejected", Some(token));
+                        return error_response(id, -32602, &format!("Invalid params: {e}"));
+                    }
+                    op_id = Some(token.to_string());
+                    self.audit
+                        .log_call_op(name, &args, "authorized", op_id.as_deref());
+                }
+                None => match self.confirmations.create(name, &args) {
+                    Ok(token) => {
+                        self.audit
+                            .log_call_op(name, &args, "confirmation_requested", Some(&token));
+                        let result = confirmation_required_result(name, &args, &token);
+                        return success_response(
+                            id,
+                            serde_json::to_value(CallToolResult::text(result.to_string(), false))
+                                .unwrap_or_else(|_| json!({})),
+                        );
+                    }
+                    Err(e) => {
+                        return error_response(id, -32603, &e.to_string());
+                    }
+                },
+            }
+        }
+
         // request_timeout_secs conectado a la ejecución real de la tool.
+        // OJO: un timeout NO cancela el caso de uso (tokio::time::timeout solo
+        // deja de esperar); una mutación puede completarse en segundo plano y
+        // queda registrada como "error: timed out" — estado parcial posible.
         let timeout = Duration::from_secs(self.policy.request_timeout_secs);
-        let outcome =
+        let outcome = if try_run {
+            match tokio::time::timeout(timeout, self.registry.try_call(name, args.clone())).await {
+                Ok(res) => res,
+                Err(_) => Err(EnolaError::Timeout(format!(
+                    "tool '{name}' timed out after {}s",
+                    timeout.as_secs()
+                ))),
+            }
+        } else {
             match tokio::time::timeout(timeout, self.registry.call(name, args.clone())).await {
                 Ok(res) => res,
                 Err(_) => Err(EnolaError::Timeout(format!(
                     "tool '{name}' timed out after {}s",
                     timeout.as_secs()
                 ))),
-            };
+            }
+        };
 
-        if is_mutating {
-            let label = match &outcome {
-                Ok(_) => "ok".to_string(),
-                Err(e) => format!("error: {e}"),
+        if writes {
+            let label = if try_run {
+                "simulated".to_string()
+            } else {
+                match &outcome {
+                    Ok(_) => "ok".to_string(),
+                    Err(e) => format!("error: {e}"),
+                }
             };
-            self.audit.log_call(name, &args, &label);
+            self.audit
+                .log_call_op(name, &args, &label, op_id.as_deref());
         }
 
         match outcome {
@@ -331,15 +411,80 @@ mod tests {
     }
 
     async fn run_with_registry(incoming: Vec<Value>, registry: Arc<ToolRegistry>) -> Vec<Value> {
+        run_full(incoming, registry, McpPolicy::default(), None).await
+    }
+
+    async fn run_full(
+        incoming: Vec<Value>,
+        registry: Arc<ToolRegistry>,
+        policy: McpPolicy,
+        confirmations: Option<Arc<ConfirmationStore>>,
+    ) -> Vec<Value> {
         let transport =
             InMemoryTransport::new(incoming.into_iter().map(|v| v.to_string()).collect());
-        let server = McpServer::new(transport, registry);
+        let store = confirmations.unwrap_or_else(|| Arc::new(ConfirmationStore::new()));
+        let server = McpServer::new(transport, registry)
+            .with_policy(policy, Arc::new(AuditLogger::new(None)))
+            .with_confirmations(store);
         let transport = server.run().await.unwrap();
         transport
             .outgoing
             .into_iter()
             .map(|s| serde_json::from_str(&s).unwrap())
             .collect()
+    }
+
+    /// Registry con una tool destructiva stub (cuenta sus ejecuciones).
+    fn destructive_registry() -> (Arc<ToolRegistry>, Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::AtomicUsize;
+        let counter = Arc::new(AtomicUsize::new(0));
+        struct Destructive {
+            counter: Arc<AtomicUsize>,
+        }
+        #[async_trait::async_trait]
+        impl ToolHandler for Destructive {
+            async fn call(&self, _args: Value) -> Result<Value> {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(json!({"done": true}))
+            }
+        }
+        let mut registry = ToolRegistry::new();
+        let spec = ToolSpec::new(
+            "svc_delete",
+            "Destructive stub",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "confirm_token": {"type": "string", "minLength": 32, "maxLength": 64},
+                    "try_run": {"type": "boolean"}
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            }),
+            ToolKind::Destructive,
+        )
+        .unwrap();
+        registry
+            .register(
+                spec,
+                Arc::new(Destructive {
+                    counter: counter.clone(),
+                }),
+            )
+            .unwrap();
+        (Arc::new(registry), counter)
+    }
+
+    fn call_tool(id: i64, name: &str, args: Value) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+               "params": {"name": name, "arguments": args}})
+    }
+
+    /// Extrae el payload JSON del content[0].text de un tools/call ok.
+    fn tool_payload(resp: &Value) -> Value {
+        serde_json::from_str(resp["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
     }
 
     fn initialize_msg(id: i64) -> Value {
@@ -531,6 +676,186 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("unknown tool"));
+    }
+
+    // ── MCP-009: confirmación de dos pasos a nivel de protocolo ──
+
+    #[tokio::test]
+    async fn destructive_without_token_returns_challenge_and_never_executes() {
+        let (registry, counter) = destructive_registry();
+        let policy = McpPolicy {
+            allow_write: true,
+            ..Default::default()
+        };
+        let out = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(2, "svc_delete", json!({"name": "db"})),
+            ],
+            registry,
+            policy,
+            None,
+        )
+        .await;
+        let payload = tool_payload(&out[1]);
+        assert_eq!(payload["confirmation_required"], true);
+        assert!(payload["confirm_token"].as_str().unwrap().len() >= 32);
+        assert_eq!(payload["params"]["name"], "db");
+        // El handler NUNCA se invocó.
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn destructive_token_does_not_survive_server_restart() {
+        let (registry, counter) = destructive_registry();
+        let policy = McpPolicy {
+            allow_write: true,
+            ..Default::default()
+        };
+        let out = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(2, "svc_delete", json!({"name": "db"})),
+                // id=3: replay con params DISTINTOS → rechazado antes de dispatch
+                call_tool(
+                    3,
+                    "svc_delete",
+                    json!({"name": "OTHER", "confirm_token": "pending"}),
+                ),
+            ],
+            registry.clone(),
+            policy,
+            None,
+        )
+        .await;
+        let token = tool_payload(&out[1])["confirm_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        // id=3 llevaba token inventado → error -32602.
+        assert_eq!(out[2]["error"]["code"], -32602);
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        // Segunda tanda: confirmación correcta + replay del mismo token.
+        let out2 = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(
+                    2,
+                    "svc_delete",
+                    json!({"name": "db", "confirm_token": token}),
+                ),
+                call_tool(
+                    3,
+                    "svc_delete",
+                    json!({"name": "db", "confirm_token": token}),
+                ),
+            ],
+            registry.clone(),
+            McpPolicy {
+                allow_write: true,
+                ..Default::default()
+            },
+            // NOTA: nuevo server = nuevo store → el token no existiría.
+            // Este escenario real necesita el MISMO store; ver test siguiente.
+            None,
+        )
+        .await;
+        assert_eq!(out2[1]["error"]["code"], -32602); // token desconocido en store nuevo
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn destructive_confirm_then_execute_then_replay_fails() {
+        let (registry, counter) = destructive_registry();
+        let store = Arc::new(ConfirmationStore::new());
+        let policy = McpPolicy {
+            allow_write: true,
+            ..Default::default()
+        };
+        let out = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(2, "svc_delete", json!({"name": "db"})),
+            ],
+            registry.clone(),
+            policy.clone(),
+            Some(store.clone()),
+        )
+        .await;
+        let token = tool_payload(&out[1])["confirm_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Mismo store (misma sesión): confirmar ejecuta; replay rechaza.
+        let out2 = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(
+                    2,
+                    "svc_delete",
+                    json!({"name": "db", "confirm_token": token}),
+                ),
+                call_tool(
+                    3,
+                    "svc_delete",
+                    json!({"name": "db", "confirm_token": token}),
+                ),
+            ],
+            registry,
+            policy,
+            Some(store),
+        )
+        .await;
+        assert_eq!(tool_payload(&out2[1])["done"], true);
+        assert_eq!(out2[2]["error"]["code"], -32602); // replay
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn destructive_rejected_without_allow_write_before_challenge() {
+        let (registry, counter) = destructive_registry();
+        let out = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(2, "svc_delete", json!({"name": "db"})),
+            ],
+            registry,
+            McpPolicy::default(), // allow_write=false
+            None,
+        )
+        .await;
+        assert_eq!(out[1]["result"]["isError"], true);
+        assert!(out[1]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("allow-write"));
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn destructive_try_run_simulates_without_challenge() {
+        let (registry, counter) = destructive_registry();
+        let policy = McpPolicy {
+            allow_write: true,
+            ..Default::default()
+        };
+        let out = run_full(
+            vec![
+                initialize_msg(1),
+                call_tool(2, "svc_delete", json!({"name": "db", "try_run": true})),
+            ],
+            registry,
+            policy,
+            None,
+        )
+        .await;
+        let payload = tool_payload(&out[1]);
+        // Handler por defecto: no simulable, pero NUNCA ejecuta ni pide token.
+        assert_eq!(payload["simulated"], false);
+        assert!(payload.get("confirm_token").is_none());
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]

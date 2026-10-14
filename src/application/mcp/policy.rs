@@ -1,9 +1,11 @@
 // MCP-007 — Política de escritura del servidor MCP.
 //
 // Regla (decisión D4): las tools `ReadOnly` siempre pasan; las `Mutating`
-// exigen `allow_write` y, si la allowlist no está vacía, figurar en ella.
-// Allowlist vacía + `allow_write` → se permiten todas las mutantes
-// (decisión explícita, documentada en la skill `mcp`).
+// y `Destructive` exigen `allow_write` y, si la allowlist no está vacía,
+// figurar en ella. Allowlist vacía + `allow_write` → se permiten todas
+// las mutantes (decisión explícita, documentada en la skill `mcp`).
+// Las `Destructive` exigen ADEMÁS la confirmación de dos pasos (MCP-009),
+// que se aplica en el servidor/handler, no en esta función.
 //
 // La política es pura y se evalúa ANTES del dispatch: si `allows` falla, el
 // caso de uso no se invoca nunca.
@@ -22,7 +24,8 @@ pub(crate) struct McpPolicy {
     /// Permite ejecutar tools `Mutating`.
     pub(crate) allow_write: bool,
     /// Allowlist de nombres de tool (`wp_create`) o rutas de comando
-    /// (`family:sub` p.ej. `wp:create`). Vacía = todas las mutantes.
+    /// (`family:sub` p.ej. `wp:create`; `family` pelado para hojas).
+    /// Vacía = todas las mutantes.
     pub(crate) allowed_tools: Vec<String>,
     /// Límite de bytes para stdout/stderr devueltos por tools.
     pub(crate) max_output_bytes: usize,
@@ -48,11 +51,15 @@ impl McpPolicy {
     /// Evalúa si `tool_name` (de clase `kind`) puede ejecutarse.
     ///
     /// Para `enola_run_command` el nombre evaluado es `family:sub` (p.ej.
-    /// `wp:create`), así una allowlist puede limitar la meta-tool por comando.
+    /// `wp:create`; `family` pelado para familias hoja como `doctor`), así
+    /// una allowlist puede limitar la meta-tool por comando.
     pub(crate) fn allows(&self, kind: ToolKind, tool_name: &str) -> Result<()> {
         match kind {
             ToolKind::ReadOnly => Ok(()),
-            ToolKind::Mutating => {
+            // Destructive es un subtipo de Mutating: exige la misma política
+            // de escritura y, además, la confirmación de dos pasos que aplica
+            // el servidor (fuera del alcance de esta función).
+            ToolKind::Mutating | ToolKind::Destructive => {
                 if !self.allow_write {
                     return Err(EnolaError::SecurityError(format!(
                         "tool '{tool_name}' is mutating; start the server with --allow-write \
@@ -263,6 +270,19 @@ mod tests {
         };
         assert!(p.allows(mutating(), "wp:create").is_ok());
         assert!(p.allows(mutating(), "tor:remove").is_err());
+    }
+
+    #[test]
+    fn destructive_follows_write_policy() {
+        let p = McpPolicy::default();
+        assert!(p.allows(ToolKind::Destructive, "tor_remove").is_err());
+        let p = McpPolicy {
+            allow_write: true,
+            allowed_tools: vec!["wp_hide".to_string()],
+            ..Default::default()
+        };
+        assert!(p.allows(ToolKind::Destructive, "wp_hide").is_ok());
+        assert!(p.allows(ToolKind::Destructive, "tor_remove").is_err());
     }
 
     #[test]

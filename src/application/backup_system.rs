@@ -38,6 +38,21 @@ impl BackupSystem {
         self
     }
 
+    /// F-23: los backups contienen credenciales y configs de servicio — el
+    /// directorio de backups queda en 0700 (no solo creado por umask).
+    async fn ensure_backup_root(&self) -> Result<()> {
+        self.file_manager.ensure_dir(&self.backup_root).await?;
+        self.file_manager
+            .set_permissions(&self.backup_root, 0o700)
+            .await
+    }
+
+    /// F-23: cada artefacto de backup queda en 0600 — con umask típica el
+    /// tarball/copia quedaría 0644 (legible por otros usuarios del host).
+    async fn harden_backup_file(&self, path: &Path) -> Result<()> {
+        self.file_manager.set_permissions(path, 0o600).await
+    }
+
     pub async fn create_backup(&self, target_path: &Path, identifier: &str) -> Result<PathBuf> {
         if !target_path.exists() {
             return Err(EnolaError::NotFound(format!(
@@ -46,7 +61,7 @@ impl BackupSystem {
             )));
         }
 
-        self.file_manager.ensure_dir(&self.backup_root).await?;
+        self.ensure_backup_root().await?;
 
         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
         let filename = target_path
@@ -61,6 +76,7 @@ impl BackupSystem {
         self.file_manager
             .copy_file(target_path, &backup_path)
             .await?;
+        self.harden_backup_file(&backup_path).await?;
 
         // Rotate
         self.rotate_backups(identifier, &filename).await?;
@@ -117,7 +133,7 @@ impl BackupSystem {
             let pre_restore_name = format!("pre-restore_{}_{}.bak", timestamp, target_name);
             let pre_restore_path = self.backup_root.join(pre_restore_name);
 
-            self.file_manager.ensure_dir(&self.backup_root).await?;
+            self.ensure_backup_root().await?;
             self.file_manager
                 .copy_file(target_path, &pre_restore_path)
                 .await
@@ -125,6 +141,7 @@ impl BackupSystem {
                     tracing::warn!("Failed to create pre-restore backup: {}", e);
                     e
                 })?;
+            self.harden_backup_file(&pre_restore_path).await?;
         }
 
         // Ensure parent of target exists
@@ -155,7 +172,7 @@ impl BackupSystem {
         identifier: &str,
         paths: &[PathBuf],
     ) -> Result<PathBuf> {
-        self.file_manager.ensure_dir(&self.backup_root).await?;
+        self.ensure_backup_root().await?;
 
         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
         let backup_name = format!("{}_{}_full.tar.gz", timestamp, identifier);
@@ -175,6 +192,7 @@ impl BackupSystem {
         self.file_manager
             .create_archive_multi(&existing, &backup_path)
             .await?;
+        self.harden_backup_file(&backup_path).await?;
 
         self.rotate_backups(identifier, "").await?;
 
@@ -208,7 +226,7 @@ impl BackupSystem {
             )));
         }
 
-        self.file_manager.ensure_dir(&self.backup_root).await?;
+        self.ensure_backup_root().await?;
 
         let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
         let filename = source_dir
@@ -223,6 +241,7 @@ impl BackupSystem {
         self.file_manager
             .create_archive(source_dir, &backup_path)
             .await?;
+        self.harden_backup_file(&backup_path).await?;
 
         self.rotate_backups(identifier, "").await?;
 
@@ -413,6 +432,10 @@ mod tests {
     async fn test_create_backup_of_paths_all_missing() {
         let mut mock = mock_file_manager();
         mock.expect_ensure_dir().returning(|_| Ok(()));
+        // F-23: 0700 sobre el backup_root (sin artefacto: paths inexistentes).
+        mock.expect_set_permissions()
+            .times(1)
+            .returning(|_, _| Ok(()));
         let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
         let system = BackupSystem::with_backup_root(Arc::new(mock), tmp.path().to_path_buf());
 
@@ -493,6 +516,10 @@ mod tests {
         mock.expect_ensure_dir().returning(|_| Ok(()));
         // copy_file called twice: once for pre-restore, once for actual restore
         mock.expect_copy_file().times(2).returning(|_, _| Ok(()));
+        // F-23: 0700 en backup_root + 0600 en el pre-restore .bak.
+        mock.expect_set_permissions()
+            .times(2)
+            .returning(|_, _| Ok(()));
 
         let system = BackupSystem::with_backup_root(Arc::new(mock), backup_root);
         let result = system.restore_backup(&backup_file, &target).await;
@@ -536,6 +563,10 @@ mod tests {
         mock.expect_create_archive_multi()
             .times(1)
             .returning(|_, _| Ok(()));
+        // F-23: 0700 en backup_root + 0600 en el tarball.
+        mock.expect_set_permissions()
+            .times(2)
+            .returning(|_, _| Ok(()));
 
         let system = BackupSystem::with_backup_root(Arc::new(mock), backup_root);
         let result = system.create_backup_of_paths("test", &[file1, file2]).await;
@@ -575,6 +606,10 @@ mod tests {
                 let _ = std::fs::write(dest, "new");
                 Ok(())
             });
+        // F-23: 0700 en backup_root + 0600 en el tarball nuevo.
+        mock.expect_set_permissions()
+            .times(2)
+            .returning(|_, _| Ok(()));
         // max_backups = 2 → el nuevo + 1 viejo quedan; se borran 2 de mysvc
         // (el fichero "_other" no coincide con el identificador y se conserva)
         mock.expect_delete_file().times(2).returning(|_| Ok(()));
