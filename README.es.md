@@ -1023,7 +1023,7 @@ enola-cli config-validate --json
 
 ## 🔌 MCP — Model Context Protocol
 
-`enola-cli mcp` ejecuta un servidor MCP sobre stdio (JSON-RPC 2.0, NDJSON) para que agentes IA puedan inspeccionar y operar tu instalación de Enola mediante tools. De solo lectura por defecto: las tools mutantes exigen `--allow-write` (restringible con `--allow-tools`), y las destructivas además requieren `"force": true`. Las llamadas mutantes quedan auditadas con redacción de secretos.
+`enola-cli mcp` ejecuta un servidor MCP sobre stdio (JSON-RPC 2.0, NDJSON) para que agentes IA puedan inspeccionar y operar tu instalación de Enola mediante tools. De solo lectura por defecto: las tools mutantes exigen `--allow-write` (restringible con `--allow-tools`), y las destructivas además requieren `"force": true` **y una confirmación de dos pasos** — la primera llamada devuelve un `confirm_token` monouso vinculado a los argumentos exactos (TTL 300 s); la segunda llamada con ese token ejecuta. `"try_run": true` simula cualquier tool mutante sin efectos secundarios. Las llamadas mutantes quedan auditadas con redacción de secretos.
 
 ```bash
 # Servidor de solo lectura (default seguro)
@@ -1035,7 +1035,7 @@ sudo enola-cli mcp --allow-write --allow-tools wp_create,wp_publish
 
 Configuración: flags `--allow-write`, `--allow-tools <CSV>`, `--max-output-bytes <BYTES>`, `--audit-log <PATH>`, `--request-timeout-secs <SECS>`; variables de entorno `ENOLA_MCP_ALLOW_WRITE`, `ENOLA_MCP_ALLOWED_TOOLS`, `ENOLA_MCP_MAX_OUTPUT_BYTES`, `ENOLA_MCP_AUDIT_LOG`, `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; o la sección `[mcp]` de `~/.enola/config.toml`. Prioridad: flag CLI > env > fichero de configuración > defaults seguros.
 
-21 tools (13 de solo lectura, 6 mutantes, 2 meta-tools) más 36 documentos de usuario embebidos como resources `enola://docs/<ruta>`. **stdout transporta solo JSON-RPC** — logs y diagnósticos van a stderr.
+21 tools (13 de solo lectura, 1 mutante, 5 destructivas, 2 meta-tools) más 36 documentos de usuario embebidos como resources `enola://docs/<ruta>`. Todos los schemas son estrictos (`additionalProperties: false`, límites de longitud/rango) y `enola_run_command` nunca despacha la propia familia `mcp`. **stdout transporta solo JSON-RPC** — logs y diagnósticos van a stderr.
 
 ---
 

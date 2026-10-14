@@ -3,6 +3,67 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- **MCP security hardening (MCP-009)** — audit-driven reinforcement of the
+  stdio MCP server:
+  - New `Destructive` tool class: builtins `wp_publish`, `wp_hide`,
+    `tor_create`, `tor_remove`, `files_create`, and — via
+    `enola_run_command` — every `* delete|hide`, `tor create|edit|rotate`,
+    `tor auth add|generate|disable|revoke|rotate`, `vpn create`,
+    `vpn peer add|add-pubkey|remove`, `* publish`, `files create`,
+    `firewall setup|allow|deny`, `apparmor setup|mode`,
+    `git create|registration`, `git user create|delete`,
+    `maintenance backup|cleanup|disable-checks|ssh-harden-pqc` and
+    `update download`. Destructive calls require `--allow-write` +
+    allowlist + `force: true` (where the leaf declares it) **and** a
+    two-step confirmation: the first call returns a `confirm_token`
+    (single-use, 300 s TTL, bound to tool + exact arguments, wiped on
+    restart); the second call with that token executes.
+  - `enola_run_command` never dispatches the `mcp`, `ssh`, `uninstall`,
+    `web` or `setup` families, nor the `update apply`, `test run` and
+    `test benchmark` paths — under any policy or allowlist. The `--binary`
+    and `--allow-unsigned` flags of `update` are not expressible, and any
+    flag value starting with `-` is rejected.
+  - Dispatched subprocesses run with a cleared environment plus an
+    explicit allowlist — the server's `ENOLA_*` vars are not inherited.
+  - `update verify-feed` reclassified as mutating (its `--source` reads
+    arbitrary local files / fetches arbitrary http(s) URLs).
+  - `try_run: true` simulates any mutating/destructive tool with the same
+    validation and policy but zero side effects (`wp_create`/`tor_create`
+    return the real planner output; `enola_run_command` returns the exact
+    `argv`).
+  - Strict input schemas: every tool declares `additionalProperties: false`
+    plus `maxLength`/`minLength`/`minimum`/`maximum`/`maxItems` bounds.
+  - `files_create` restricts `share_path` to `/srv/enola-files/**` (stricter
+    than the interactive CLI).
+  - Audit log gains states (`rejected`/`simulated`/`confirmation_requested`/
+    `authorized`/`ok`/`error`), per-operation ids and outcome truncation;
+    the file is created `0600` and its directory `0700`.
+  - At euid 0, the `[mcp]` config section is read only from root-owned
+    `/etc/enola/config.toml`.
+  - Allowlist entries for leaf commands use the bare family name
+    (`doctor`, not `doctor:`).
+  - **Migration**: MCP clients must implement the two-step flow for
+    destructive tools — a bare `force: true` call now returns
+    `confirmation_required` instead of executing.
+- **`update apply` re-verifies the staged binary's minisign signature**
+  against the `.minisig` persisted by `update download` (the
+  `signature_verified` flag in `last_download.json` is informational only).
+  When running as root, the metadata and downloads dir must be root-owned
+  and not group/world-writable. Older staged downloads without a `.minisig`
+  are rejected — re-run `update download`.
+- **`update download`** now persists `<binary>.minisig` next to the staged
+  binary so `apply` can re-verify it.
+- **`uninstall`** only accepts absolute `uninstall.sh` paths
+  (`/usr/local/share/enola/` or derived from the binary location) — a
+  `scripts/ops/uninstall.sh` relative to the cwd is no longer a candidate.
+- **`setup --pqc-tls`** writes its installer to a private 0700 tempdir
+  instead of a fixed `/tmp` path.
+- **Backups** (`maintenance backup`, per-service backups, pre-restore
+  copies) now create the backup directory `0700` and artifacts `0600`.
+
 ## [0.7.0-alpha] — 2026-10-13
 
 ### Added

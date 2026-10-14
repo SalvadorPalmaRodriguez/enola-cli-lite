@@ -1018,7 +1018,7 @@ enola-cli config-validate --json
 
 ## 🔌 MCP — Model Context Protocol
 
-`enola-cli mcp` runs an MCP server over stdio (JSON-RPC 2.0, NDJSON) so AI agents can inspect and operate your Enola installation through tools. Read-only by default: mutating tools require `--allow-write` (optionally restricted with `--allow-tools`), and destructive tools also need `"force": true`. Mutating calls are audit-logged with secret redaction.
+`enola-cli mcp` runs an MCP server over stdio (JSON-RPC 2.0, NDJSON) so AI agents can inspect and operate your Enola installation through tools. Read-only by default: mutating tools require `--allow-write` (optionally restricted with `--allow-tools`), and destructive tools also need `"force": true` **plus a two-step confirmation** — the first call returns a single-use `confirm_token` bound to the exact arguments (300 s TTL); the second call with that token executes. `"try_run": true` simulates any mutating tool with zero side effects. Mutating calls are audit-logged with secret redaction.
 
 ```bash
 # Read-only server (safe default)
@@ -1030,7 +1030,7 @@ sudo enola-cli mcp --allow-write --allow-tools wp_create,wp_publish
 
 Configuration: flags `--allow-write`, `--allow-tools <CSV>`, `--max-output-bytes <BYTES>`, `--audit-log <PATH>`, `--request-timeout-secs <SECS>`; env vars `ENOLA_MCP_ALLOW_WRITE`, `ENOLA_MCP_ALLOWED_TOOLS`, `ENOLA_MCP_MAX_OUTPUT_BYTES`, `ENOLA_MCP_AUDIT_LOG`, `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; or the `[mcp]` section of `~/.enola/config.toml`. Priority: CLI flag > env var > config file > safe defaults.
 
-21 tools (13 read-only, 6 mutating, 2 meta-tools) plus 36 embedded user docs as `enola://docs/<path>` resources. **stdout carries only JSON-RPC** — logs and diagnostics go to stderr.
+21 tools (13 read-only, 1 mutating, 5 destructive, 2 meta-tools) plus 36 embedded user docs as `enola://docs/<path>` resources. Every tool schema is strict (`additionalProperties: false`, length/range limits) and `enola_run_command` never dispatches the `mcp` family itself. **stdout carries only JSON-RPC** — logs and diagnostics go to stderr.
 
 ---
 

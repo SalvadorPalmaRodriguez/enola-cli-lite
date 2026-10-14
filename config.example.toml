@@ -108,7 +108,19 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # - allow_write        → false: solo lectura (default, recomendado);
 #                        true: habilita tools mutantes.
 # - allowed_tools      → vacía = TODAS las mutantes (explícito); si no,
-#                        nombres de tool (wp_create) o rutas (wp:create).
+#                        nombres de tool (wp_create) o rutas (wp:create;
+#                        family pelado para hojas como doctor).
+#
+# MCP-009: las tools DESTRUCTIVAS (wp_hide, tor_remove, wp_publish,
+# tor_create, files_create, y vía enola_run_command todo `* delete|hide`,
+# `tor create|edit|rotate`, `tor auth *`, `vpn create`, `* publish`,
+# `firewall setup|allow|deny`, `apparmor setup|mode`, `git create`,
+# `maintenance backup|cleanup|disable-checks|ssh-harden-pqc`,
+# `update download`, ...) exigen además confirmación de dos pasos.
+# Vetadas siempre: familias mcp, ssh, uninstall, web, setup y rutas
+# update apply, test run, test benchmark.
+# confirm_token monouso, vinculado a los args, TTL 300 s. Y `try_run: true`
+# simula cualquier mutante sin efectos (misma política aplicada).
 # - max_output_bytes   → límite de stdout/stderr por llamada (65536).
 # - audit_log          → "stderr" o path de fichero (nunca stdout).
 # - request_timeout_secs → timeout por llamada a tool (60).

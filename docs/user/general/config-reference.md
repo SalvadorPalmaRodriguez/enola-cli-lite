@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.2 | **Actualizado:** 2026-10-12
+> **Versión:** 1.4 | **Actualizado:** 2026-10-14
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -131,7 +131,7 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 | Clave | Tipo | Default | Env var / Flag | Descripción |
 |-------|------|---------|----------------|-------------|
 | `allow_write` | Bool | `false` | `ENOLA_MCP_ALLOW_WRITE` / `--allow-write` | Habilita tools mutantes |
-| `allowed_tools` | Array/CSV | `[]` | `ENOLA_MCP_ALLOWED_TOOLS` / `--allow-tools` | Vacía = todas las mutantes; si no, nombres (`wp_create`) o rutas (`wp:create`) |
+| `allowed_tools` | Array/CSV | `[]` | `ENOLA_MCP_ALLOWED_TOOLS` / `--allow-tools` | Vacía = todas las mutantes; si no, nombres (`wp_create`) o rutas (`wp:create`; `family` pelado para hojas como `doctor`) |
 | `max_output_bytes` | Integer | `65536` | `ENOLA_MCP_MAX_OUTPUT_BYTES` / `--max-output-bytes` | Límite de stdout/stderr por llamada |
 | `audit_log` | String | `stderr` | `ENOLA_MCP_AUDIT_LOG` / `--audit-log` | `"stderr"` o path de fichero (nunca stdout) |
 | `request_timeout_secs` | Integer | `60` | `ENOLA_MCP_REQUEST_TIMEOUT_SECS` / `--request-timeout-secs` | Timeout por llamada a tool |
@@ -148,6 +148,30 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 > ⚠️ `allowed_tools = []` con `allow_write = true` habilita **todas** las
 > tools mutantes — es una decisión explícita. El audit log registra cada
 > llamada mutante con args saneados (secretos redactados).
+>
+> ℹ️ Independientemente de la allowlist, las tools **destructivas**
+> (`wp_publish`, `wp_hide`, `tor_create`, `tor_remove`, `files_create`, y
+> vía `enola_run_command` todo `* delete|hide`, `tor create|edit|rotate`,
+> `tor auth add|generate|disable|revoke|rotate`, `vpn create`,
+> `vpn peer add|add-pubkey|remove`, `* publish`, `firewall setup|allow|deny`,
+> `apparmor setup|mode`, `git create|registration`, `git user create|delete`,
+> `maintenance backup|cleanup|disable-checks|ssh-harden-pqc`,
+> `update download`) exigen una **confirmación de dos pasos**
+> (`confirm_token` monouso, 300 s, vinculado a los args) — no es
+> configurable. Y `try_run: true` simula cualquier mutante sin efectos,
+> con la misma política aplicada.
+>
+> 🚫 `enola_run_command` nunca despacha las familias `mcp`, `ssh`,
+> `uninstall`, `web`, `setup` ni las rutas `update apply`, `test run`,
+> `test benchmark` — con ninguna política ni allowlist.
+>
+> 🔒 Con euid 0 la sección `[mcp]` solo se lee de
+> `/etc/enola/config.toml` (root-owned, no escribible por grupo/otros) —
+> el `~/.enola/config.toml` del usuario se ignora para la política
+> privilegiada. Flags y env vars mantienen precedencia sobre el fichero,
+> así que un servicio root debe fijar su argv en un lanzador root-owned
+> (unit de systemd o sudoers sin comodines): una regla
+> `enola-cli mcp *` no fija política alguna.
 
 ---
 

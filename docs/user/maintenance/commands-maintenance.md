@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/maintenance/commands-maintenance.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-09-19
+> **Versión:** 2.2 | **Actualizado:** 2026-10-14
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -105,6 +105,9 @@ sudo enola-cli maintenance ssh-harden-pqc [--force] [--dry-run]
 Crea un backup del sistema (`/var/lib/tor`, `/etc/nginx/sites-available`,
 `/opt/enola`) como `tar.gz` en `/var/backups/enola-server/`, preservando las
 rutas absolutas para que la restauración recoloque cada elemento en su sitio.
+
+Los backups contienen credenciales y configuración sensible: el directorio
+queda en `0700` y cada artefacto (`*.tar.gz`, `*.bak`) en `0600`.
 
 ```bash
 sudo enola-cli maintenance backup [--keep <N>]

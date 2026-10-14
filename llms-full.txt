@@ -132,8 +132,8 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `mcp` — JSON-RPC 2.0 over stdio (NDJSON), protocolVersion `2026-07-28`; methods: initialize, notifications/initialized, ping, tools/list, tools/call, resources/list, resources/read
 - flags: `--allow-write` `--allow-tools <CSV>` `--max-output-bytes <N>` `--audit-log <path>` `--request-timeout-secs <N>`
 - env: `ENOLA_MCP_ALLOW_WRITE` `ENOLA_MCP_ALLOWED_TOOLS` `ENOLA_MCP_MAX_OUTPUT_BYTES` `ENOLA_MCP_AUDIT_LOG` `ENOLA_MCP_REQUEST_TIMEOUT_SECS`; TOML `[mcp]` in ~/.enola/config.toml; precedence flag > env > file > defaults (allow_write=false, max_output_bytes=65536, audit_log=stderr, request_timeout_secs=60)
-- policy: read-only by default; mutating tools need `--allow-write` (+ `--allow-tools` allowlist; empty allowlist + allow-write = all mutating allowed)
-- 21 tools: 13 read-only (config_show, diag_nginx, diag_summary, diag_tor, doctor, plan_tor_create, plan_wp_create, ports_list, tor_list, update_check, verify_onion, wp_list, wp_status), 6 mutating (files_create, tor_create, tor_remove, wp_create, wp_hide, wp_publish; tor_remove/wp_hide require `"force": true`), 2 meta (enola_list_commands, enola_run_command)
+- policy: read-only by default; mutating tools need `--allow-write` (+ `--allow-tools` allowlist; empty allowlist + allow-write = all mutating allowed); destructive tools additionally require a single-use `confirm_token` bound to tool+args (two-step, 300s TTL); `try_run: true` simulates mutating/destructive tools without side effects; `mcp` family is never dispatchable via enola_run_command
+- 21 tools: 13 read-only (config_show, diag_nginx, diag_summary, diag_tor, doctor, plan_tor_create, plan_wp_create, ports_list, tor_list, update_check, verify_onion, wp_list, wp_status), 4 mutating (files_create, tor_create, wp_create, wp_publish), 2 destructive (tor_remove, wp_hide; require `"force": true` + confirm_token), 2 meta (enola_list_commands, enola_run_command); all schemas reject unknown args (additionalProperties: false) and out-of-range values
 - resources: 36 embedded user docs, URIs `enola://docs/<path>`
 - stdout carries ONLY JSON-RPC; logs/diagnostics go to stderr
 
@@ -151,7 +151,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - Tor client authorization uses x25519 keypairs (like SSH keys): client generates, sends public key to operator, operator authorizes.
 - Post-quantum measures: ML-DSA-65 release signatures, optional ML-KEM hybrid TLS stack (`setup --pqc-tls`), WireGuard preshared keys (`--psk`), SSH sntrup761x25519 KEX (`ssh-harden-pqc`), Tor auth key rotation.
 - Update security: advisory feed signed with minisign; binaries verified with SHA256 + minisign before applying; stable exit codes for scripting.
-- MCP server security: read-only by default; mutating tools require explicit `--allow-write` plus optional allowlist (`--allow-tools`/`ENOLA_MCP_ALLOWED_TOOLS`/`[mcp].allowed_tools`); destructive tools demand `"force": true`; mutating calls are audit-logged with secret redaction.
+- MCP server security: read-only by default; mutating tools require explicit `--allow-write` plus optional allowlist (`--allow-tools`/`ENOLA_MCP_ALLOWED_TOOLS`/`[mcp].allowed_tools`, tool names or `family:sub` paths); destructive tools demand `"force": true` AND a two-step `confirm_token` (single-use, bound to exact args, 300s TTL, not surviving restarts); mutating/destructive calls are audit-logged (requested/rejected/simulated/confirmation_requested/authorized/ok/error) with secret redaction. `enola_run_command` never dispatches the `mcp`, `ssh`, `uninstall`, `web`, `setup` families nor `update apply`, `test run`, `test benchmark`; dispatched subprocesses get a cleared env plus allowlist; at euid 0 the `[mcp]` section is read only from root-owned `/etc/enola/config.toml`.
 
 ## Links
 

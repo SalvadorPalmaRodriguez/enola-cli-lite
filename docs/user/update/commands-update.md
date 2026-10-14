@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.2 | **Actualizado:** 2026-09-21
+> **Versión:** 3.3 | **Actualizado:** 2026-10-14
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -88,7 +88,10 @@ sudo enola-cli update verify-feed https://host/advisories.json --json
 
 Descarga el último binario del update feed.
 
-Verifica SHA256 y **firma minisign obligatoria**. El binario se guarda en un directorio temporal.
+Verifica SHA256 y **firma minisign obligatoria**. El binario se guarda en
+`~/.enola/downloads/enola-cli-<ver>` junto a su `.minisig` (hermano
+persistido para que `apply` pueda **re-verificar la firma** en lugar de
+fiarse de la metadata).
 
 Además descarga la **firma post-cuántica** del binario crudo (`<url>.pqsig`)
 en modo *best-effort*: si la release la publica, queda staged como hermano
@@ -132,9 +135,17 @@ También sincroniza la firma post-cuántica instalada
   `cli.pqsig` obsoleto — una firma del binario anterior haría fallar
   `enola-cli verify --pqsig` con un falso negativo.
 
-> **Importante:** Si el binario descargado no fue verificado con minisign
-> (metadata `signature_verified: false`), `apply` se **rechaza**.
-> Usar `--allow-unsigned` solo en entornos de testing.
+> **Importante:** `apply` **re-verifica la firma minisign** del binario
+> staged contra el `.minisig` persistido por `update download` — el flag
+> `signature_verified` de `last_download.json` es solo informativo, no un
+> trust anchor. Si la re-verificación falla (o falta el `.minisig`, p.ej.
+> en descargas anteriores a este cambio), `apply` se **rechaza**: re-ejecuta
+> `sudo enola-cli update download`. Usar `--allow-unsigned` solo en testing.
+>
+> Además, corriendo como root (`euid 0`) la metadata y el directorio de
+> descargas deben ser **root-owned y no escribibles por grupo/otros** — un
+> `~/.enola/` del usuario preservado por `sudo -E` no puede forjar el
+> puntero al binario.
 >
 > Un `--binary <PATH>` pasado manualmente **siempre se considera no verificado**,
 > por lo que `apply --binary` exige `--allow-unsigned` (o
