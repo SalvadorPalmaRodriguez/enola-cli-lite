@@ -3,7 +3,7 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.8.0-alpha] — 2026-10-15
 
 ### Changed
 - **MCP security hardening (MCP-009)** — audit-driven reinforcement of the
