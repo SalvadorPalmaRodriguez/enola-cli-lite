@@ -118,6 +118,8 @@ impl AppArmorAdapter {
 
     /// Parse syslog for recent AppArmor violations (last 24h)
     fn parse_recent_violations(&self) -> Vec<AppArmorViolation> {
+        // SEC-004: permanece como root — /var/log/syslog es root:adm 0640.
+        // AUDIT-EXEMPT: lee fichero de log privilegiado
         let output = Command::new("grep")
             .args(["-i", "apparmor.*denied", "/var/log/syslog"])
             .output();
@@ -178,7 +180,8 @@ impl AppArmorAdapter {
 
 impl AppArmorPort for AppArmorAdapter {
     fn is_installed(&self) -> bool {
-        Command::new("which")
+        // SEC-004: `which` solo consulta PATH — sin root.
+        crate::infrastructure::drop_privs::command_as_invoking_user("which")
             .arg("apparmor_parser")
             .output()
             .map(|o| o.status.success())
@@ -326,6 +329,8 @@ impl AppArmorPort for AppArmorAdapter {
         }
 
         // Get loaded profiles from aa-status
+        // SEC-004: permanece como root — aa-status enumera perfiles vía
+        // securityfs; sin privilegios la lista sale vacía/incompleta.
         let output = Command::new("aa-status").output().map_err(|e| {
             EnolaError::InfrastructureError(format!("Failed to run aa-status: {}", e))
         })?;

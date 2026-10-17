@@ -198,8 +198,28 @@ pub fn should_drop_for_auxiliary() -> bool {
 pub(crate) fn apply_drop_privs_unix(cmd: &mut Command, euid: u32) {
     if let Some(user) = invoking_user() {
         if euid == 0 {
-            cmd.uid(user.uid);
-            cmd.gid(user.gid);
+            let (uid, gid) = (user.uid, user.gid);
+            // SEC-004: un solo pre_exec hace setgroups→setgid→setuid en el
+            // orden correcto (los grupos suplementarios requieren privilegio
+            // para limpiarse — deben ir ANTES de bajar gid/uid; sin esto el
+            // hijo hereda p.ej. `adm`/`docker`). `CommandExt::groups` es
+            // inestable, así que se hace con libc. Se usa pre_exec en lugar
+            // de `.uid()/.gid()` para no depender del orden interno de std.
+            #[allow(unsafe_code)]
+            unsafe {
+                cmd.pre_exec(move || {
+                    if libc::setgroups(0, std::ptr::null()) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::setgid(gid) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::setuid(uid) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
             if let Some(home) = user.home {
                 cmd.env("HOME", home);
             }

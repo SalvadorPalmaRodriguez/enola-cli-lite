@@ -3,8 +3,19 @@ use crate::ports::test_runner::TestRunnerPort;
 use async_trait::async_trait;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc;
+
+/// SEC-002: `cargo` se lanza con los privilegios del usuario invocador
+/// (`command_as_invoking_user`), nunca como root. El cwd es heredado a
+/// propósito — pertenece al usuario que ejecuta el comando — pero un
+/// `build.rs`/proc-macro hostil solo obtiene privilegios de ese usuario,
+/// que ya tendría por sí mismo. Residual: lanzado como root puro (sin
+/// SUDO_USER, p.ej. systemd) el hijo corre como root — elección del admin.
+fn cargo_command() -> tokio::process::Command {
+    tokio::process::Command::from(crate::infrastructure::drop_privs::command_as_invoking_user(
+        "cargo",
+    ))
+}
 
 pub struct CargoTestRunnerAdapter;
 
@@ -24,7 +35,7 @@ impl CargoTestRunnerAdapter {
 impl TestRunnerPort for CargoTestRunnerAdapter {
     async fn list_tests(&self) -> Vec<String> {
         // Run cargo test -- --list
-        let output = Command::new("cargo")
+        let output = cargo_command()
             .arg("test")
             .arg("--")
             .arg("--list")
@@ -47,7 +58,7 @@ impl TestRunnerPort for CargoTestRunnerAdapter {
         let (tx, rx) = mpsc::channel(100);
 
         tokio::spawn(async move {
-            let mut cmd = Command::new("cargo");
+            let mut cmd = cargo_command();
             cmd.arg("test")
                 .arg("--")
                 .arg("--nocapture") // We want raw output or we use json?

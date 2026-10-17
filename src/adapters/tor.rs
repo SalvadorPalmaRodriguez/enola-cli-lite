@@ -280,6 +280,9 @@ impl TorConfigAdapter {
         }
 
         // Check if something is using port 9050
+        // SEC-004: permanece como root — sin privilegios lsof solo ve los
+        // sockets del propio usuario y el tor ajeno (debian-tor) sería
+        // invisible.
         let lsof_output = Command::new("lsof")
             .arg("-i")
             .arg(":9050")
@@ -315,17 +318,27 @@ impl TorConfigAdapter {
                     }
 
                     // Check if this is a tor process
-                    let ps_output = Command::new("ps")
-                        .arg("-p")
-                        .arg(pid.to_string())
-                        .arg("-o")
-                        .arg("comm=")
-                        .output()
-                        .await;
+                    // SEC-004: `ps -o comm=` lee /proc (world-readable) — sin root.
+                    let ps_output = tokio::process::Command::from(
+                        crate::infrastructure::drop_privs::command_as_invoking_user("ps"),
+                    )
+                    .arg("-p")
+                    .arg(pid.to_string())
+                    .arg("-o")
+                    .arg("comm=")
+                    .output()
+                    .await;
 
                     if let Ok(ps) = ps_output {
                         let comm = String::from_utf8_lossy(&ps.stdout).trim().to_string();
-                        if comm == "tor" {
+                        // SEC-011: re-verificar comm=="tor" inmediatamente antes
+                        // del kill leyendo /proc directamente — entre el `ps`
+                        // y el `kill` el PID pudo reciclarse.
+                        if comm == "tor"
+                            && std::fs::read_to_string(format!("/proc/{}/comm", pid))
+                                .map(|c| c.trim() == "tor")
+                                .unwrap_or(false)
+                        {
                             eprintln!(
                                 "   ⚠️  Found orphan Tor process (PID {}), killing it...",
                                 pid

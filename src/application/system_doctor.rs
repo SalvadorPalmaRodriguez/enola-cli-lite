@@ -796,6 +796,7 @@ fn check_nginx_fileserver_security() -> Vec<SecurityFinding> {
 fn check_apparmor_enabled() -> Vec<SecurityFinding> {
     let mut findings = Vec::new();
 
+    // SEC-004: permanece como root — aa-status consulta securityfs.
     let output = std::process::Command::new("aa-status")
         .args(["--enabled"])
         .output();
@@ -831,6 +832,8 @@ fn check_apparmor_enabled() -> Vec<SecurityFinding> {
 fn check_ufw_active() -> Vec<SecurityFinding> {
     let mut findings = Vec::new();
 
+    // SEC-004: permanece como root — `ufw status` consulta iptables/estado
+    // privilegiado; sin root devuelve error o información incompleta.
     let output = std::process::Command::new("ufw").args(["status"]).output();
 
     match output {

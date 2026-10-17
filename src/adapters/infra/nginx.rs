@@ -464,8 +464,11 @@ server {{
         let _ = std::io::Write::flush(&mut std::io::stderr());
 
         // Generate self-signed certificate using openssl
+        // SEC-004: permanece como root — escribe cert/key en /etc/nginx/ssl.
+        // AUDIT-EXEMPT: openssl req escribe en directorio root-owned
         let key_str = key_path.to_string_lossy();
         let cert_str = cert_path.to_string_lossy();
+        // AUDIT-EXEMPT: escribe en /etc/nginx/ssl (root-owned)
         let output = Command::new("openssl")
             .args([
                 "req",

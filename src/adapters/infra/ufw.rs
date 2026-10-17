@@ -167,7 +167,8 @@ impl Default for UfwAdapter {
 
 impl FirewallPort for UfwAdapter {
     fn is_installed(&self) -> bool {
-        Command::new("which")
+        // SEC-004: `which` solo consulta PATH — sin root.
+        crate::infrastructure::drop_privs::command_as_invoking_user("which")
             .arg("ufw")
             .output()
             .map(|o| o.status.success())

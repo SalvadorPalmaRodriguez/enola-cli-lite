@@ -124,11 +124,14 @@ impl ServiceManagerPort for SystemdAdapter {
 
         // 3. Get CPU from ps (snapshot)
         // ps -p PID -o %cpu --no-headers
-        let ps_output = Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "%cpu", "--no-headers"])
-            .output()
-            .await
-            .map_err(|e| EnolaError::InfrastructureError(format!("Failed to run ps: {}", e)))?;
+        // SEC-004: `ps` lee /proc (world-readable) — sin root.
+        let ps_output = tokio::process::Command::from(
+            crate::infrastructure::drop_privs::command_as_invoking_user("ps"),
+        )
+        .args(["-p", &pid.to_string(), "-o", "%cpu", "--no-headers"])
+        .output()
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("Failed to run ps: {}", e)))?;
 
         let cpu_str = String::from_utf8_lossy(&ps_output.stdout)
             .trim()
