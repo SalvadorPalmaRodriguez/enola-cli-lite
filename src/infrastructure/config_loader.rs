@@ -73,9 +73,10 @@ pub fn load_section(section: &str) -> HashMap<String, String> {
 
 /// `true` si el fichero pertenece a root (uid 0) y no es escribible por
 /// grupo ni otros — condición para que su contenido fije política de un
-/// proceso privilegiado (R-5).
+/// proceso privilegiado (R-5). SEC-003: también guarda los trust anchors
+/// persistidos de update (claves minisign) bajo euid 0.
 #[cfg(unix)]
-fn is_root_owned_secure(path: &std::path::Path) -> bool {
+pub(crate) fn is_root_owned_secure(path: &std::path::Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     match std::fs::metadata(path) {
         Ok(m) => m.uid() == 0 && (m.mode() & 0o022) == 0,
@@ -85,7 +86,7 @@ fn is_root_owned_secure(path: &std::path::Path) -> bool {
 
 /// Variante no-unix: sin noción de uid/mode, el fichero no es de confianza.
 #[cfg(not(unix))]
-fn is_root_owned_secure(_path: &std::path::Path) -> bool {
+pub(crate) fn is_root_owned_secure(_path: &std::path::Path) -> bool {
     false
 }
 

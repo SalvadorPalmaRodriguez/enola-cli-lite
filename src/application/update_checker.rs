@@ -378,13 +378,53 @@ impl UpdateReport {
 const DEFAULT_FEED_URL: &str =
     "https://salvadorpalmarodriguez.github.io/enola-cli-lite/feed/advisories.json";
 
+/// euid real del proceso, inyectable en tests.
+fn current_euid() -> u32 {
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid() }
+    }
+    #[cfg(not(unix))]
+    {
+        u32::MAX
+    }
+}
+
+/// SEC-003: sección `[update]` apta para fijar trust anchors (feed_url,
+/// signature_url, minisign_pubkey) cuando el proceso corre como root:
+/// solo `/etc/enola/config.toml` root-owned (`load_section_root_owned`, R-5).
+/// El `~/.enola/config.toml` del invocador es escribible por un usuario no
+/// privilegiado y no debe gobernar la fuente del feed ni la clave de
+/// verificación de un proceso privilegiado (cadena NOPASSWD → binario
+/// arbitrario como root). Fuera de euid 0 se mantiene la lectura normal.
+fn update_anchor_section(euid: u32) -> std::collections::HashMap<String, String> {
+    if euid == 0 {
+        config_loader::load_section_root_owned("update")
+    } else {
+        config_loader::load_section("update")
+    }
+}
+
+/// SEC-003: un `ENOLA_UPDATE_*` definido bajo euid 0 puede venir del entorno
+/// del invocador (`sudo -E`) y controla un trust anchor — advertirlo siempre
+/// en stderr (mismo patrón que ENOLA_INSTALL_PUBKEY).
+fn warn_env_anchor_if_root(var: &str, euid: u32) {
+    if euid == 0 {
+        eprintln!(
+            "⚠️  {var} está definida con el proceso corriendo como root: \
+             el entorno controla un trust anchor de update."
+        );
+    }
+}
+
 pub fn feed_url() -> String {
     if let Ok(url) = std::env::var("ENOLA_UPDATE_FEED_URL") {
         if !url.is_empty() {
+            warn_env_anchor_if_root("ENOLA_UPDATE_FEED_URL", current_euid());
             return url;
         }
     }
-    let section = config_loader::load_section("update");
+    let section = update_anchor_section(current_euid());
     section
         .get("feed_url")
         .cloned()
@@ -394,10 +434,11 @@ pub fn feed_url() -> String {
 pub fn signature_url(feed_url: &str) -> String {
     if let Ok(url) = std::env::var("ENOLA_UPDATE_SIGNATURE_URL") {
         if !url.is_empty() {
+            warn_env_anchor_if_root("ENOLA_UPDATE_SIGNATURE_URL", current_euid());
             return url;
         }
     }
-    let section = config_loader::load_section("update");
+    let section = update_anchor_section(current_euid());
     if let Some(url) = section.get("signature_url") {
         if !url.is_empty() {
             return url.clone();
@@ -421,8 +462,18 @@ fn trusted_minisign_keys_path() -> PathBuf {
 /// MED-02: Carga las claves minisign confiables persistidas localmente.
 /// Devuelve un vector de claves públicas (strings RW...).
 fn load_trusted_minisign_keys() -> Vec<String> {
-    let path = trusted_minisign_keys_path();
-    let content = match std::fs::read_to_string(&path) {
+    load_trusted_minisign_keys_secure(&trusted_minisign_keys_path(), current_euid())
+}
+
+/// SEC-003: bajo euid 0 el fichero de claves persistidas solo es de confianza
+/// si es root-owned y no escribible por grupo/otros (`is_root_owned_secure`).
+/// Con `sudo -E`, `$HOME` sigue apuntando al usuario, que podría pre-plantar
+/// una clave de verificación propia.
+fn load_trusted_minisign_keys_secure(path: &Path, euid: u32) -> Vec<String> {
+    if euid == 0 && !config_loader::is_root_owned_secure(path) {
+        return vec![];
+    }
+    let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return vec![],
     };
@@ -467,14 +518,17 @@ fn verify_next_pubkey_signature(next: &NextPubkey, current_pubkey: &str) -> bool
 }
 
 pub fn update_minisign_pubkey() -> String {
+    let euid = current_euid();
     // 1. Env var override (highest priority)
     if let Ok(key) = std::env::var("ENOLA_UPDATE_MINISIGN_PUBKEY") {
         if !key.trim().is_empty() {
+            warn_env_anchor_if_root("ENOLA_UPDATE_MINISIGN_PUBKEY", euid);
             return key.trim().to_string();
         }
     }
-    // 2. config.toml [update].minisign_pubkey
-    let section = config_loader::load_section("update");
+    // 2. config.toml [update].minisign_pubkey (SEC-003: solo /etc/enola
+    //    root-owned bajo euid 0)
+    let section = update_anchor_section(euid);
     if let Some(key) = section.get("minisign_pubkey") {
         if !key.trim().is_empty() {
             return key.trim().to_string();
@@ -2883,6 +2937,60 @@ mod tests {
         assert_eq!(resolved, "RWRotatedKeyB", "must use the latest rotated key");
 
         teardown_test_home(tmp, guard);
+    }
+
+    // --- SEC-003: trust anchors root-owned bajo euid 0 ---
+
+    #[test]
+    fn update_anchor_section_ignores_user_config_under_euid0() {
+        // Bajo euid 0 la sección [update] solo puede venir de
+        // /etc/enola/config.toml root-owned — el ~/.enola/config.toml del
+        // invocador (escribible por él) se ignora.
+        let (tmp, guard) = setup_test_home();
+        let cfg_dir = tmp.path().join(".enola");
+        std::fs::create_dir_all(&cfg_dir).expect("mkdir .enola");
+        std::fs::write(
+            cfg_dir.join("config.toml"),
+            "[update]\nfeed_url = \"http://evil.invalid/feed.json\"\nminisign_pubkey = \"RWEvilPlanted\"\n",
+        )
+        .expect("write hostile config");
+
+        let section = update_anchor_section(0);
+        assert_ne!(
+            section.get("feed_url").map(String::as_str),
+            Some("http://evil.invalid/feed.json"),
+            "el feed_url del usuario no puede fijar el anchor bajo euid 0"
+        );
+        assert_ne!(
+            section.get("minisign_pubkey").map(String::as_str),
+            Some("RWEvilPlanted"),
+            "la pubkey del usuario no puede fijar el anchor bajo euid 0"
+        );
+
+        teardown_test_home(tmp, guard);
+    }
+
+    #[test]
+    fn trusted_keys_ignored_for_root_when_not_root_owned() {
+        // Con `sudo -E`, $HOME sigue siendo el del usuario: un
+        // trusted_minisign_keys.json plantado por él no puede ser anchor
+        // cuando el proceso corre como root.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // como root el tmp sería uid 0 — el gate no se ejercita
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let f = dir.path().join("trusted_minisign_keys.json");
+        std::fs::write(&f, "[\"RWPlantedKey\"]").expect("write planted keys");
+
+        assert!(
+            load_trusted_minisign_keys_secure(&f, 0).is_empty(),
+            "fichero no root-owned debe ignorarse bajo euid 0"
+        );
+        assert_eq!(
+            load_trusted_minisign_keys_secure(&f, 1000),
+            vec!["RWPlantedKey".to_string()],
+            "sin root el fichero del propio usuario sí se lee"
+        );
     }
 
     // --- T10: safe_latest_version (defensa en profundidad en el path) ---
