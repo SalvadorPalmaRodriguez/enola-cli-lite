@@ -7,8 +7,9 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-/// Claves de argumentos cuyos valores se redactan en el log.
-const SECRET_KEYS: &[&str] = &[
+/// Claves de argumentos cuyos valores se redactan en el log y en el argv
+/// devuelto por `run_command`/`try_run` (F-12).
+pub(crate) const SECRET_KEYS: &[&str] = &[
     "pass",
     "password",
     "passwd",

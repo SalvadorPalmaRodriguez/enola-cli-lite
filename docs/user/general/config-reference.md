@@ -175,6 +175,21 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 
 ---
 
+## Variables solo-desarrollo / escape hatches
+
+> **Solo para desarrollo y depuración.** Nunca las definas en producción ni las
+> propagues vía `sudo -E`; los procesos root las evalúan con *warning* visible.
+
+| Variable / flag | Efecto | Riesgo |
+|---|---|---|
+| `ENOLA_AUTO_SETUP=1` | En modo no-TTY (script/servicio) permite que el preflight instale dependencias (`apt-get`) automáticamente | Mutación del sistema sin consentimiento interactivo |
+| `ENOLA_ALLOW_UNSIGNED_UPDATE=1` / `update apply --allow-unsigned` | Salta la verificación minisign del binario | Instala binario arbitrario como root |
+| `ENOLA_SKIP_ROOT_CHECK=1` | Omite la exigencia de root | Comandos fallarán o mutarán sin privilegios |
+| `ENOLA_MINISIGN_BIN` | Path alternativo al binario `minisign` | Solo validado por identity-check (`-V` contiene "minisign") |
+| `ENOLA_WEB_TOKEN` | Fija el token del dashboard (tests) | Predecible si se filtra |
+| `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` | Overrides de trust anchors de update | Bajo euid 0 emiten warning; usados con `sudo -E` |
+| `ENOLA_TEST_TOKEN` | Token de test del dashboard (feature `testing`, ausente en release) | N/A en release |
+
 ## Ejemplo completo
 
 ```toml

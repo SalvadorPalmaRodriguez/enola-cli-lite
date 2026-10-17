@@ -161,3 +161,14 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 #   - UPD-CLI-001      (feed de actualizaciones)
 # ══════════════════════════════════════════════════════════════════════════
 
+# ── Variables SOLO-DESARROLLO (nunca en producción ni bajo sudo -E) ─────────
+# No tienen clave de config equivalente — son escape hatches de entorno:
+#   ENOLA_AUTO_SETUP=1          — preflight no-TTY instala deps (SEC-009)
+#   ENOLA_ALLOW_UNSIGNED_UPDATE=1 / --allow-unsigned — salta firma minisign
+#   ENOLA_SKIP_ROOT_CHECK=1     — omite exigencia de root
+#   ENOLA_MINISIGN_BIN=<path>   — minisign alternativo (identity-check)
+#   ENOLA_WEB_TOKEN=<token>     — fija token del dashboard (tests)
+#   ENOLA_UPDATE_FEED_URL / ENOLA_UPDATE_SIGNATURE_URL / ENOLA_UPDATE_MINISIGN_PUBKEY
+#                               — overrides de trust anchors (warning si root)
+#   ENOLA_TEST_TOKEN=<token>    — token de test (feature `testing`, ausente en release)
+# Ver: docs/user/general/config-reference.md §"Variables solo-desarrollo"

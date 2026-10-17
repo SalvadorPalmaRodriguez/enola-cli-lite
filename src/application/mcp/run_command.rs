@@ -257,6 +257,39 @@ pub(crate) fn build_argv(family: &str, tokens: &[String], flag_argv: Vec<String>
     argv
 }
 
+/// F-12: redacta los valores de flags sensibles en el argv devuelto al
+/// llamante — el flag `--admin-pass` se conserva pero su valor sale como
+/// "***" (misma tabla SECRET_KEYS que el audit log).
+pub(crate) fn redact_argv(argv: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(argv.len());
+    let mut redact_next = false;
+    for arg in argv {
+        if redact_next {
+            out.push("***".to_string());
+            redact_next = false;
+            continue;
+        }
+        if let Some(flag) = arg.strip_prefix("--") {
+            let name = flag.split('=').next().unwrap_or("");
+            let lower = name.to_lowercase();
+            if crate::application::mcp::audit::SECRET_KEYS
+                .iter()
+                .any(|k| lower.contains(k))
+            {
+                if flag.contains('=') {
+                    out.push(format!("--{}=***", name));
+                } else {
+                    out.push(arg.clone());
+                    redact_next = true;
+                }
+                continue;
+            }
+        }
+        out.push(arg.clone());
+    }
+    out
+}
+
 struct RunCommandHandler {
     runner: Arc<dyn ProcessRunnerPort + Send + Sync>,
     policy: Arc<McpPolicy>,
@@ -328,12 +361,21 @@ impl ToolHandler for RunCommandHandler {
             }
             return Err(e);
         }
+        let flag_argv = match build_flag_argv(leaf, args.get("args").unwrap_or(&Value::Null)) {
+            Ok(v) => v,
+            Err(e) => {
+                // F-14: los fallos de validación de flags también se auditan.
+                if kind.writes() {
+                    self.audit.log_call(&policy_name, &args, "invalid");
+                }
+                return Err(e);
+            }
+        };
+        let argv = build_argv(family, &tokens, flag_argv);
+        // F-14: "requested" se loguea tras validar el argv, no antes.
         if kind.writes() {
             self.audit.log_call(&policy_name, &args, "requested");
         }
-
-        let flag_argv = build_flag_argv(leaf, args.get("args").unwrap_or(&Value::Null))?;
-        let argv = build_argv(family, &tokens, flag_argv);
 
         // MCP-009: las destructivas exigen confirmación de dos pasos vinculada
         // a (comando + args). `force` solo no basta: sin token válido se
@@ -403,7 +445,7 @@ impl ToolHandler for RunCommandHandler {
         let (stdout, t1) = truncate_output(&out.stdout, self.policy.max_output_bytes);
         let (stderr, t2) = truncate_output(&out.stderr, self.policy.max_output_bytes);
         Ok(json!({
-            "argv": argv,
+            "argv": redact_argv(&argv),
             "exit_code": out.exit_code,
             "stdout": stdout,
             "stderr": stderr,
@@ -431,7 +473,7 @@ impl ToolHandler for RunCommandHandler {
             "simulated": true,
             "reliable": true,
             "operation": policy_name,
-            "argv": argv,
+            "argv": redact_argv(&argv),
             "kind": match kind {
                 ToolKind::ReadOnly => "read_only",
                 ToolKind::Mutating => "mutating",

@@ -43,6 +43,14 @@ elevated privileges, fix argv, environment, policy source and audit-log
 location in a trusted launcher; do not grant a wildcard sudo rule such as
 `enola-cli mcp *`.
 
+Development-only escape hatches (never in production, never via `sudo -E`):
+`ENOLA_AUTO_SETUP=1` (non-TTY preflight auto-installs deps),
+`ENOLA_ALLOW_UNSIGNED_UPDATE=1` / `--allow-unsigned` (skips minisign
+verification), `ENOLA_SKIP_ROOT_CHECK=1`, `ENOLA_MINISIGN_BIN`,
+`ENOLA_WEB_TOKEN`, `ENOLA_UPDATE_*` trust-anchor overrides. Root processes
+evaluate them with a visible warning. Full table in config-reference.md
+"Variables solo-desarrollo".
+
 ## Documentation (Spanish)
 
 - [Documentación de usuario](https://salvadorpalmarodriguez.github.io/enola-cli-lite/user/): Complete per-module command docs in Spanish
