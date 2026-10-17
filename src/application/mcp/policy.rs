@@ -218,9 +218,6 @@ pub(crate) fn resolve_policy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn mutating() -> ToolKind {
         ToolKind::Mutating
@@ -287,7 +284,7 @@ mod tests {
 
     #[test]
     fn resolve_defaults_are_safe_without_any_source() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         for k in [
             "ENOLA_MCP_ALLOW_WRITE",
             "ENOLA_MCP_ALLOWED_TOOLS",
@@ -307,7 +304,7 @@ mod tests {
 
     #[test]
     fn precedence_flag_beats_env_and_file() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_MCP_ALLOW_WRITE", "false");
         std::env::set_var("ENOLA_MCP_REQUEST_TIMEOUT_SECS", "45");
         let mut file = HashMap::new();

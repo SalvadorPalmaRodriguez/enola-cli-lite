@@ -224,9 +224,6 @@ pub fn http_client_builder(target_url: &str) -> Result<reqwest::ClientBuilder> {
 mod tests {
     use super::*;
 
-    /// Mutex para serializar tests que tocan `ENOLA_TOR_SOCKS_PROXY` (§13.33 — flaky tests).
-    static TOR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn is_onion_url_detects_v3_hash() {
         assert!(is_onion_url(
@@ -259,7 +256,7 @@ mod tests {
 
     #[test]
     fn resolve_default_proxy_when_no_env() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         // Forzamos old=Some para cubrir la restauración explícita.
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.99:9150");
         let old = std::env::var("ENOLA_TOR_SOCKS_PROXY").ok();
@@ -272,7 +269,7 @@ mod tests {
 
     #[test]
     fn resolve_proxy_from_env_has_priority() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.99:9150");
         let old = std::env::var("ENOLA_TOR_SOCKS_PROXY").ok();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.5:9150");
@@ -306,7 +303,7 @@ mod tests {
 
     #[test]
     fn build_client_for_onion_sets_proxy() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         // Aseguramos proxy válido incluso si hay basura en el entorno
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", DEFAULT_TOR_SOCKS_PROXY);
         let c = build_http_client(
@@ -319,7 +316,7 @@ mod tests {
 
     #[test]
     fn build_client_rejects_invalid_proxy_url() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "not a url at all");
         let err = build_http_client("http://example.onion/").expect_err("invalid proxy rejected");
         assert!(matches!(err, EnolaError::InfrastructureError(_)));
@@ -328,7 +325,7 @@ mod tests {
 
     #[test]
     fn build_client_rejects_socks5_without_h_for_onion() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5://127.0.0.1:9050");
         let err = build_http_client("http://example.onion/")
             .expect_err("socks5 without remote DNS must be rejected");
@@ -338,7 +335,7 @@ mod tests {
 
     #[test]
     fn build_client_rejects_http_proxy_for_onion() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "http://127.0.0.1:8118");
         let err = build_http_client("http://example.onion/")
             .expect_err("http proxy must be rejected for onion");
@@ -356,7 +353,7 @@ mod tests {
 
     #[test]
     fn http_client_builder_for_onion_sets_proxy() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", DEFAULT_TOR_SOCKS_PROXY);
         let builder = http_client_builder("http://example.onion/").expect("builds");
         let client = builder.build().expect("client from builder");
@@ -366,7 +363,7 @@ mod tests {
 
     #[test]
     fn http_client_builder_rejects_invalid_proxy_for_onion() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", ":::invalid");
         // builder itself may succeed (reqwest validates on build); either way no panic
         let _ = http_client_builder("http://example.onion/");
@@ -378,7 +375,7 @@ mod tests {
         // T6: análogo a build_client_rejects_socks5_without_h_for_onion pero
         // para el builder (latente, #[allow(dead_code)]). Debe rechazar socks5
         // sin h para no filtrar DNS fuera de Tor.
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5://127.0.0.1:9050");
         let err = http_client_builder("http://example.onion/")
             .expect_err("socks5 without remote DNS must be rejected");
@@ -388,7 +385,7 @@ mod tests {
 
     #[test]
     fn resolve_proxy_ignores_empty_env_and_falls_back_to_default() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "   ");
         let proxy = resolve_tor_socks_proxy();
         std::env::remove_var("ENOLA_TOR_SOCKS_PROXY");
@@ -397,7 +394,7 @@ mod tests {
 
     #[test]
     fn resolve_proxy_from_config_when_env_is_missing() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("HOME", "/tmp/enola-test-home-prev");
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.99:9150");
         let old_home = std::env::var("HOME").ok();
@@ -430,7 +427,7 @@ mod tests {
 
     #[test]
     fn resolve_proxy_from_empty_config_value_falls_back_to_default() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("HOME", "/tmp/enola-test-home-prev");
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.99:9150");
         let old_home = std::env::var("HOME").ok();
@@ -466,7 +463,7 @@ mod tests {
     // (2) fallar en reqwest::Proxy::all por host invalido.
     #[test]
     fn build_client_rejects_malformed_socks5h_url_in_proxy_all() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         // "[::1:" es un literal IPv6 incompleto (corchete sin cerrar) -> URL invalida para reqwest
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5h://[::1:");
         let err = build_http_client("http://example.onion/")
@@ -479,7 +476,7 @@ mod tests {
     // Requiere ENOLA_TOR_SOCKS_PROXY pre-establecida antes del test.
     #[test]
     fn resolve_proxy_restores_previous_env_var_when_set() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let prev = "socks5h://10.0.0.99:9150";
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", prev);
         let old = std::env::var("ENOLA_TOR_SOCKS_PROXY").ok(); // Some(prev)
@@ -498,7 +495,7 @@ mod tests {
     // TEST-COV-UNIT-003: cubrir L212 (Some(v) restore en resolve_proxy_from_env).
     #[test]
     fn resolve_proxy_from_env_restores_previous_when_set() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let initial = "socks5h://10.0.0.99:9150";
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", initial);
         let old = std::env::var("ENOLA_TOR_SOCKS_PROXY").ok(); // Some(initial)
@@ -520,12 +517,9 @@ mod tests {
 
     // --- Tests for download timeout resolution (HIGH-02) ---
 
-    /// Mutex para serializar tests que tocan `ENOLA_HTTP_DOWNLOAD_TIMEOUT`.
-    static DL_TIMEOUT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn resolve_download_timeout_defaults_to_300s() {
-        let _g = DL_TIMEOUT_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::remove_var("ENOLA_HTTP_DOWNLOAD_TIMEOUT");
         let timeout = resolve_download_timeout();
         assert_eq!(timeout, DEFAULT_DOWNLOAD_HTTP_TIMEOUT);
@@ -534,7 +528,7 @@ mod tests {
 
     #[test]
     fn resolve_download_timeout_from_env() {
-        let _g = DL_TIMEOUT_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let old = std::env::var("ENOLA_HTTP_DOWNLOAD_TIMEOUT").ok();
         std::env::set_var("ENOLA_HTTP_DOWNLOAD_TIMEOUT", "600");
         let timeout = resolve_download_timeout();
@@ -548,7 +542,7 @@ mod tests {
 
     #[test]
     fn resolve_download_timeout_ignores_invalid_env() {
-        let _g = DL_TIMEOUT_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let old = std::env::var("ENOLA_HTTP_DOWNLOAD_TIMEOUT").ok();
         std::env::set_var("ENOLA_HTTP_DOWNLOAD_TIMEOUT", "not-a-number");
         let timeout = resolve_download_timeout();
@@ -561,7 +555,7 @@ mod tests {
 
     #[test]
     fn resolve_download_timeout_ignores_empty_env() {
-        let _g = DL_TIMEOUT_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let old = std::env::var("ENOLA_HTTP_DOWNLOAD_TIMEOUT").ok();
         std::env::set_var("ENOLA_HTTP_DOWNLOAD_TIMEOUT", "   ");
         let timeout = resolve_download_timeout();
@@ -580,7 +574,7 @@ mod tests {
 
     #[test]
     fn build_download_client_for_onion_url() {
-        let _g = TOR_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", DEFAULT_TOR_SOCKS_PROXY);
         let c = build_download_client(
             "http://abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz234567.onion/file.tar.gz",

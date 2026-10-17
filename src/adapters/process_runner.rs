@@ -106,6 +106,10 @@ mod tests {
     /// ningún `ENOLA_*` peligroso se hereda, `ENOLA_MCP_CHILD` se marca.
     #[test]
     fn child_env_strips_enola_secrets_and_marks_child() {
+        // Serializa con el resto de tests que mutan `std::env` (§13.33).
+        let _g = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         // Simular un env envenenado para la comprobación.
         std::env::set_var("ENOLA_UPDATE_MINISIGN_PUBKEY", "evil");
         std::env::set_var("ENOLA_ALLOW_UNSIGNED_UPDATE", "1");

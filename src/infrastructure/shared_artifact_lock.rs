@@ -68,8 +68,6 @@ mod tests {
     use super::*;
     use std::sync::{LockResult, MutexGuard};
 
-    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn recover_poison<T>(res: LockResult<MutexGuard<'static, T>>) -> MutexGuard<'static, T> {
         match res {
             Ok(g) => g,
@@ -88,7 +86,7 @@ mod tests {
     }
 
     fn set_lock_dir(dir: &std::path::Path) -> LockDirGuard {
-        let guard = recover_poison(ENV_MUTEX.lock());
+        let guard = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         std::env::set_var("ENOLA_LOCK_DIR", dir);
         LockDirGuard { _guard: guard }
     }

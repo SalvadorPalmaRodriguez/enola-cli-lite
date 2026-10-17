@@ -107,9 +107,6 @@ pub fn apply_default_limits(config: &mut ContainerConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn clear_env() {
         std::env::remove_var("ENOLA_DOCKER_DEFAULT_MEMORY_BYTES");
@@ -119,7 +116,7 @@ mod tests {
 
     #[test]
     fn applies_defaults_when_none() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_env();
 
         let mut cfg = ContainerConfig {
@@ -135,7 +132,7 @@ mod tests {
 
     #[test]
     fn preserves_explicit_caller_values() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_env();
 
         let mut cfg = ContainerConfig {
@@ -154,7 +151,7 @@ mod tests {
 
     #[test]
     fn env_override_changes_defaults() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_env();
         std::env::set_var("ENOLA_DOCKER_DEFAULT_MEMORY_BYTES", "536870912"); // 512 MiB
         std::env::set_var("ENOLA_DOCKER_DEFAULT_NANO_CPUS", "500000000"); // 0.5 CPU
@@ -175,7 +172,7 @@ mod tests {
 
     #[test]
     fn env_override_zero_means_unlimited() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_env();
         std::env::set_var("ENOLA_DOCKER_DEFAULT_MEMORY_BYTES", "0");
         std::env::set_var("ENOLA_DOCKER_DEFAULT_NANO_CPUS", "0");
@@ -196,7 +193,7 @@ mod tests {
 
     #[test]
     fn env_override_corrupted_falls_back_to_default() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_env();
         std::env::set_var("ENOLA_DOCKER_DEFAULT_MEMORY_BYTES", "not-a-number");
         std::env::set_var("ENOLA_DOCKER_DEFAULT_NANO_CPUS", "");
@@ -217,7 +214,7 @@ mod tests {
 
     #[test]
     fn idempotent_double_apply() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_env();
 
         let mut cfg = ContainerConfig {

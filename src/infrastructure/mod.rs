@@ -22,3 +22,10 @@ pub mod shared_artifact_lock; // SEC-EXT-RACE-012  lock condicional para artefac
 /// Solo disponible con feature flag `testing` — no existe en builds de producción.
 #[cfg(feature = "testing")]
 pub mod test_token;
+
+/// Lock global para tests que mutan `std::env` (`HOME`, `ENOLA_*`): el test
+/// binary comparte el proceso entre threads y un `Mutex` por módulo no
+/// serializa frente a tests de OTROS módulos (flake observado 2026-10-17 en
+/// `update_minisign_pubkey_uses_most_recent_rotated_key`).
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

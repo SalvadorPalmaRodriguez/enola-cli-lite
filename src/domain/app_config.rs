@@ -238,8 +238,6 @@ mod tests {
     }
 
     // TEST-COV-GAPS-006: DistributionSettings::load env override
-    use std::sync::Mutex;
-    static DIST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn clear_dist_env() {
         std::env::remove_var("ENOLA_BINARY_BASE_URL");
@@ -248,7 +246,7 @@ mod tests {
 
     #[test]
     fn distribution_load_respects_env_override() {
-        let _g = DIST_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_dist_env();
         std::env::set_var("ENOLA_BINARY_BASE_URL", "https://cdn.example.com/dl");
         std::env::set_var(
@@ -263,7 +261,7 @@ mod tests {
 
     #[test]
     fn distribution_load_uses_defaults_when_no_env() {
-        let _g = DIST_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_dist_env();
         let d = DistributionSettings::load();
         // Sin env ni config.toml → defaults
@@ -273,7 +271,6 @@ mod tests {
     }
 
     // TEST-COV-GAPS-006: WebSettings::load env override
-    static WEB_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn clear_web_env() {
         std::env::remove_var("ENOLA_WEB_URL");
@@ -282,7 +279,7 @@ mod tests {
 
     #[test]
     fn web_load_respects_env_override() {
-        let _g = WEB_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_web_env();
         std::env::set_var("ENOLA_WEB_URL", "https://mysite.onion");
         std::env::set_var("ENOLA_DOCS_URL", "https://docs.mysite.onion");
@@ -295,7 +292,7 @@ mod tests {
 
     #[test]
     fn web_load_derives_links_from_base_url() {
-        let _g = WEB_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_web_env();
         std::env::set_var("ENOLA_WEB_URL", "https://enola.dev/");
         let w = WebSettings::load();
@@ -361,8 +358,6 @@ mod tests {
 
     // ── BackupSettings ──
 
-    static BACKUP_ENV_LOCK: Mutex<()> = Mutex::new(());
-
     #[test]
     fn backup_settings_default_is_five() {
         assert_eq!(BackupSettings::default().max_backups, 5);
@@ -371,7 +366,7 @@ mod tests {
 
     #[test]
     fn backup_settings_load_respects_env_override() {
-        let _g = BACKUP_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var("ENOLA_MAX_BACKUPS", "3");
         let b = BackupSettings::load();
         assert_eq!(b.max_backups, 3);
@@ -380,7 +375,7 @@ mod tests {
 
     #[test]
     fn backup_settings_load_rejects_invalid_env() {
-        let _g = BACKUP_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         for bad in ["0", "-1", "abc", ""] {
             std::env::set_var("ENOLA_MAX_BACKUPS", bad);
             let b = BackupSettings::load();

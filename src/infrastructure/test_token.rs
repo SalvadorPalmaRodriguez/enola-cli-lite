@@ -275,9 +275,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static HOME_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_generate_and_verify_token() {
@@ -332,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_key_creation_enforces_0700_dir_and_0600_file_owner() {
-        let _g = HOME_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let old_home = std::env::var("HOME").ok();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         std::env::set_var("HOME", tmp.path());
@@ -367,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_old_key_is_regenerated() {
-        let _g = HOME_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let old_home = std::env::var("HOME").ok();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         std::env::set_var("HOME", tmp.path());

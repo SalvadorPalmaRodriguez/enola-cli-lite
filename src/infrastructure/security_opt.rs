@@ -88,13 +88,10 @@ pub fn build_default_security_opt(user_opts: Vec<String>) -> Vec<String> {
 }
 
 /// Serialises **all** tests that mutate the process-global
-/// `ENOLA_APPARMOR_ENABLED_PATH` env var. There is exactly ONE lock for the
-/// whole file: `mod tests` and `mod tests_extra` must share it, otherwise they
-/// race on the global env var and a test can read the real sysfs node instead
-/// of its fixture (flaky failure + `PoisonError` cascade).
-#[cfg(test)]
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+/// `ENOLA_APPARMOR_ENABLED_PATH` env var — every test takes the shared
+/// `crate::infrastructure::TEST_ENV_LOCK`, otherwise they race on the global
+/// env var and a test can read the real sysfs node instead of its fixture
+/// (flaky failure + `PoisonError` cascade).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,7 +105,7 @@ mod tests {
 
     #[test]
     fn kernel_apparmor_enabled_reads_y() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let f = tmp_file_with("Y\n");
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, f.path());
         let enabled = is_kernel_apparmor_enabled();
@@ -118,7 +115,7 @@ mod tests {
 
     #[test]
     fn kernel_apparmor_disabled_on_n() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let f = tmp_file_with("N\n");
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, f.path());
         let enabled = is_kernel_apparmor_enabled();
@@ -128,7 +125,7 @@ mod tests {
 
     #[test]
     fn kernel_apparmor_missing_file_returns_false() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var(
             APPARMOR_PATH_OVERRIDE_ENV,
             "/nonexistent/enola/test/apparmor",
@@ -140,7 +137,7 @@ mod tests {
 
     #[test]
     fn empty_input_gets_no_new_privs() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, "/nonexistent/x");
         let out = build_default_security_opt(vec![]);
         std::env::remove_var(APPARMOR_PATH_OVERRIDE_ENV);
@@ -149,7 +146,7 @@ mod tests {
 
     #[test]
     fn preserves_user_opts_and_appends_missing_default() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, "/nonexistent/x");
         let out = build_default_security_opt(vec!["seccomp=/etc/enola/seccomp.json".to_string()]);
         std::env::remove_var(APPARMOR_PATH_OVERRIDE_ENV);
@@ -160,7 +157,7 @@ mod tests {
 
     #[test]
     fn does_not_duplicate_no_new_privs_if_already_present() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, "/nonexistent/x");
         let out = build_default_security_opt(vec!["no-new-privileges:true".to_string()]);
         std::env::remove_var(APPARMOR_PATH_OVERRIDE_ENV);
@@ -169,7 +166,7 @@ mod tests {
 
     #[test]
     fn respects_user_apparmor_profile_without_warning() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let f = tmp_file_with("Y\n");
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, f.path());
         let out = build_default_security_opt(vec!["apparmor=enola-ai".to_string()]);
@@ -181,7 +178,7 @@ mod tests {
     #[test]
     fn wsl2_degrades_silently() {
         // Simulates WSL2: sysfs path missing → no profile injected, no panic.
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         std::env::set_var(
             APPARMOR_PATH_OVERRIDE_ENV,
             "/definitely/not/a/real/path/enola-test",
@@ -203,7 +200,7 @@ mod tests_extra {
     }
     #[test]
     fn no_apparmor_profile_with_kernel_enabled_emits_info_log() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let f = tmp_file_with("Y\n");
         std::env::set_var(APPARMOR_PATH_OVERRIDE_ENV, f.path());
         // Sin perfil apparmor= y kernel habilitado: la rama tracing::info! se ejecuta.

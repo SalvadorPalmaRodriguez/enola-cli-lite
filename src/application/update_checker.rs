@@ -1736,12 +1736,11 @@ pub async fn dry_run_update(force_feed: bool) -> std::result::Result<DownloadRes
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static UPDATE_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn setup_test_home() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = UPDATE_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let tmp = tempfile::tempdir().expect("tempdir must be created");
         std::env::set_var("HOME", tmp.path());
         std::env::remove_var("ENOLA_UPDATE_FEED_URL");
@@ -1800,7 +1799,9 @@ mod tests {
 
     #[test]
     fn resolve_minisign_binary_defaults_to_minisign_when_unset() {
-        let _guard = UPDATE_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("ENOLA_MINISIGN_BIN");
         let result = resolve_minisign_binary();
         assert_eq!(result, "minisign");
@@ -1808,7 +1809,9 @@ mod tests {
 
     #[test]
     fn resolve_minisign_binary_uses_simple_name_directly() {
-        let _guard = UPDATE_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         std::env::set_var("ENOLA_MINISIGN_BIN", "my-minisign");
         let result = resolve_minisign_binary();
         assert_eq!(result, "my-minisign");
@@ -1817,7 +1820,9 @@ mod tests {
 
     #[test]
     fn resolve_minisign_binary_falls_back_for_nonexistent_path() {
-        let _guard = UPDATE_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         std::env::set_var("ENOLA_MINISIGN_BIN", "/nonexistent/path/to/minisign");
         let result = resolve_minisign_binary();
         assert_eq!(result, "minisign");
@@ -1826,7 +1831,9 @@ mod tests {
 
     #[test]
     fn resolve_minisign_binary_falls_back_for_non_minisign_binary() {
-        let _guard = UPDATE_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         // /bin/echo exists and runs but is NOT minisign
         std::env::set_var("ENOLA_MINISIGN_BIN", "/bin/echo");
         let result = resolve_minisign_binary();
@@ -1836,7 +1843,9 @@ mod tests {
 
     #[test]
     fn resolve_minisign_binary_falls_back_for_unexecutable_path() {
-        let _guard = UPDATE_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         // /etc/hostname exists but is not executable
         std::env::set_var("ENOLA_MINISIGN_BIN", "/etc/hostname");
         let result = resolve_minisign_binary();

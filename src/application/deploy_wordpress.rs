@@ -295,10 +295,6 @@ mod tests {
         m
     }
 
-    /// Mutex to serialize tests that modify `ENOLA_WORDPRESS_BASE_DIR`.
-    /// Prevents race conditions when parallel tests read/write the same env var.
-    static WP_BASE_DIR_LOCK: Mutex<()> = Mutex::new(());
-
     /// Helper: create a temporary directory and set `ENOLA_WORDPRESS_BASE_DIR` to it.
     /// Returns the `TempDir` handle — the directory is deleted when it goes out of scope.
     fn setup_test_base_dir() -> tempfile::TempDir {
@@ -480,7 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deploy_wordpress_success() {
-        let _guard = WP_BASE_DIR_LOCK.lock().unwrap();
+        let _guard = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let _tmp = setup_test_base_dir();
 
         let container = Arc::new(MockContainerManager::new());
@@ -537,7 +533,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deploy_wordpress_container_failure() {
-        let _guard = WP_BASE_DIR_LOCK.lock().unwrap();
+        let _guard = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let _tmp = setup_test_base_dir();
 
         let container = Arc::new(MockContainerManager::failing());
@@ -553,7 +549,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deploy_wordpress_tor_failure_is_graceful() {
-        let _guard = WP_BASE_DIR_LOCK.lock().unwrap();
+        let _guard = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let _tmp = setup_test_base_dir();
 
         // Tor is not called during create (manual publish model).
@@ -574,7 +570,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deploy_wordpress_valid_names() {
-        let _guard = WP_BASE_DIR_LOCK.lock().unwrap();
+        let _guard = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let _tmp = setup_test_base_dir();
 
         let container = Arc::new(MockContainerManager::new());

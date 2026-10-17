@@ -725,9 +725,6 @@ pub fn validate(reachable: bool, json: bool) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// §13.33 — serializa tests que tocan env vars para evitar flakiness.
-    static CFG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn clear_all_env() {
         for spec in KNOWN_KEYS {
             std::env::remove_var(spec.env_var);
@@ -745,7 +742,7 @@ mod tests {
 
     #[test]
     fn resolve_all_has_expected_keys() {
-        let _g = CFG_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let all = resolve_all();
         let keys: Vec<&str> = all.iter().map(|e| e.key.as_str()).collect();
         assert!(keys.contains(&"web.web_public_url"));
@@ -758,7 +755,7 @@ mod tests {
 
     #[test]
     fn env_var_has_priority_over_default() {
-        let _g = CFG_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_all_env();
         std::env::set_var("ENOLA_WEB_URL", "https://from-env.example.com");
         let all = resolve_all();
@@ -770,7 +767,7 @@ mod tests {
 
     #[test]
     fn default_used_when_no_env_no_file() {
-        let _g = CFG_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_all_env();
         let all = resolve_all();
         // tor_socks_proxy no suele estar en config.toml → debe caer al default
@@ -799,7 +796,7 @@ mod tests {
 
     #[test]
     fn show_json_output_is_valid_json() {
-        let _g = CFG_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_all_env();
         let entries = resolve_all();
         let json = serde_json::to_string(&entries).expect("serializa");
@@ -841,7 +838,7 @@ mod tests {
 
     #[test]
     fn validate_all_returns_some_findings() {
-        let _g = CFG_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         let findings = validate_all(false);
         // Al menos TOML check + URLs check producen algo
         assert!(!findings.is_empty());
@@ -849,7 +846,7 @@ mod tests {
 
     #[test]
     fn validate_all_with_bad_url_env_has_error() {
-        let _g = CFG_ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_all_env();
         std::env::set_var("ENOLA_WEB_URL", "not a url");
         let findings = validate_all(false);

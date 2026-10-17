@@ -241,11 +241,9 @@ pub fn command_as_invoking_user<S: AsRef<OsStr>>(program: S) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    // Serializa los tests porque mutan variables de entorno globales.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
+    // Los tests se serializan con TEST_ENV_LOCK porque mutan variables de
+    // entorno globales.
     fn clear_sudo_env() {
         std::env::remove_var("SUDO_UID");
         std::env::remove_var("SUDO_GID");
@@ -254,7 +252,7 @@ mod tests {
 
     #[test]
     fn invoking_user_none_without_sudo_env() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         assert!(invoking_user().is_none());
     }
@@ -274,7 +272,7 @@ mod tests {
 
     #[test]
     fn resolve_user_home_prefers_explicit_name() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -286,7 +284,7 @@ mod tests {
 
     #[test]
     fn resolve_user_home_explicit_missing_user_returns_none() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("HOME", "/tmp/some-home");
         // `--user` explícito inexistente NO debe caer silenciosamente a $HOME.
@@ -296,7 +294,7 @@ mod tests {
 
     #[test]
     fn invoking_user_parses_valid_sudo_env() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -321,7 +319,7 @@ mod tests {
 
     #[test]
     fn invoking_user_rejects_sudo_uid_zero() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "0");
         std::env::set_var("SUDO_GID", "0");
@@ -335,7 +333,7 @@ mod tests {
 
     #[test]
     fn invoking_user_rejects_corrupt_uid() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "not-a-number");
         std::env::set_var("SUDO_GID", "1000");
@@ -347,7 +345,7 @@ mod tests {
 
     #[test]
     fn command_as_invoking_user_returns_command_without_sudo() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         // Sin SUDO_*: debe devolver un Command plano que ejecuta /bin/true.
         let mut c = command_as_invoking_user("/bin/true");
@@ -360,7 +358,7 @@ mod tests {
         // Test runner típicamente NO es root. Verificamos que aunque haya
         // SUDO_*, no se intenta setuid (fallaría EPERM); el comando arranca
         // OK porque la lógica detecta euid != 0 y omite el setuid.
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -377,7 +375,7 @@ mod tests {
 
     #[test]
     fn should_drop_for_auxiliary_false_when_not_root() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -390,7 +388,7 @@ mod tests {
     // TEST-COV-UNIT-003: cubrir línea 58 (gid_s cuando SUDO_GID no está presente)
     #[test]
     fn invoking_user_none_when_sudo_uid_present_but_gid_missing() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         // No set SUDO_GID → gid_s = var("SUDO_GID").ok()? devuelve None
@@ -401,7 +399,7 @@ mod tests {
     // TEST-COV-UNIT-003: cubrir línea 60 (gid.parse() cuando GID es inválido)
     #[test]
     fn invoking_user_none_when_gid_is_corrupt() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "not-a-gid");
@@ -413,7 +411,7 @@ mod tests {
     // Cuando lookup_home_for_uid no encuentra la entrada, usa $HOME del entorno.
     #[test]
     fn invoking_user_uses_home_env_when_passwd_lookup_fails() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         // UID 65534 ('nobody') generalmente no tiene home en /etc/passwd.
         // Si lookup_home devuelve None, debe usar HOME del entorno como fallback.
@@ -445,7 +443,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn should_drop_inner_false_when_euid_zero_and_no_sudo() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         assert!(!should_drop_inner(0));
     }
@@ -454,7 +452,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn should_drop_inner_true_when_euid_zero_and_sudo_set() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -466,7 +464,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn apply_drop_privs_configures_uid_when_euid_zero() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -480,7 +478,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn apply_drop_privs_noop_when_euid_nonzero() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         std::env::set_var("SUDO_UID", "1000");
         std::env::set_var("SUDO_GID", "1000");
@@ -491,7 +489,7 @@ mod tests {
     // TEST-COV-UNIT-004: L125-130 - should_drop_for_auxiliary() API publica
     #[test]
     fn should_drop_for_auxiliary_public_api_returns_bool() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         // La funcion publica delega en should_drop_inner con el euid real.
         // Solo verificamos que devuelve bool sin panic.

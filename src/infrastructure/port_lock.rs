@@ -78,11 +78,9 @@ mod tests {
     use std::sync::LockResult;
     use std::sync::MutexGuard;
     use tempfile::TempDir;
-    /// Asegura aislamiento: cada test usa su propio dir via env var.
-    /// `std::env::set_var` no es thread-safe entre tests, asi que serializamos
-    /// con un mutex estatico.
-    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    // Asegura aislamiento: cada test usa su propio dir via env var.
+    // `std::env::set_var` no es thread-safe entre tests, asi que serializamos
+    // con el mutex global TEST_ENV_LOCK.
     fn recover_poison<T>(res: LockResult<MutexGuard<'static, T>>) -> MutexGuard<'static, T> {
         match res {
             Ok(g) => g,
@@ -106,7 +104,7 @@ mod tests {
     }
 
     fn set_lock_dir_override(dir: &std::path::Path) -> EnvVarRestore {
-        let guard = recover_poison(ENV_MUTEX.lock());
+        let guard = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         std::env::set_var("ENOLA_PORT_LOCK_DIR", dir);
         EnvVarRestore {
@@ -121,7 +119,7 @@ mod tests {
         let tmp_new = TempDir::new().unwrap();
 
         {
-            let _g = recover_poison(ENV_MUTEX.lock());
+            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
             std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_prev.path());
         }
 
@@ -141,7 +139,7 @@ mod tests {
         let tmp_new = TempDir::new().unwrap();
 
         {
-            let _g = recover_poison(ENV_MUTEX.lock());
+            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
             std::env::remove_var("ENOLA_PORT_LOCK_DIR");
         }
 
@@ -152,7 +150,7 @@ mod tests {
         }
 
         {
-            let _g = recover_poison(ENV_MUTEX.lock());
+            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
             assert!(std::env::var("ENOLA_PORT_LOCK_DIR").is_err());
         }
     }
@@ -194,7 +192,7 @@ mod tests {
     #[test]
     fn lock_dir_default_falls_back_when_var_lock_unavailable() {
         // Sin override, lock_dir() devuelve algo valido (/var/lock/enola o /tmp/enola-locks).
-        let _g = recover_poison(ENV_MUTEX.lock());
+        let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         std::env::set_var("ENOLA_PORT_LOCK_DIR", "/tmp/enola-prev");
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         std::env::remove_var("ENOLA_PORT_LOCK_DIR");
@@ -208,7 +206,7 @@ mod tests {
 
     #[test]
     fn lock_dir_default_restores_to_unset_when_no_previous_override() {
-        let _g = recover_poison(ENV_MUTEX.lock());
+        let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         std::env::remove_var("ENOLA_PORT_LOCK_DIR");
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         assert!(prev.is_none());
@@ -221,7 +219,7 @@ mod tests {
     // TEST-COV-UNIT-003: cubrir lock_dir() con env var vacía (rama !custom.is_empty() = false)
     #[test]
     fn lock_dir_ignores_empty_env_var_and_falls_back() {
-        let _g = recover_poison(ENV_MUTEX.lock());
+        let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         std::env::set_var("ENOLA_PORT_LOCK_DIR", "/tmp/enola-prev");
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         std::env::set_var("ENOLA_PORT_LOCK_DIR", ""); // vacío → ignorado
@@ -291,7 +289,7 @@ mod tests {
     }
 
     // TEST-COV-UNIT-003: cubrir restore de env var en rama Some(v)
-    // Nota: NO llamamos set_lock_dir_override() desde dentro de un bloque que ya tiene ENV_MUTEX
+    // Nota: NO llamamos set_lock_dir_override() desde dentro de un bloque que ya tiene crate::infrastructure::TEST_ENV_LOCK
     // (causaria deadlock por mutex no-reentrante). En su lugar testeamos la logica directamente.
     #[test]
     fn some_restore_covers_l80_l131_l145() {
@@ -300,7 +298,7 @@ mod tests {
         // Asegurar que la logica "Some(v) => set_var" se ejecuta:
         // Simulamos el patron identico a with_lock_dir/lock_dir_default pero con prev=Some.
         {
-            let _g = recover_poison(ENV_MUTEX.lock());
+            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
             // Establecer variable antes de capturar prev (cubre el Some arm en match al restaurar)
             std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_prev.path());
             let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok(); // Some(tmp_prev)
