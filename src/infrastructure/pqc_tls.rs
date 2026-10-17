@@ -1,5 +1,3 @@
-use std::process::Command;
-
 pub(crate) const PQC_TLS_MARKER: &str = "/usr/local/share/enola/pqc_tls.env";
 pub(crate) const PQC_TLS_GROUPS: &str = "X25519MLKEM768:X25519:prime256v1";
 const OPENSSL_PREFIX: &str = "OpenSSL ";
@@ -10,8 +8,53 @@ pub(crate) fn embedded_installer_script() -> &'static str {
     INSTALLER_SCRIPT
 }
 
+/// R-8/G-2 + SEC-001: escribe el instalador embebido en un directorio temporal
+/// privado (0700, nombre aleatorio) y devuelve el `TempDir` junto a la ruta del
+/// script (modo 0700, listo para `bash`). Una ruta fija bajo `/tmp` sería un
+/// vector de pre-plantado/symlink para código que corre como root: `fs::write`
+/// sigue ficheros ajenos y conserva al dueño original.
+///
+/// El `TempDir` devuelto DEBE mantenerse vivo hasta que el proceso del
+/// instalador termine (`child.wait()`); al soltarse, el directorio se borra.
+pub(crate) fn stage_installer() -> std::io::Result<(tempfile::TempDir, std::path::PathBuf)> {
+    let dir = tempfile::tempdir()?;
+    // `tempdir()` crea con 0o777 & !umask — forzar 0700 explícito para que el
+    // directorio sea realmente privado aunque el umask sea laxo.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))?;
+    }
+    let script = dir.path().join("enola_install_pqc_tls_stack.sh");
+    write_executable_private(&script, embedded_installer_script().as_bytes())?;
+    Ok((dir, script))
+}
+
+#[cfg(unix)]
+fn write_executable_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    // O_EXCL + modo en el open: sin ventana entre create y chmod.
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
+#[cfg(not(unix))]
+fn write_executable_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)
+}
+
 fn command_output(bin: &str, args: &[&str], use_stderr: bool) -> Option<String> {
-    let output = Command::new(bin).args(args).output().ok()?;
+    // SEC-004: probes de versión (`openssl version`, `nginx -V`) — sin root.
+    let output = crate::infrastructure::drop_privs::command_as_invoking_user(bin)
+        .args(args)
+        .output()
+        .ok()?;
     let bytes = if use_stderr && !output.stderr.is_empty() {
         &output.stderr
     } else {
@@ -159,6 +202,47 @@ mod tests {
         let s = embedded_installer_script();
         assert!(!s.trim().is_empty());
         assert!(s.contains("install_pqc_tls_stack") || s.contains("openssl"));
+    }
+
+    // SEC-001: el staging del instalador usa un directorio temporal privado
+    // (0700, nombre aleatorio) — nunca una ruta fija bajo /tmp que un usuario
+    // local pudiera pre-plantar.
+    #[cfg(unix)]
+    #[test]
+    fn stage_installer_uses_private_random_dir() {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, script) = stage_installer().expect("stage_installer");
+
+        // El script vive dentro del tempdir, no en /tmp raíz.
+        assert!(script.starts_with(dir.path()));
+        assert!(script.is_file());
+
+        // Directorio 0700 y nombre no predecible.
+        let dir_mode = std::fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700, "tempdir debe ser 0700");
+
+        // El script nace 0700 (O_EXCL + mode en open — sin ventana chmod).
+        let script_mode = std::fs::metadata(&script).unwrap().permissions().mode() & 0o777;
+        assert_eq!(script_mode, 0o700, "script debe ser 0700");
+        assert_eq!(
+            std::fs::metadata(&script).unwrap().uid(),
+            unsafe { libc::geteuid() },
+            "el script debe pertenecer al euid actual"
+        );
+
+        // Dos stagings consecutivos producen rutas distintas.
+        let (dir2, script2) = stage_installer().expect("second stage_installer");
+        assert_ne!(dir.path(), dir2.path());
+        assert_ne!(script, script2);
+
+        // Un fichero pre-plantado en /tmp NO es tocado ni usado.
+        let planted = std::path::Path::new("/tmp/enola_install_pqc_tls_stack.sh");
+        if planted.exists() {
+            // Si existiera (atacante lo creó), el staging no lo usa.
+            assert!(!script.starts_with(planted));
+        }
     }
 
     #[test]

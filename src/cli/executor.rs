@@ -351,7 +351,17 @@ async fn maybe_run_preflight(cli: &Cli) -> CliResult<()> {
     }
 
     if !is_tty() {
-        // No interactivo: intentar instalar directamente sin prompt
+        // SEC-009: en modo no interactivo NUNCA se muta el sistema como
+        // efecto lateral de un comando cualquiera — la instalación exige
+        // consentimiento explícito vía ENOLA_AUTO_SETUP=1.
+        if std::env::var("ENOLA_AUTO_SETUP").ok().as_deref() != Some("1") {
+            return Err(CliError::Generic(
+                "Faltan dependencias del sistema (modo no interactivo).\n\
+                 Ejecute:\n  sudo enola-cli setup --all\n\
+                 o reintente con ENOLA_AUTO_SETUP=1 para instalar automáticamente."
+                    .to_string(),
+            ));
+        }
         let result = mgr
             .setup(SetupScope::All)
             .map_err(|e| CliError::Generic(format!("Fallo instalando dependencias: {}", e)))?;
@@ -3495,30 +3505,12 @@ async fn execute_setup(all: bool, vpn: bool, security: bool, pqc_tls: bool) -> C
     let mut out = mgr.format_setup_result(&result);
 
     if pqc_tls {
-        // R-8/G-2: el installer se escribe en un directorio temporal privado
-        // (0700, nombre aleatorio) — una ruta fija en /tmp sería un vector de
-        // pre-plantado/symlink para código ejecutado como root.
-        let tmp = tempfile::tempdir()
-            .map_err(|e| CliError::Generic(format!("Failed to create PQC TLS tempdir: {}", e)))?;
-        let script_path = tmp.path().join("enola_install_pqc_tls_stack.sh");
-        tokio::fs::write(
-            &script_path,
-            crate::infrastructure::pqc_tls::embedded_installer_script(),
-        )
-        .await
-        .map_err(|e| CliError::Generic(format!("Failed to write PQC TLS installer: {}", e)))?;
-
-        let status = Command::new("chmod")
-            .args(["700"])
-            .arg(&script_path)
-            .status()
-            .await
-            .map_err(|e| CliError::Generic(format!("Failed to chmod PQC TLS installer: {}", e)))?;
-        if !status.success() {
-            return Err(CliError::Generic(
-                "Failed to chmod PQC TLS installer".to_string(),
-            ));
-        }
+        // R-8/G-2 + SEC-001: el installer se escribe en un directorio temporal
+        // privado (0700, nombre aleatorio) — una ruta fija en /tmp sería un
+        // vector de pre-plantado/symlink para código ejecutado como root.
+        // `_tmp` mantiene vivo el TempDir hasta que el instalador termina.
+        let (_tmp, script_path) = crate::infrastructure::pqc_tls::stage_installer()
+            .map_err(|e| CliError::Generic(format!("Failed to stage PQC TLS installer: {}", e)))?;
 
         let output = Command::new("bash")
             .arg(&script_path)
