@@ -1943,7 +1943,7 @@ pub mod git {
         let url = format!("http://127.0.0.1:{}/api/v1/version", port);
         let limit = timeout_secs / 3;
         for _ in 0..limit {
-            let ok = std::process::Command::new("curl")
+            let ok = crate::infrastructure::drop_privs::command_as_invoking_user("curl")
                 .args(["-sf", "--max-time", "3", &url])
                 .output()
                 .map(|o| o.status.success())
@@ -1967,7 +1967,7 @@ pub mod git {
     /// T13: comprueba vía HTTP si el wizard de instalación de Forgejo sigue
     /// activo en el puerto host dado. Reutiliza `wizard_detected_from_responses`.
     fn forgejo_wizard_active(port: u16) -> bool {
-        let index_code = std::process::Command::new("curl")
+        let index_code = crate::infrastructure::drop_privs::command_as_invoking_user("curl")
             .args([
                 "-sf",
                 "--max-time",
@@ -1984,7 +1984,7 @@ pub mod git {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_default();
 
-        let install_body = std::process::Command::new("curl")
+        let install_body = crate::infrastructure::drop_privs::command_as_invoking_user("curl")
             .args([
                 "-sf",
                 "--max-time",
@@ -2052,7 +2052,9 @@ pub mod git {
             pass = admin_pass
         );
 
-        let result = std::process::Command::new("curl")
+        // SEC-006: el payload contiene admin_passwd — va por stdin (`-d @-`),
+        // nunca en argv (visible en /proc/<pid>/cmdline y `ps aux`).
+        let mut child = match crate::infrastructure::drop_privs::command_as_invoking_user("curl")
             .args([
                 "-sf",
                 "--max-time",
@@ -2062,11 +2064,29 @@ pub mod git {
                 "-H",
                 "Content-Type: application/x-www-form-urlencoded",
                 "-d",
-                &post_data,
+                "@-",
                 "--location", // seguir redirección post-instalación
                 &format!("http://127.0.0.1:{}/install", port),
             ])
-            .output();
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("   ⚠ Wizard no se pudo completar via HTTP: {}", e);
+                eprintln!("     El admin se creará via docker exec de todas formas.");
+                return;
+            }
+        };
+        {
+            use std::io::Write;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(post_data.as_bytes());
+            } // drop cierra stdin → curl envía el body
+        }
+        let result = child.wait_with_output();
 
         match result {
             Ok(o) if o.status.success() => {
@@ -2891,7 +2911,7 @@ pub mod git {
                 timeout_secs
             );
             loop {
-                let ok = std::process::Command::new("curl")
+                let ok = crate::infrastructure::drop_privs::command_as_invoking_user("curl")
                     .args(["-sf", "--max-time", "3", &url])
                     .output()
                     .map(|o| o.status.success())
@@ -3086,14 +3106,13 @@ pub mod git {
         /// 4. Después: `sudo enola-cli git registration myrepo --disable` (recomendado)
         ///
         /// Construye el argv de `docker exec … forgejo admin user create` para un
-        /// usuario. Nota T1: la contraseña SÍ viaja en argv (Forgejo solo acepta
-        /// `--password` o `--random-password`, sin stdin/file) porque aquí se
-        /// conserva la contraseña elegida. Mitigación: leerla por prompt (no por
-        /// flag en el historial) cuando no se pasa `--password`.
+        /// usuario. `password`: `Some(p)` → `--password <p>` (argv — residual T1
+        /// documentado, solo vía CLI con prompt); `None` → `--random-password`
+        /// (la contraseña la genera Forgejo y NO viaja en argv — vía web SEC-006).
         fn forgejo_user_create_argv(
             container: &str,
             username: &str,
-            password: &str,
+            password: Option<&str>,
             email: &str,
             is_admin: bool,
         ) -> Vec<String> {
@@ -3110,16 +3129,43 @@ pub mod git {
                 "create".to_string(),
                 "--username".to_string(),
                 username.to_string(),
-                "--password".to_string(),
-                password.to_string(),
-                "--email".to_string(),
-                email.to_string(),
-                "--must-change-password=true".to_string(),
             ];
+            match password {
+                Some(p) => {
+                    args.push("--password".to_string());
+                    args.push(p.to_string());
+                }
+                None => args.push("--random-password".to_string()),
+            }
+            args.push("--email".to_string());
+            args.push(email.to_string());
+            args.push("--must-change-password=true".to_string());
             if is_admin {
                 args.push("--admin".to_string());
             }
             args
+        }
+
+        /// Extrae la contraseña generada por `--random-password` de la salida
+        /// de Forgejo (imprime una línea tipo `generated random password is
+        /// 'XXX'`). Devuelve None si el formato no coincide.
+        fn parse_random_password(output: &str) -> Option<String> {
+            for line in output.lines() {
+                let lower = line.to_lowercase();
+                if lower.contains("password") {
+                    // Último token entre comillas simples de la línea.
+                    if let Some(start) = line.rfind('\'') {
+                        let before = &line[..start];
+                        if let Some(prev) = before.rfind('\'') {
+                            let pw = &before[prev + 1..start];
+                            if !pw.is_empty() {
+                                return Some(pw.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            None
         }
 
         pub async fn create(
@@ -3150,8 +3196,13 @@ pub mod git {
                     })?,
             };
 
-            let args =
-                forgejo_user_create_argv(&container, username, &resolved_password, email, is_admin);
+            let args = forgejo_user_create_argv(
+                &container,
+                username,
+                Some(&resolved_password),
+                email,
+                is_admin,
+            );
 
             let output = std::process::Command::new("docker")
                 .args(&args)
@@ -3175,6 +3226,47 @@ pub mod git {
             }
             eprintln!("   🌐 Acceso web: http://127.0.0.1:{}", port);
             Ok(())
+        }
+
+        /// SEC-006: variante para la API web — crea el usuario con
+        /// `--random-password` (la contraseña NO viaja en argv ni en el
+        /// request JSON). Devuelve la contraseña generada para mostrarla
+        /// UNA vez al operador.
+        pub async fn create_random_password(
+            server: &str,
+            username: &str,
+            email: &str,
+            is_admin: bool,
+            admin_user: Option<&str>,
+            admin_pass: Option<&str>,
+        ) -> CliResult<String> {
+            let container = format!("enola-git-{}", server);
+            let port = get_forgejo_host_port(&container)?;
+            let (_au, _ap) = resolve_admin_credentials(server, &container, admin_user, admin_pass)?;
+            wait_for_forgejo_ready(port, 90)?;
+
+            let args = forgejo_user_create_argv(&container, username, None, email, is_admin);
+            let output = std::process::Command::new("docker")
+                .args(&args)
+                .output()
+                .map_err(|e| CliError::Generic(format!("docker exec error: {}", e)))?;
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                return Err(CliError::Generic(format!(
+                    "Failed to create user '{}': {} {}",
+                    username,
+                    stderr.trim(),
+                    stdout.trim()
+                )));
+            }
+            parse_random_password(&format!("{}{}", stdout, stderr)).ok_or_else(|| {
+                CliError::Generic(format!(
+                    "Usuario '{}' creado pero no se pudo extraer la contraseña generada: {}",
+                    username,
+                    stdout.trim()
+                ))
+            })
         }
 
         /// Elimina un usuario del servidor Git.
@@ -3235,7 +3327,7 @@ pub mod git {
                 let args = forgejo_user_create_argv(
                     "enola-git-demo",
                     "bob",
-                    "S3cret!",
+                    Some("S3cret!"),
                     "bob@example.com",
                     false,
                 );
@@ -3255,7 +3347,7 @@ pub mod git {
                 let args = forgejo_user_create_argv(
                     "enola-git-demo",
                     "bob",
-                    "S3cret!",
+                    Some("S3cret!"),
                     "bob@example.com",
                     true,
                 );
@@ -5072,6 +5164,13 @@ server {{
 
     /// Delete a file share
     pub async fn delete(name: &str) -> CliResult<()> {
+        // SEC-005/R-12: `name` se interpola en `/etc/nginx/ssl/{name}.crt`,
+        // `/srv/enola-files/{name}` y `fileserver_{name}` — validar aquí
+        // además del executor, porque la vía web llama a esta función
+        // directamente.
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+
         // Read share path from Nginx config before removing it
         let share_path = read_share_path(name);
 
@@ -5139,6 +5238,9 @@ server {{
 
     /// Edit file share settings (port)
     pub async fn edit(name: &str, port: Option<u16>) -> CliResult<String> {
+        // SEC-005: validación interna (la vía web no pasa por el executor).
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::InvalidInput(e.to_string()))?;
         use crate::application::edit_port_config::EditPortConfig;
         use crate::ports::web::NginxManagerPort;
 
@@ -5204,6 +5306,9 @@ server {{
 
     /// Fix file share permissions
     pub async fn fix_perms(name: &str) -> CliResult<()> {
+        // SEC-005: validación interna (la vía web no pasa por el executor).
+        crate::domain::naming::validate_service_name(name)
+            .map_err(|e| CliError::InvalidInput(e.to_string()))?;
         use std::process::Command;
 
         // Try to read the actual root path from Nginx config (supports custom paths)
@@ -5393,7 +5498,8 @@ pub mod maintenance {
         use std::process::Command;
 
         // -- Verificar OpenSSH versión --
-        let ssh_version = Command::new("ssh")
+        // SEC-004: probe de versión — sin root.
+        let ssh_version = crate::infrastructure::drop_privs::command_as_invoking_user("ssh")
             .arg("-V")
             .output()
             .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string())
@@ -5402,7 +5508,7 @@ pub mod maintenance {
         let version_ok = ssh_version.contains("OpenSSH_9") || ssh_version.contains("OpenSSH_10");
 
         // Verificar soporte de sntrup
-        let sntrup_supported = Command::new("ssh")
+        let sntrup_supported = crate::infrastructure::drop_privs::command_as_invoking_user("ssh")
             .args(["-Q", "kex"])
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).contains("sntrup761"))
@@ -5721,6 +5827,7 @@ pub mod diagnostics {
     /// Test NGINX configuration
     pub async fn nginx_test() -> CliResult<bool> {
         use std::process::Command;
+        // SEC-004: permanece como root — nginx -t lee la config de /etc/nginx.
         let output = Command::new("nginx").args(["-t"]).status()?;
         Ok(output.success())
     }
@@ -6058,9 +6165,10 @@ pub mod test {
             }
         }
 
-        // Run cargo clean for test artifacts only (not full clean)
-        use std::process::Command;
-        let _ = Command::new("cargo")
+        // Run cargo clean for test artifacts only (not full clean).
+        // SEC-002: como el usuario invocador — `cargo clean`/build scripts
+        // nunca deben ejecutarse como root sobre un cwd del usuario.
+        let _ = crate::infrastructure::drop_privs::command_as_invoking_user("cargo")
             .args(["clean", "--profile", "test"])
             .output();
 
@@ -6123,6 +6231,8 @@ pub mod logs {
             }
         };
 
+        // SEC-004: permanece como root — journalctl/tail leen journal y
+        // ficheros de /var/log propiedad de root.
         let output = Command::new(cmd).args(&args).output()?;
 
         let logs = String::from_utf8_lossy(&output.stdout)

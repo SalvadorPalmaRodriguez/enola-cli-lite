@@ -225,11 +225,14 @@
     }
 
     window.torRotate = async function (name) {
-        try {
-            const result = await apiPostJson('/api/tor/' + name + '/rotate');
-            toast('Rotated: ' + (result || 'ok'));
-            loadTor();
-        } catch (e) { toast(e.message, true); }
+        // SEC-005: rotate destroys the current .onion address irreversibly.
+        showConfirm('Rotate Tor Identity', 'Rotate "' + name + '"? The current .onion address will be permanently replaced.', async () => {
+            try {
+                const result = await apiPostJson('/api/tor/' + name + '/rotate', { confirm: name });
+                toast('Rotated: ' + (result || 'ok'));
+                loadTor();
+            } catch (e) { toast(e.message, true); }
+        });
     };
 
     window.torCreate = async function () {
@@ -258,7 +261,8 @@
     };
     async function torActionDo(name, action) {
         try {
-            await apiPostJson('/api/tor/' + name + '/' + action);
+            const body = (action === 'remove' || action === 'rotate') ? { confirm: name } : {};
+            await apiPostJson('/api/tor/' + name + '/' + action, body);
             toast(action + ': ' + name);
             loadTor();
         } catch (e) { toast(e.message, true); }
@@ -494,7 +498,7 @@
                 const result = await apiPostJson('/api/git/watcher');
                 toast('Watcher: ' + (result || 'ok'));
             } else {
-                await apiPostJson('/api/git/' + name + '/' + action);
+                await apiPostJson('/api/git/' + name + '/' + action, action === 'delete' ? { confirm: name } : {});
                 toast(action + ': ok');
             }
             loadGit();
@@ -607,7 +611,7 @@
         const admin_pass = document.getElementById('git-user-adminpass').value || null;
         if (!server || !username) { toast('Server and username required', true); return; }
         try {
-            await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass });
+            await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass, confirm: username });
             toast('User deleted: ' + username);
             gitUserList();
         } catch (e) { toast(e.message, true); }
@@ -619,7 +623,7 @@
         const admin_pass = document.getElementById('git-user-adminpass').value || null;
         if (!server) { toast('Server name required', true); return; }
         try {
-            await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass });
+            await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass, confirm: username });
             toast('User deleted: ' + username);
             gitUserList();
         } catch (e) { toast(e.message, true); }
@@ -680,7 +684,7 @@
                 const result = await apiPostJson('/api/wp/' + name + '/publish');
                 toast('Published: ' + (result || 'ok'));
             } else {
-                await apiPostJson('/api/wp/' + name + '/' + action);
+                await apiPostJson('/api/wp/' + name + '/' + action, action === 'delete' ? { confirm: name } : {});
                 toast(action + ': ok');
             }
             loadWp();
@@ -803,7 +807,7 @@
                 const result = await apiPostJson('/api/cms/' + type + '/' + name + '/publish');
                 toast('Published: ' + (result || 'ok'));
             } else if (action === 'delete') {
-                await apiPostJson('/api/cms/' + type + '/' + name + '/delete', { force: true });
+                await apiPostJson('/api/cms/' + type + '/' + name + '/delete', { force: true, confirm: name });
                 toast('Deleted: ' + name);
             } else {
                 await apiPostJson('/api/cms/' + type + '/' + name + '/' + action);
@@ -887,11 +891,13 @@
     };
 
     window.filesDelete = async function (name) {
-        try {
-            await apiPostJson('/api/files/' + name + '/delete');
-            toast('Deleted: ' + name);
-            loadFiles();
-        } catch (e) { toast(e.message, true); }
+        showConfirm('Delete File Share', 'Delete "' + name + '"? This removes the onion service and shared data.', async () => {
+            try {
+                await apiPostJson('/api/files/' + name + '/delete', { confirm: name });
+                toast('Deleted: ' + name);
+                loadFiles();
+            } catch (e) { toast(e.message, true); }
+        });
     };
 
     let filesEditTarget = null;
@@ -1107,7 +1113,7 @@
     async function vpnActionDo(iface, action) {
         try {
             if (action === 'delete') {
-                await apiPostJson('/api/vpn/' + iface + '/delete', { sync_firewall: false });
+                await apiPostJson('/api/vpn/' + iface + '/delete', { sync_firewall: false, confirm: iface });
             } else {
                 await apiPostJson('/api/vpn/' + iface + '/' + action);
             }
@@ -1149,7 +1155,7 @@
         const public_key = document.getElementById('vpn-peer-remove-key').value.trim();
         if (!iface || !public_key) { toast('Interface and public key required', true); return; }
         try {
-            await apiPostJson('/api/vpn/peer/remove', { interface: iface, public_key });
+            await apiPostJson('/api/vpn/peer/remove', { interface: iface, public_key, confirm: iface });
             toast('Peer removed');
         } catch (e) { toast(e.message, true); }
     };
@@ -1268,7 +1274,7 @@
         const target = document.getElementById('maint-cleanup-target').value;
         const keep_days = parseInt(document.getElementById('maint-cleanup-days').value) || 30;
         const dry_run = document.getElementById('maint-cleanup-dryrun').checked;
-        try { const result = await apiPostJson('/api/maintenance/cleanup', { target, keep_days, dry_run }); document.getElementById('maintenance-output').textContent = JSON.stringify(result, null, 2); toast('Cleanup done'); }
+        try { const result = await apiPostJson('/api/maintenance/cleanup', { target, keep_days, dry_run, confirm: target }); document.getElementById('maintenance-output').textContent = JSON.stringify(result, null, 2); toast('Cleanup done'); }
         catch (e) { toast(e.message, true); }
     };
 
@@ -1384,7 +1390,7 @@
             const force = document.getElementById('sys-uninstall-force').checked;
             const only = document.getElementById('sys-uninstall-only').value.trim() || null;
             try {
-                const data = await apiPostJson('/api/uninstall', { yes, keep_data, remove_deps, force, only });
+                const data = await apiPostJson('/api/uninstall', { yes, keep_data, remove_deps, force, only, confirm: 'uninstall' });
                 document.getElementById('system-output').textContent = 'EXIT ' + data.exit_code + '\n=== STDOUT ===\n' + data.stdout + '\n=== STDERR ===\n' + data.stderr;
                 toast('Uninstall completed');
             } catch (e) { toast(e.message, true); }

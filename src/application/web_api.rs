@@ -356,7 +356,13 @@ async fn api_tor_hide(Path((service_type, name)): Path<(String, String)>) -> Api
     Ok(Json(()))
 }
 
-async fn api_tor_rotate(Path(name): Path<String>) -> ApiResult<String> {
+async fn api_tor_rotate(
+    Path(name): Path<String>,
+    req: Option<Json<ConfirmRequest>>,
+) -> ApiResult<String> {
+    // SEC-005: la rotación destruye la dirección .onion actual de forma
+    // irreversible — exige confirmación explícita como los deletes.
+    require_confirm(confirm_of(&req), &name)?;
     match commands::tor::rotate(&name).await {
         Ok(result) => Ok(Json(result)),
         Err(e) => {
@@ -429,7 +435,37 @@ async fn api_git_stop(Path(name): Path<String>) -> ApiResult<()> {
     Ok(Json(()))
 }
 
-async fn api_git_delete(Path(name): Path<String>) -> ApiResult<()> {
+/// SEC-005: gate destructivo web — un POST de borrado debe llevar
+/// `{"confirm":"<nombre>"}` igualando el recurso a destruir (equivalente al
+/// `--force` del CLI: prueba intención explícita del poseedor del token).
+#[derive(Deserialize)]
+struct ConfirmRequest {
+    confirm: Option<String>,
+}
+
+fn confirm_of(req: &Option<Json<ConfirmRequest>>) -> Option<&str> {
+    req.as_ref().and_then(|r| r.0.confirm.as_deref())
+}
+
+fn require_confirm(provided: Option<&str>, expected: &str) -> Result<(), ApiError> {
+    if provided == Some(expected) {
+        Ok(())
+    } else {
+        Err(ApiError {
+            error: format!(
+                "Destructive operation requires confirmation — resend with body {{\"confirm\": \"{}\"}}",
+                expected
+            ),
+            code: 409,
+        })
+    }
+}
+
+async fn api_git_delete(
+    Path(name): Path<String>,
+    req: Option<Json<ConfirmRequest>>,
+) -> ApiResult<()> {
+    require_confirm(confirm_of(&req), &name)?;
     commands::git::delete(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
@@ -497,7 +533,11 @@ async fn api_wp_stop(Path(name): Path<String>) -> ApiResult<()> {
     Ok(Json(()))
 }
 
-async fn api_wp_delete(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_wp_delete(
+    Path(name): Path<String>,
+    req: Option<Json<ConfirmRequest>>,
+) -> ApiResult<()> {
+    require_confirm(confirm_of(&req), &name)?;
     commands::wordpress::delete(&name)
         .await
         .map_err(ApiError::from)?;
@@ -616,7 +656,11 @@ async fn api_files_create(Json(req): Json<FilesCreateRequest>) -> ApiResult<Stri
     Ok(Json(result))
 }
 
-async fn api_files_delete(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_files_delete(
+    Path(name): Path<String>,
+    req: Option<Json<ConfirmRequest>>,
+) -> ApiResult<()> {
+    require_confirm(confirm_of(&req), &name)?;
     commands::files::delete(&name)
         .await
         .map_err(ApiError::from)?;
@@ -738,12 +782,14 @@ async fn api_vpn_stop(Path(interface): Path<String>) -> ApiResult<()> {
 #[derive(Deserialize)]
 struct VpnDeleteRequest {
     sync_firewall: Option<bool>,
+    confirm: Option<String>,
 }
 
 async fn api_vpn_delete(
     Path(interface): Path<String>,
     Json(req): Json<VpnDeleteRequest>,
 ) -> ApiResult<()> {
+    require_confirm(req.confirm.as_deref(), &interface)?;
     use crate::adapters::infra::vpn::WireGuardAdapter;
     use crate::application::vpn_manager::VpnManager;
     use crate::ports::manifest::ManifestPort;
@@ -834,7 +880,11 @@ async fn api_tor_stop(Path(name): Path<String>) -> ApiResult<()> {
     Ok(Json(()))
 }
 
-async fn api_tor_remove(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_tor_remove(
+    Path(name): Path<String>,
+    req: Option<Json<ConfirmRequest>>,
+) -> ApiResult<()> {
+    require_confirm(confirm_of(&req), &name)?;
     commands::tor::remove(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
@@ -1117,6 +1167,9 @@ async fn api_console_run(
         timeout,
         tokio::process::Command::new(&binary)
             .args(&req.args)
+            // SEC-009: misma barrera que MCP — un comando despachado por la
+            // consola web no puede disparar el preflight auto-install (apt).
+            .env("ENOLA_MCP_CHILD", "1")
             .output(),
     )
     .await
@@ -1256,7 +1309,7 @@ async fn api_tor_auth_generate(
         public_key: keypair.public_key,
         private_key: keypair.private_key,
         message: format!(
-            "🔐 Generated keypair for client '{}'. Send the PUBLIC key to the operator.",
+            "🔐 Keypair generated for client '{}'. As operator: deliver the PRIVATE key to the client via a secure channel, and authorize the PUBLIC key with 'tor auth add'. Recommended model: the client generates the keypair locally and sends you only the public key.",
             req.client
         ),
     }))
@@ -1358,25 +1411,49 @@ struct GitUserCreateRequest {
     server: String,
     username: String,
     email: String,
-    password: String,
+    /// SEC-006: ignorado — la vía web crea usuarios con `--random-password`
+    /// para que la contraseña no viaje por argv ni por el request. Se acepta
+    /// por compatibilidad del API.
+    #[serde(default)]
+    #[allow(dead_code)]
+    password: Option<String>,
     admin: Option<bool>,
     admin_user: Option<String>,
     admin_pass: Option<String>,
 }
 
-async fn api_git_user_create(Json(req): Json<GitUserCreateRequest>) -> ApiResult<()> {
-    commands::git::user::create(
+#[derive(Serialize)]
+struct GitUserCreateResponse {
+    username: String,
+    /// SEC-006: la contraseña la genera Forgejo (`--random-password`) — no
+    /// viaja por argv ni por el request. Se devuelve UNA vez aquí.
+    generated_password: String,
+    message: String,
+}
+
+async fn api_git_user_create(
+    Json(req): Json<GitUserCreateRequest>,
+) -> ApiResult<GitUserCreateResponse> {
+    // SEC-006: se ignora req.password — la web no puede pasar la contraseña
+    // por argv de `docker exec` (visible en /proc/<pid>/cmdline).
+    let password = commands::git::user::create_random_password(
         &req.server,
         &req.username,
         &req.email,
-        Some(&req.password),
         req.admin.unwrap_or(false),
         req.admin_user.as_deref(),
         req.admin_pass.as_deref(),
     )
     .await
     .map_err(ApiError::from)?;
-    Ok(Json(()))
+    Ok(Json(GitUserCreateResponse {
+        username: req.username.clone(),
+        generated_password: password,
+        message: format!(
+            "User '{}' created with a random password (must change on first login). The requested password field is ignored — Forgejo generated this one to keep it out of process argv.",
+            req.username
+        ),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1385,9 +1462,11 @@ struct GitUserDeleteRequest {
     username: String,
     admin_user: Option<String>,
     admin_pass: Option<String>,
+    confirm: Option<String>,
 }
 
 async fn api_git_user_delete(Json(req): Json<GitUserDeleteRequest>) -> ApiResult<()> {
+    require_confirm(req.confirm.as_deref(), &req.username)?;
     commands::git::user::delete(
         &req.server,
         &req.username,
@@ -1613,12 +1692,14 @@ async fn api_cms_stop(Path((cms_type, name)): Path<(String, String)>) -> ApiResu
 #[derive(Deserialize)]
 struct CmsDeleteRequest {
     force: Option<bool>,
+    confirm: Option<String>,
 }
 
 async fn api_cms_delete(
     Path((cms_type, name)): Path<(String, String)>,
     Json(req): Json<CmsDeleteRequest>,
 ) -> ApiResult<()> {
+    require_confirm(req.confirm.as_deref(), &name)?;
     let adapter = build_cms_adapter(&cms_type)?;
     adapter
         .delete(&name, req.force.unwrap_or(false))
@@ -2047,9 +2128,11 @@ async fn api_vpn_peer_add_pubkey(Json(req): Json<VpnPeerAddPubkeyRequest>) -> Ap
 struct VpnPeerRemoveRequest {
     interface: String,
     public_key: String,
+    confirm: Option<String>,
 }
 
 async fn api_vpn_peer_remove(Json(req): Json<VpnPeerRemoveRequest>) -> ApiResult<String> {
+    require_confirm(req.confirm.as_deref(), &req.interface)?;
     use crate::adapters::infra::vpn::WireGuardAdapter;
     use crate::application::vpn_manager::VpnManager;
     let mgr = VpnManager::new(std::sync::Arc::new(WireGuardAdapter::new()));
@@ -2205,9 +2288,11 @@ struct MaintenanceCleanupRequest {
     dry_run: Option<bool>,
     force: Option<bool>,
     keep_days: Option<u32>,
+    confirm: Option<String>,
 }
 
 async fn api_maintenance_cleanup(Json(req): Json<MaintenanceCleanupRequest>) -> ApiResult<String> {
+    require_confirm(req.confirm.as_deref(), &req.target)?;
     use crate::application::cleanup_service::CleanupService;
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let dry_run = req.dry_run.unwrap_or(false);
@@ -2375,22 +2460,22 @@ async fn api_setup_pqc_tls_sse(
 
     tokio::spawn(async move {
         use futures::SinkExt;
-        let script_path = "/tmp/enola_install_pqc_tls_stack.sh";
         let mut tx = tx;
 
-        if let Err(e) = tokio::fs::write(
-            script_path,
-            crate::infrastructure::pqc_tls::embedded_installer_script(),
-        )
-        .await
-        {
-            let _ = tx
-                .send(Ok(
-                    Event::default().data(format!("ERROR: Failed to write installer: {}", e))
-                ))
-                .await;
-            return;
-        }
+        // R-8/G-2 + SEC-001: directorio temporal privado (0700, nombre
+        // aleatorio) — el path fijo en /tmp era un vector de pre-plantado.
+        // `_tmp_dir` mantiene vivo el TempDir hasta que el instalador termina.
+        let (_tmp_dir, script_path) = match crate::infrastructure::pqc_tls::stage_installer() {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tx
+                    .send(Ok(
+                        Event::default().data(format!("ERROR: Failed to write installer: {}", e))
+                    ))
+                    .await;
+                return;
+            }
+        };
 
         let _ = tx
             .send(Ok(
@@ -2398,36 +2483,14 @@ async fn api_setup_pqc_tls_sse(
             ))
             .await;
 
-        let chmod = tokio::process::Command::new("chmod")
-            .args(["700", script_path])
-            .status()
-            .await;
-        match chmod {
-            Ok(s) if s.success() => {}
-            Ok(_) => {
-                let _ = tx
-                    .send(Ok(Event::default().data("ERROR: Failed to chmod installer")))
-                    .await;
-                return;
-            }
-            Err(e) => {
-                let _ = tx
-                    .send(Ok(
-                        Event::default().data(format!("ERROR: chmod failed: {}", e))
-                    ))
-                    .await;
-                return;
-            }
-        }
-
         let _ = tx
             .send(Ok(Event::default().data(
                 "Starting PQC TLS installer (compiles OpenSSL from source, may take 10-30 min)...",
             )))
             .await;
 
-        let mut child = match tokio::process::Command::new("sudo")
-            .arg(script_path)
+        let mut child = match tokio::process::Command::new("bash")
+            .arg(&script_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -2671,9 +2734,11 @@ struct UninstallRequest {
     only: Option<String>,
     force: Option<bool>,
     remove_deps: Option<bool>,
+    confirm: Option<String>,
 }
 
 async fn api_uninstall(Json(req): Json<UninstallRequest>) -> ApiResult<ConsoleRunResponse> {
+    require_confirm(req.confirm.as_deref(), "uninstall")?;
     let binary = std::env::current_exe().map_err(|e| ApiError {
         error: format!("cannot locate binary: {}", e),
         code: 500,
