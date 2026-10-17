@@ -17,6 +17,31 @@ pub struct AppState {
     pub auth_failures: AtomicU64,
 }
 
+/// F-06 residual (R-10): persiste el token del dashboard en
+/// `~/.enola/web-token` (0600, escritura atómica) del usuario invocador —
+/// imprimirlo por stderr lo dejaba en journald bajo systemd/nohup, legible
+/// por `journalctl` (y por la tool `logs view --source system`, ReadOnly).
+/// Devuelve la ruta si se persistió; el valor del token nunca va a stderr.
+#[cfg(unix)]
+fn persist_web_token(token: &str) -> Option<std::path::PathBuf> {
+    use crate::infrastructure::drop_privs::{invoking_user, resolve_user_home};
+
+    let home = resolve_user_home(None)?;
+    let dir = std::path::Path::new(&home).join(".enola");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("web-token");
+
+    crate::infrastructure::atomic_secret_file::write_secret_atomically(&path, token.as_bytes())
+        .ok()?;
+
+    // El fichero lo escribe root; ceder la propiedad al usuario invocador
+    // para que pueda leerlo sin sudo.
+    if let Some(user) = invoking_user() {
+        let _ = std::os::unix::fs::chown(&path, Some(user.uid), Some(user.gid));
+    }
+    Some(path)
+}
+
 pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if !is_root() {
         eprintln!("Error: enola-cli web requires root privileges.");
@@ -53,14 +78,42 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
         .nest("/api", api_routes)
         .with_state(state);
 
+    // F-06 residual: el token se persiste en ~/.enola/web-token (0600) del
+    // usuario invocador y por stderr solo va la RUTA — nunca el valor
+    // (journald/`logs view` son legibles sin privilegio equivalente).
+    // Fallback: si no se puede persistir (p.ej. root puro sin home resoluble),
+    // se imprime el token — residual documentado.
+    let token_display = {
+        #[cfg(unix)]
+        {
+            match persist_web_token(&token) {
+                Some(path) => format!("{}", path.display()),
+                None => {
+                    eprintln!(
+                        "  ⚠️  Could not persist token to ~/.enola/web-token — printing it here (goes to journald under systemd/nohup)."
+                    );
+                    token.clone()
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            token.clone()
+        }
+    };
+
     eprintln!("════════════════════════════════════════════════════════════════");
     eprintln!("  Enola Web Dashboard");
     eprintln!("  Listening: http://127.0.0.1:{}", port);
-    eprintln!("  Token:    {}", token);
     if std::env::var("ENOLA_WEB_TOKEN").is_ok() {
+        // Modo test: el operador ya conoce el valor (lo fijó él mismo).
+        eprintln!("  Token:    {}", token);
         eprintln!("  ⚠️  Token fijado via ENOLA_WEB_TOKEN (modo test).");
         eprintln!("     No use esto en producción — omita la variable para");
         eprintln!("     obtener un token aleatorio en cada inicio.");
+    } else {
+        eprintln!("  Token file: {}", token_display);
+        eprintln!("  Read it with: cat {}", token_display);
     }
     eprintln!("  Open in browser and enter the token when prompted.");
     eprintln!("════════════════════════════════════════════════════════════════");
