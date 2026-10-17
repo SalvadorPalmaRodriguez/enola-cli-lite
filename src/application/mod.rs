@@ -2,7 +2,6 @@
 // Use cases and orchestration logic.
 
 pub mod add_ssh_key;
-pub mod app_deployer; // TASK-D3: App deployment from Git repos
 pub mod apparmor_manager; // AA-004..007 (204-207) — AppArmor orchestration
 pub mod backup_system;
 pub mod cleanup_service;

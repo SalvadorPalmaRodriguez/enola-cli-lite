@@ -7,10 +7,8 @@ pub mod cms;
 pub mod connector;
 pub mod container;
 pub mod dependencies; // DEP-001..003 — System dependency port
-pub mod document;
 pub mod file;
 pub mod firewall; // Gestión de firewall UFW (UFW-002)
-pub mod git;
 pub mod hardware;
 pub mod http_probe; // MCP-006 — sonda HTTP(S)/.onion (verify_onion)
 pub mod manifest; // UNINSTALL-MANIFEST-001 — manifest-based uninstall port

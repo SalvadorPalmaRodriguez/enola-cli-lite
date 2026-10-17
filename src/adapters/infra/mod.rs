@@ -1,6 +1,5 @@
 pub mod apparmor;
 pub mod docker;
-pub mod document_extractor;
 pub mod manifest; // UNINSTALL-MANIFEST-001 — file-backed ManifestPort // AA-003 (203) — AppArmor adapter (apparmor_parser, aa-status)
 
 pub mod filesystem;
