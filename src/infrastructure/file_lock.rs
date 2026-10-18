@@ -85,7 +85,18 @@ impl FileLock {
         &self.path
     }
 }
-// `Drop` no necesita explícitamente `flock(LOCK_UN)`: cerrar el fd libera el lock.
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        // Desbloquea explícitamente la open file description en el kernel antes de
+        // cerrar el fd: si otro hilo hizo fork() y aún no ejecutó execve() (O_CLOEXEC),
+        // el refcount del struct file sería >1 y close(fd) por sí solo no liberaría el
+        // flock hasta que el hijo completara execve.
+        unsafe {
+            let _ = libc::flock(self._file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

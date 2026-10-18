@@ -94,12 +94,16 @@ mod tests {
         _guard: MutexGuard<'static, ()>,
     }
 
+    fn restore_lock_dir_env(prev: Option<String>) {
+        match prev {
+            Some(v) => std::env::set_var("ENOLA_PORT_LOCK_DIR", v),
+            None => std::env::remove_var("ENOLA_PORT_LOCK_DIR"),
+        }
+    }
+
     impl Drop for EnvVarRestore {
         fn drop(&mut self) {
-            match self.prev.take() {
-                Some(v) => std::env::set_var("ENOLA_PORT_LOCK_DIR", v),
-                None => std::env::remove_var("ENOLA_PORT_LOCK_DIR"),
-            }
+            restore_lock_dir_env(self.prev.take());
         }
     }
 
@@ -118,17 +122,13 @@ mod tests {
         let tmp_prev = TempDir::new().unwrap();
         let tmp_new = TempDir::new().unwrap();
 
-        {
-            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
-            std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_prev.path());
-        }
-
-        {
-            let _restore = set_lock_dir_override(tmp_new.path());
-            let current = std::env::var("ENOLA_PORT_LOCK_DIR").unwrap();
-            assert_eq!(PathBuf::from(current), tmp_new.path());
-        }
-
+        let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
+        std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_prev.path());
+        let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
+        std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_new.path());
+        let current = std::env::var("ENOLA_PORT_LOCK_DIR").unwrap();
+        assert_eq!(PathBuf::from(current), tmp_new.path());
+        restore_lock_dir_env(prev);
         let restored = std::env::var("ENOLA_PORT_LOCK_DIR").unwrap();
         assert_eq!(PathBuf::from(restored), tmp_prev.path());
         std::env::remove_var("ENOLA_PORT_LOCK_DIR");
@@ -138,21 +138,14 @@ mod tests {
     fn set_lock_dir_override_restores_to_unset_when_no_previous_value() {
         let tmp_new = TempDir::new().unwrap();
 
-        {
-            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
-            std::env::remove_var("ENOLA_PORT_LOCK_DIR");
-        }
-
-        {
-            let _restore = set_lock_dir_override(tmp_new.path());
-            let current = std::env::var("ENOLA_PORT_LOCK_DIR").unwrap();
-            assert_eq!(PathBuf::from(current), tmp_new.path());
-        }
-
-        {
-            let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
-            assert!(std::env::var("ENOLA_PORT_LOCK_DIR").is_err());
-        }
+        let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
+        std::env::remove_var("ENOLA_PORT_LOCK_DIR");
+        let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
+        std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_new.path());
+        let current = std::env::var("ENOLA_PORT_LOCK_DIR").unwrap();
+        assert_eq!(PathBuf::from(current), tmp_new.path());
+        restore_lock_dir_env(prev);
+        assert!(std::env::var("ENOLA_PORT_LOCK_DIR").is_err());
     }
     #[test]
     fn lock_path_for_port_uses_env_override() {
