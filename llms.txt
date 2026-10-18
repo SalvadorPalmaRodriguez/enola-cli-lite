@@ -47,9 +47,10 @@ Development-only escape hatches (never in production, never via `sudo -E`):
 `ENOLA_AUTO_SETUP=1` (non-TTY preflight auto-installs deps),
 `ENOLA_ALLOW_UNSIGNED_UPDATE=1` / `--allow-unsigned` (skips minisign
 verification), `ENOLA_SKIP_ROOT_CHECK=1`, `ENOLA_MINISIGN_BIN`,
-`ENOLA_WEB_TOKEN`, `ENOLA_UPDATE_*` trust-anchor overrides. Root processes
-evaluate them with a visible warning. Full table in config-reference.md
-"Variables solo-desarrollo".
+`ENOLA_WEB_TOKEN`, `ENOLA_UPDATE_*` trust-anchor overrides (at euid 0 require
+`ENOLA_UPDATE_ENV_ANCHORS=1`, and `[update]` is read only from root-owned
+`/etc/enola/config.toml`). Root processes evaluate them with a visible warning.
+Full table in config-reference.md "Variables solo-desarrollo".
 
 ## Documentation (Spanish)
 

@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-09-21
+> **Versión:** 2.3 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -265,7 +265,7 @@ sudo enola-cli git user list <SERVIDOR> [--admin-user <USER>] [--admin-pass <PAS
 Crea un usuario en el servidor Git via `forgejo admin user create` (docker exec).
 
 ```bash
-sudo enola-cli git user create <SERVIDOR> --username <USER> --email <EMAIL> --password <PASS> [--admin] [--admin-user <USER>] [--admin-pass <PASS>]
+sudo enola-cli git user create <SERVIDOR> --username <USER> --email <EMAIL> [--password <PASS>] [--admin] [--admin-user <USER>] [--admin-pass <PASS>]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |
@@ -276,10 +276,10 @@ sudo enola-cli git user create <SERVIDOR> --username <USER> --email <EMAIL> --pa
 |------|------|-------------|-------------|
 | `--username` / `-u` | String | Sí | Nombre de usuario a crear |
 | `--email` / `-e` | String | Sí | Email del usuario |
-| `--password` / `-p` | String | No | Contraseña del usuario. Si se omite, se pide interactivamente (no queda en el historial). Pasarla por flag queda visible en el historial. |
+| `--password` / `-p` | String | No | Contraseña del usuario (solo compatibilidad de scripts; emite warning porque queda visible en argv `/proc/*/cmdline`). Si se omite (recomendado), Forgejo genera una contraseña aleatoria (`--random-password` + `--must-change-password=true`) que se muestra una sola vez por stderr sin pasar por argv. |
 | `--admin` | Bool | No | Dar permisos de administrador (default: `false`) |
-| `--admin-user` | String | No | Admin de Forgejo (solo modo web) |
-| `--admin-pass` | String | No | Contraseña admin (solo modo web) |
+| `--admin-user` | String | No | Admin de Forgejo (verificado contra `.enola-admin-creds` si existe; obligatorio en modo web) |
+| `--admin-pass` | String | No | Contraseña admin (verificada contra bcrypt en `.enola-admin-creds` si existe; obligatoria en modo web) |
 
 ---
 

@@ -3,7 +3,7 @@
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Documento: config.example.toml
-# Versión: 2.2 | Actualizado: 2026-09-19
+# Versión: 2.3 | Actualizado: 2026-10-18
 # Referencias: CONFIG-001..009, QUAL-001, QUAL-003
 #
 # Copia este fichero a `~/.enola/config.toml` y ajústalo a tu entorno.
@@ -49,6 +49,8 @@ minisign_pubkey_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/
 #
 # El endpoint puede vivir en clearweb o en `.onion`. Si usas `.onion`, el
 # CLI lo enruta automáticamente por Tor (vía [http].tor_socks_proxy).
+# Con euid 0 (sudo), [update] solo se lee de /etc/enola/config.toml
+# (root-owned, !group/other-writable); ~/.enola/config.toml se ignora.
 [update]
 # feed_url = "https://salvadorpalmarodriguez.github.io/enola-cli-lite/releases/advisories.json"
 # signature_url = "https://salvadorpalmarodriguez.github.io/enola-cli-lite/releases/advisories.json.minisig"
@@ -169,6 +171,7 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 #   ENOLA_MINISIGN_BIN=<path>   — minisign alternativo (identity-check)
 #   ENOLA_WEB_TOKEN=<token>     — fija token del dashboard (tests)
 #   ENOLA_UPDATE_FEED_URL / ENOLA_UPDATE_SIGNATURE_URL / ENOLA_UPDATE_MINISIGN_PUBKEY
-#                               — overrides de trust anchors (warning si root)
+#                               — overrides de trust anchors (bajo root exigen
+#                                 ENOLA_UPDATE_ENV_ANCHORS=1 + emiten warning)
 #   ENOLA_TEST_TOKEN=<token>    — token de test (feature `testing`, ausente en release)
 # Ver: docs/user/general/config-reference.md §"Variables solo-desarrollo"

@@ -331,20 +331,15 @@ impl TorConfigAdapter {
 
                     if let Ok(ps) = ps_output {
                         let comm = String::from_utf8_lossy(&ps.stdout).trim().to_string();
-                        // SEC-011: re-verificar comm=="tor" inmediatamente antes
-                        // del kill leyendo /proc directamente — entre el `ps`
-                        // y el `kill` el PID pudo reciclarse.
-                        if comm == "tor"
-                            && std::fs::read_to_string(format!("/proc/{}/comm", pid))
-                                .map(|c| c.trim() == "tor")
-                                .unwrap_or(false)
-                        {
+                        // SEC-011 / C-01: fija el proceso vía pidfd, re-verifica
+                        // comm=="tor" y envía SIGTERM por fd (sin Command::new("kill")
+                        // ni ventana de reciclaje de PID).
+                        if comm == "tor" && terminate_pid_checked(pid, "tor").unwrap_or(false) {
                             eprintln!(
                                 "   ⚠️  Found orphan Tor process (PID {}), killing it...",
                                 pid
                             );
                             let _ = std::io::Write::flush(&mut std::io::stderr());
-                            let _ = Command::new("kill").arg(pid.to_string()).output().await;
                             // Wait a moment for the process to die
                             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                             return true;
@@ -1075,6 +1070,90 @@ impl TorManagerPort for TorConfigAdapter {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn open_pidfd(pid: u32) -> std::io::Result<std::os::unix::io::OwnedFd> {
+    use std::os::unix::io::FromRawFd;
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0 as libc::c_uint) };
+    if raw < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(unsafe { std::os::unix::io::OwnedFd::from_raw_fd(raw as std::os::unix::io::RawFd) })
+}
+
+#[cfg(target_os = "linux")]
+fn send_sigterm_pidfd(fd: std::os::unix::io::RawFd) -> std::io::Result<()> {
+    let rc = unsafe {
+        libc::syscall(
+            libc::SYS_pidfd_send_signal,
+            fd,
+            libc::SIGTERM,
+            std::ptr::null::<libc::siginfo_t>(),
+            0 as libc::c_uint,
+        )
+    };
+    if rc < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// SEC-011 / C-01: termina `pid` con SIGTERM verificando que su `comm` sea
+/// `expected_comm` sin ventana TOCTOU de reutilización de PID:
+/// 1. En Linux ≥5.3 abre un `pidfd` que fija la instancia del proceso, re-verifica
+///    `/proc/<pid>/comm` y envía `SIGTERM` con `pidfd_send_signal` (si el proceso
+///    murió devuelve `ESRCH`, jamás cae en un PID reciclado).
+/// 2. Fallback si el kernel devuelve `ENOSYS` (o no-Linux): re-verifica
+///    `/proc/<pid>/comm` e invoca `libc::kill(pid, SIGTERM)` directamente (sin
+///    `Command::new("kill")` ni resolución por `PATH`).
+fn terminate_pid_checked(pid: u32, expected_comm: &str) -> std::io::Result<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        match open_pidfd(pid) {
+            Ok(pidfd) => {
+                let matches = std::fs::read_to_string(format!("/proc/{}/comm", pid))
+                    .map(|c| c.trim() == expected_comm)
+                    .unwrap_or(false);
+                if !matches {
+                    return Ok(false);
+                }
+                match send_sigterm_pidfd(pidfd.as_raw_fd()) {
+                    Ok(()) => return Ok(true),
+                    Err(e) if e.raw_os_error() == Some(libc::ESRCH) => return Ok(false),
+                    Err(e) if e.raw_os_error() == Some(libc::ENOSYS) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => return Ok(false),
+            Err(e) if e.raw_os_error() == Some(libc::ENOSYS) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    let matches = std::fs::read_to_string(format!("/proc/{}/comm", pid))
+        .map(|c| c.trim() == expected_comm)
+        .unwrap_or(false);
+    if !matches {
+        return Ok(false);
+    }
+    #[cfg(unix)]
+    {
+        let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        if rc < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(false);
+            }
+            return Err(err);
+        }
+        Ok(true)
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(false)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -1423,5 +1502,46 @@ mod tests {
         // Will error at reload_tor but that's expected in test env
         // The important thing is it doesn't panic
         let _ = result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SEC-011 / C-01: pidfd process termination without PID-reuse race
+    // ═══════════════════════════════════════════════════════════════
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_pidfd_nonexistent_pid_returns_esrch() {
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("spawn true");
+        let dead_pid = child.id();
+        let _ = child.wait();
+
+        let err = super::open_pidfd(dead_pid).expect_err("dead pid must fail pidfd_open");
+        assert_eq!(err.raw_os_error(), Some(libc::ESRCH));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_pidfd_terminates_live_process_and_second_signal_gives_esrch() {
+        use std::os::unix::io::AsRawFd;
+
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+
+        let pidfd = super::open_pidfd(pid).expect("open_pidfd on live child");
+        let killed = super::terminate_pid_checked(pid, "sleep").expect("terminate_pid_checked ok");
+        assert!(killed, "sleep process should be terminated");
+
+        let _ = child.wait().expect("wait reaps child");
+
+        // Second signal on the same pidfd after process was reaped must return ESRCH
+        // (never retargets to a recycled PID).
+        let second = super::send_sigterm_pidfd(pidfd.as_raw_fd())
+            .expect_err("second signal on reaped pidfd must fail");
+        assert_eq!(second.raw_os_error(), Some(libc::ESRCH));
     }
 }

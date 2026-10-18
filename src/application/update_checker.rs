@@ -405,26 +405,43 @@ fn update_anchor_section(euid: u32) -> std::collections::HashMap<String, String>
     }
 }
 
-/// SEC-003: un `ENOLA_UPDATE_*` definido bajo euid 0 puede venir del entorno
-/// del invocador (`sudo -E`) y controla un trust anchor — advertirlo siempre
-/// en stderr (mismo patrón que ENOLA_INSTALL_PUBKEY).
-fn warn_env_anchor_if_root(var: &str, euid: u32) {
-    if euid == 0 {
-        eprintln!(
-            "⚠️  {var} está definida con el proceso corriendo como root: \
-             el entorno controla un trust anchor de update."
-        );
+/// SEC-003 / C-08: un `ENOLA_UPDATE_*` definido bajo euid 0 puede venir del
+/// entorno del invocador (`sudo -E`) y controla un trust anchor. Bajo euid 0
+/// solo se aplica si además `ENOLA_UPDATE_ENV_ANCHORS=1` está presente (cierra
+/// la vía accidental de variables de desarrollo heredadas); en caso contrario
+/// se emite warning y se ignora.
+fn resolve_env_anchor(var: &str, euid: u32) -> Option<String> {
+    if let Ok(val) = std::env::var(var) {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            if euid == 0 {
+                let allow = std::env::var("ENOLA_UPDATE_ENV_ANCHORS")
+                    .map(|v| v.trim() == "1")
+                    .unwrap_or(false);
+                if !allow {
+                    eprintln!(
+                        "⚠️  {var} ignorada bajo euid 0: exporte además ENOLA_UPDATE_ENV_ANCHORS=1 \
+                         si realmente desea sobreescribir el trust anchor como root."
+                    );
+                    return None;
+                }
+                eprintln!(
+                    "⚠️  {var} activa con el proceso corriendo como root (ENOLA_UPDATE_ENV_ANCHORS=1): \
+                     el entorno controla un trust anchor de update."
+                );
+            }
+            return Some(trimmed.to_string());
+        }
     }
+    None
 }
 
 pub fn feed_url() -> String {
-    if let Ok(url) = std::env::var("ENOLA_UPDATE_FEED_URL") {
-        if !url.is_empty() {
-            warn_env_anchor_if_root("ENOLA_UPDATE_FEED_URL", current_euid());
-            return url;
-        }
+    let euid = current_euid();
+    if let Some(url) = resolve_env_anchor("ENOLA_UPDATE_FEED_URL", euid) {
+        return url;
     }
-    let section = update_anchor_section(current_euid());
+    let section = update_anchor_section(euid);
     section
         .get("feed_url")
         .cloned()
@@ -432,13 +449,11 @@ pub fn feed_url() -> String {
         .unwrap_or_else(|| DEFAULT_FEED_URL.to_string())
 }
 pub fn signature_url(feed_url: &str) -> String {
-    if let Ok(url) = std::env::var("ENOLA_UPDATE_SIGNATURE_URL") {
-        if !url.is_empty() {
-            warn_env_anchor_if_root("ENOLA_UPDATE_SIGNATURE_URL", current_euid());
-            return url;
-        }
+    let euid = current_euid();
+    if let Some(url) = resolve_env_anchor("ENOLA_UPDATE_SIGNATURE_URL", euid) {
+        return url;
     }
-    let section = update_anchor_section(current_euid());
+    let section = update_anchor_section(euid);
     if let Some(url) = section.get("signature_url") {
         if !url.is_empty() {
             return url.clone();
@@ -519,12 +534,9 @@ fn verify_next_pubkey_signature(next: &NextPubkey, current_pubkey: &str) -> bool
 
 pub fn update_minisign_pubkey() -> String {
     let euid = current_euid();
-    // 1. Env var override (highest priority)
-    if let Ok(key) = std::env::var("ENOLA_UPDATE_MINISIGN_PUBKEY") {
-        if !key.trim().is_empty() {
-            warn_env_anchor_if_root("ENOLA_UPDATE_MINISIGN_PUBKEY", euid);
-            return key.trim().to_string();
-        }
+    // 1. Env var override (highest priority, requires ENOLA_UPDATE_ENV_ANCHORS=1 under euid 0)
+    if let Some(key) = resolve_env_anchor("ENOLA_UPDATE_MINISIGN_PUBKEY", euid) {
+        return key;
     }
     // 2. config.toml [update].minisign_pubkey (SEC-003: solo /etc/enola
     //    root-owned bajo euid 0)
@@ -3000,6 +3012,37 @@ mod tests {
             vec!["RWPlantedKey".to_string()],
             "sin root el fichero del propio usuario sí se lee"
         );
+    }
+
+    #[test]
+    fn env_anchor_requires_double_flag_under_euid0() {
+        let (tmp, guard) = setup_test_home();
+        std::env::set_var("ENOLA_UPDATE_FEED_URL", "http://127.0.0.1:9999/feed.json");
+        std::env::remove_var("ENOLA_UPDATE_ENV_ANCHORS");
+
+        // Bajo euid != 0 funciona sin el doble flag.
+        assert_eq!(
+            resolve_env_anchor("ENOLA_UPDATE_FEED_URL", 1000).as_deref(),
+            Some("http://127.0.0.1:9999/feed.json")
+        );
+
+        // Bajo euid 0 sin ENOLA_UPDATE_ENV_ANCHORS=1 debe ignorarse (C-08).
+        assert_eq!(
+            resolve_env_anchor("ENOLA_UPDATE_FEED_URL", 0),
+            None,
+            "env anchor bajo euid 0 sin ENOLA_UPDATE_ENV_ANCHORS=1 debe ignorarse"
+        );
+
+        // Con ENOLA_UPDATE_ENV_ANCHORS=1 se aplica también bajo euid 0.
+        std::env::set_var("ENOLA_UPDATE_ENV_ANCHORS", "1");
+        assert_eq!(
+            resolve_env_anchor("ENOLA_UPDATE_FEED_URL", 0).as_deref(),
+            Some("http://127.0.0.1:9999/feed.json")
+        );
+
+        std::env::remove_var("ENOLA_UPDATE_ENV_ANCHORS");
+        std::env::remove_var("ENOLA_UPDATE_FEED_URL");
+        teardown_test_home(tmp, guard);
     }
 
     // --- T10: safe_latest_version (defensa en profundidad en el path) ---

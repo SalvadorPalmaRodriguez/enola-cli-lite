@@ -3,6 +3,66 @@
 All notable changes to Enola CLI are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Breaking
+- **Web API destructive confirmation gate (SEC-005)** — destructive endpoints
+  (`/api/tor/{name}/rotate`, `/api/tor/{name}/remove`, `/api/git/{name}/delete`,
+  `/api/git/user/delete`, `/api/wp/{name}/delete`, `/api/cms/{kind}/{name}/delete`,
+  `/api/files/{name}/delete`, `/api/vpn/{name}/delete`, `/api/vpn/peer/remove`,
+  `/api/maintenance/cleanup`, `/api/uninstall`) now require `{"confirm":"<name>"}`
+  in the request body and return HTTP 409 without it. All destructive actions in
+  the web UI (`app.js`) prompt with a confirmation modal before sending `confirm`
+  (C-05).
+- **Non-TTY preflight gate (SEC-009)** — when running without a TTY as root,
+  dependency preflight no longer runs `apt-get install -y` implicitly unless
+  `ENOLA_AUTO_SETUP=1` is set. `/api/console/run` propagates `ENOLA_MCP_CHILD=1`
+  to prevent implicit package installation from the web console.
+- **`[update]` trust anchors under `sudo` / `euid 0` (SEC-003, C-06, C-08)** —
+  when running as root, `[update]` (`feed_url`, `signature_url`, `minisign_pubkey`)
+  is read exclusively from root-owned `/etc/enola/config.toml` (`!group/other-writable`);
+  `~/.enola/config.toml` and non-root-owned `trusted_minisign_keys.json` are
+  ignored. Environment overrides `ENOLA_UPDATE_FEED_URL`,
+  `ENOLA_UPDATE_SIGNATURE_URL` and `ENOLA_UPDATE_MINISIGN_PUBKEY` are ignored
+  under `euid 0` unless `ENOLA_UPDATE_ENV_ANCHORS=1` is also set.
+- **`git user create` default password mode (SEC-006, C-02, C-03, C-04)** —
+  omitting `--password` on the CLI now defaults to `--random-password` +
+  `--must-change-password=true` (matching the web API) so no password traverses
+  process `argv` or `/proc/*/cmdline`; explicit `--password` remains supported for
+  scripts with a stderr warning. Explicit `--admin-user`/`--admin-pass` flags are
+  now verified against the bcrypt hash in `.enola-admin-creds` when present.
+
+### Security
+- **PQC TLS installer staging (SEC-001)** — shared `pqc_tls::stage_installer()`
+  writes the embedded script into a private `0700` tempdir with `O_EXCL` (`0700`)
+   across both CLI and web SSE routes, eliminating the fixed `/tmp` path and
+  redundant `sudo` invocation.
+- **Least privilege for read-only subprocesses (SEC-002, SEC-004)** — `cargo test`,
+  `cargo clean`, `curl`, `ssh`, `ps`, `which`, `openssl` and `nginx -V` drop
+  privileges to `SUDO_UID`/`SUDO_GID` (including supplementary groups via
+  `setgroups`) via `command_as_invoking_user`, enforced by audit check
+  `24_drop_privs.sh`.
+- **Web dashboard token persistence (F-06 / N-07)** — the web token is written
+  atomically (`0600`, chowned to the invoking user) to `~/.enola/web-token`;
+  stderr prints only the file path so `journald` no longer records the bearer
+  secret.
+- **Orphan Tor termination via `pidfd` (SEC-011 / C-01)** —
+  `kill_orphan_tor_process` pins the candidate process with `pidfd_open`,
+  re-verifies `/proc/<pid>/comm == "tor"` and signals via `pidfd_send_signal`
+  (with `ENOSYS` fallback to `libc::kill`), eliminating `Command::new("kill")`
+  and the PID-reuse race window.
+- **VPN/Tor socat systemd unit hardening (SEC-007 / N-09)** — adds
+  `DynamicUser=yes`, `NoNewPrivileges=true`, `ProtectSystem=strict`,
+  `ProtectHome=true`, `PrivateTmp=true` and conditional
+  `AmbientCapabilities=CAP_NET_BIND_SERVICE` only for ports `< 1024`.
+- **MCP argv redaction and audit ordering (F-12, F-14 / N-11)** — `enola_run_command`
+  redacts sensitive flag values in returned `argv`, and logs `requested` after
+  argument validation (recording `invalid` on validation errors).
+
+### Removed
+- Unreferenced scaffolding modules (`app_deployer`, `git/client` + `ports/git`,
+  `document_extractor` + `ports/document`, `safe_args`) removed (SEC-008 / N-10 / F-26).
+
 ## [0.8.0-alpha] — 2026-10-15
 
 ### Changed

@@ -610,11 +610,13 @@
         const admin_user = document.getElementById('git-user-admin').value.trim() || null;
         const admin_pass = document.getElementById('git-user-adminpass').value || null;
         if (!server || !username) { toast('Server and username required', true); return; }
-        try {
-            await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass, confirm: username });
-            toast('User deleted: ' + username);
-            gitUserList();
-        } catch (e) { toast(e.message, true); }
+        showConfirm('Delete Git User', 'Delete user "' + username + '" from "' + server + '"? This action is irreversible.', async () => {
+            try {
+                await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass, confirm: username });
+                toast('User deleted: ' + username);
+                gitUserList();
+            } catch (e) { toast(e.message, true); }
+        });
     };
 
     window.gitUserDeleteByName = async function (username) {
@@ -622,11 +624,13 @@
         const admin_user = document.getElementById('git-user-admin').value.trim() || null;
         const admin_pass = document.getElementById('git-user-adminpass').value || null;
         if (!server) { toast('Server name required', true); return; }
-        try {
-            await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass, confirm: username });
-            toast('User deleted: ' + username);
-            gitUserList();
-        } catch (e) { toast(e.message, true); }
+        showConfirm('Delete Git User', 'Delete user "' + username + '" from "' + server + '"? This action is irreversible.', async () => {
+            try {
+                await apiPostJson('/api/git/user/delete', { server, username, admin_user, admin_pass, confirm: username });
+                toast('User deleted: ' + username);
+                gitUserList();
+            } catch (e) { toast(e.message, true); }
+        });
     };
 
     // ── WordPress ──────────────────────────────────────────────────────────
@@ -1154,10 +1158,12 @@
         const iface = document.getElementById('vpn-peer-remove-iface').value.trim();
         const public_key = document.getElementById('vpn-peer-remove-key').value.trim();
         if (!iface || !public_key) { toast('Interface and public key required', true); return; }
-        try {
-            await apiPostJson('/api/vpn/peer/remove', { interface: iface, public_key, confirm: iface });
-            toast('Peer removed');
-        } catch (e) { toast(e.message, true); }
+        showConfirm('Remove VPN Peer', 'Remove peer from interface "' + iface + '"?', async () => {
+            try {
+                await apiPostJson('/api/vpn/peer/remove', { interface: iface, public_key, confirm: iface });
+                toast('Peer removed');
+            } catch (e) { toast(e.message, true); }
+        });
     };
 
     // ── Logs ───────────────────────────────────────────────────────────────
@@ -1274,8 +1280,15 @@
         const target = document.getElementById('maint-cleanup-target').value;
         const keep_days = parseInt(document.getElementById('maint-cleanup-days').value) || 30;
         const dry_run = document.getElementById('maint-cleanup-dryrun').checked;
-        try { const result = await apiPostJson('/api/maintenance/cleanup', { target, keep_days, dry_run, confirm: target }); document.getElementById('maintenance-output').textContent = JSON.stringify(result, null, 2); toast('Cleanup done'); }
-        catch (e) { toast(e.message, true); }
+        const runCleanup = async () => {
+            try { const result = await apiPostJson('/api/maintenance/cleanup', { target, keep_days, dry_run, confirm: target }); document.getElementById('maintenance-output').textContent = JSON.stringify(result, null, 2); toast('Cleanup done'); }
+            catch (e) { toast(e.message, true); }
+        };
+        if (dry_run) {
+            await runCleanup();
+            return;
+        }
+        showConfirm('Maintenance Cleanup', 'Clean up "' + target + '" (older than ' + keep_days + ' days)?', runCleanup);
     };
 
     // ── Diagnostics ────────────────────────────────────────────────────────

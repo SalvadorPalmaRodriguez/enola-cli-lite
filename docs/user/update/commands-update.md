@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.3 | **Actualizado:** 2026-10-14
+> **Versión:** 3.4 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -183,10 +183,16 @@ clientes existentes.
 
 **Prioridad de resolución de clave minisign:**
 
-1. `ENOLA_UPDATE_MINISIGN_PUBKEY` (env var)
-2. `[update].minisign_pubkey` en `~/.enola/config.toml`
-3. `~/.enola/trusted_minisign_keys.json` (claves persistidas vía rotación)
+1. `ENOLA_UPDATE_MINISIGN_PUBKEY` (env var; bajo euid 0 exige además `ENOLA_UPDATE_ENV_ANCHORS=1`)
+2. `[update].minisign_pubkey` (bajo euid 0 solo se lee de `/etc/enola/config.toml` root-owned, no escribible por grupo/otros; `~/.enola/config.toml` se ignora)
+3. `trusted_minisign_keys.json` (claves persistidas vía rotación; bajo euid 0 debe ser root-owned y `!group/other-writable`)
 4. Clave embebida en el binario (trust anchor inicial)
+
+> 🔒 **Ejecución con `sudo` (euid 0):** toda la sección `[update]` (`feed_url`,
+> `signature_url`, `minisign_pubkey`) se lee únicamente de
+> `/etc/enola/config.toml` (root-owned, `!group/other-writable`);
+> `~/.enola/config.toml` se ignora. Si tenías `[update]` en `~/.enola/config.toml`,
+> muévelo a `/etc/enola/config.toml`.
 
 ---
 
@@ -222,9 +228,10 @@ clientes existentes.
 
 | Variable | Descripción |
 |----------|-------------|
-| `ENOLA_UPDATE_FEED_URL` | URL del advisory feed (override del default) |
-| `ENOLA_UPDATE_SIGNATURE_URL` | URL de la firma del feed (default: `<feed>.minisig`) |
-| `ENOLA_UPDATE_MINISIGN_PUBKEY` | Clave pública minisign (override, máxima prioridad) |
+| `ENOLA_UPDATE_FEED_URL` | URL del advisory feed (override del default; bajo euid 0 exige `ENOLA_UPDATE_ENV_ANCHORS=1`) |
+| `ENOLA_UPDATE_SIGNATURE_URL` | URL de la firma del feed (default: `<feed>.minisig`; bajo euid 0 exige `ENOLA_UPDATE_ENV_ANCHORS=1`) |
+| `ENOLA_UPDATE_MINISIGN_PUBKEY` | Clave pública minisign (override, máxima prioridad; bajo euid 0 exige `ENOLA_UPDATE_ENV_ANCHORS=1`) |
+| `ENOLA_UPDATE_ENV_ANCHORS` | Si `1`, habilita los overrides `ENOLA_UPDATE_*` cuando el proceso corre con `euid 0` |
 | `ENOLA_ALLOW_UNSIGNED_UPDATE` | Si `1`, permite descargar/aplicar sin firma minisign (**peligroso**) |
 | `ENOLA_HTTP_DOWNLOAD_TIMEOUT` | Timeout en segundos para descargas grandes (default: 300) |
 | `ENOLA_TOR_SOCKS_PROXY` | Proxy Tor SOCKS5h para URLs .onion (default: `socks5h://127.0.0.1:9050`) |

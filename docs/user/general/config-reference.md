@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.4 | **Actualizado:** 2026-10-14
+> **Versión:** 1.5 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -81,6 +81,12 @@ feed_url = "https://example.com/releases/advisories.json"
 
 > El feed puede vivir en clearweb o en `.onion`. Si usas `.onion`, el CLI
 > lo enruta automáticamente por Tor vía `[http].tor_socks_proxy`.
+>
+> 🔒 Con euid 0 (`sudo`) la sección `[update]` solo se lee de
+> `/etc/enola/config.toml` (root-owned, no escribible por grupo/otros) —
+> `~/.enola/config.toml` se ignora para evitar que un fichero de usuario
+> altere el feed o el trust anchor de un proceso root. Lo mismo aplica a
+> `trusted_minisign_keys.json`.
 
 ---
 
@@ -187,7 +193,7 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 | `ENOLA_SKIP_ROOT_CHECK=1` | Omite la exigencia de root | Comandos fallarán o mutarán sin privilegios |
 | `ENOLA_MINISIGN_BIN` | Path alternativo al binario `minisign` | Solo validado por identity-check (`-V` contiene "minisign") |
 | `ENOLA_WEB_TOKEN` | Fija el token del dashboard (tests) | Predecible si se filtra |
-| `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` | Overrides de trust anchors de update | Bajo euid 0 emiten warning; usados con `sudo -E` |
+| `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` (+ `ENOLA_UPDATE_ENV_ANCHORS=1`) | Overrides de trust anchors de update | Bajo euid 0 se ignoran salvo que `ENOLA_UPDATE_ENV_ANCHORS=1` esté presente, y emiten warning |
 | `ENOLA_TEST_TOKEN` | Token de test del dashboard (feature `testing`, ausente en release) | N/A en release |
 
 ## Ejemplo completo

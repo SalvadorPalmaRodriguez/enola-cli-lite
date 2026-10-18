@@ -2932,67 +2932,30 @@ pub mod git {
             }
         }
 
-        /// Resuelve las credenciales de admin para la API REST.
+        /// Resuelve y verifica las credenciales de admin de Forgejo.
         ///
-        /// - Si se pasan `--admin-user` y `--admin-pass`, los usa directamente.
-        /// - Si no, intenta leerlos de `.enola-admin-creds` (modo CLI).
-        /// - Si el servidor es modo web y no se pasaron credenciales, da un error
-        ///   orientativo inmediato **sin esperar** a la API.
+        /// - Si existe `.enola-admin-creds` (modo CLI):
+        ///   - Con `--admin-user` y `--admin-pass` explícitos: verifica contra el
+        ///     hash bcrypt (o `ADMIN_PASS` legacy) almacenado (C-04b).
+        ///   - Sin flags explícitas: pide la contraseña interactivamente y verifica
+        ///     contra el hash bcrypt.
+        /// - Si no existe `.enola-admin-creds` (modo web):
+        ///   - Con `--admin-user` y `--admin-pass` explícitos: emite aviso de que
+        ///     en modo web no hay hash local verificable (la operación `docker exec`
+        ///     queda autorizada por privilegios root).
+        ///   - Sin flags: devuelve error orientativo inmediato.
         fn resolve_admin_credentials(
             server: &str,
             container: &str,
             admin_user: Option<&str>,
             admin_pass: Option<&str>,
         ) -> CliResult<(String, String)> {
-            // Credenciales explícitas → usarlas directamente
-            if let (Some(u), Some(p)) = (admin_user, admin_pass) {
-                return Ok((u.to_string(), p.to_string()));
-            }
-
-            // SEC-002: Intentar leer credenciales guardadas (modo CLI).
-            // El archivo ahora almacena ADMIN_PASS_HASH (bcrypt), no ADMIN_PASS (plaintext).
-            // Si encontramos el hash, pedimos el password interactivamente y verificamos.
-            let creds_path = format!("/srv/enola-git/{}/.enola-admin-creds", server);
-            if let Ok(content) = std::fs::read_to_string(&creds_path) {
-                let mut user = String::new();
-                let mut pass_hash = String::new();
-                let mut pass_plain: Option<String> = None;
-                for line in content.lines() {
-                    if let Some(v) = line.strip_prefix("ADMIN_USER=") {
-                        user = v.to_string();
-                    }
-                    if let Some(v) = line.strip_prefix("ADMIN_PASS_HASH=") {
-                        pass_hash = v.to_string();
-                    }
-                    // Backward compat: old format had ADMIN_PASS (plaintext)
-                    if let Some(v) = line.strip_prefix("ADMIN_PASS=") {
-                        pass_plain = Some(v.to_string());
-                    }
-                }
-
-                // If we have plaintext (old format), use it directly
-                if !user.is_empty() {
-                    if let Some(pass) = pass_plain {
-                        return Ok((user, pass));
-                    }
-
-                    // SEC-002: bcrypt hash — prompt interactively
-                    if !pass_hash.is_empty() {
-                        eprintln!("🔐 Servidor '{}' — credenciales admin (modo CLI)", server);
-                        eprintln!("   Usuario: {}", user);
-                        let prompt_pass = rpassword::prompt_password("   Contraseña admin: ")
-                            .map_err(|e| {
-                                CliError::Generic(format!("No se pudo leer la contraseña: {}", e))
-                            })?;
-                        // Verify against bcrypt hash
-                        if bcrypt::verify(&prompt_pass, &pass_hash).unwrap_or(false) {
-                            return Ok((user, prompt_pass));
-                        }
-                        return Err(CliError::Generic(
-                            "Contraseña admin incorrecta.".to_string(),
-                        ));
-                    }
-                }
+            let creds_path =
+                std::path::PathBuf::from(format!("/srv/enola-git/{}/.enola-admin-creds", server));
+            if let Some(res) =
+                verify_explicit_or_stored_creds(server, &creds_path, admin_user, admin_pass)
+            {
+                return res;
             }
 
             // Sin credenciales → detectar si es modo web para mensaje orientativo
@@ -3013,6 +2976,102 @@ pub mod git {
                     Los usuarios se registran en {port_info}user/sign_up\n\
                       sudo enola-cli git registration {server} --disable"
             )))
+        }
+
+        fn verify_explicit_or_stored_creds(
+            server: &str,
+            creds_path: &std::path::Path,
+            admin_user: Option<&str>,
+            admin_pass: Option<&str>,
+        ) -> Option<CliResult<(String, String)>> {
+            if let Ok(content) = std::fs::read_to_string(creds_path) {
+                let mut user = String::new();
+                let mut pass_hash = String::new();
+                let mut pass_plain: Option<String> = None;
+                for line in content.lines() {
+                    if let Some(v) = line.strip_prefix("ADMIN_USER=") {
+                        user = v.to_string();
+                    }
+                    if let Some(v) = line.strip_prefix("ADMIN_PASS_HASH=") {
+                        pass_hash = v.to_string();
+                    }
+                    // Backward compat: old format had ADMIN_PASS (plaintext)
+                    if let Some(v) = line.strip_prefix("ADMIN_PASS=") {
+                        pass_plain = Some(v.to_string());
+                    }
+                }
+
+                if !user.is_empty() {
+                    // C-04(b): si se pasaron credenciales explícitas y existe
+                    // .enola-admin-creds, verificar usuario y contraseña contra
+                    // el hash bcrypt (o plaintext legacy) en vez de aceptarlas
+                    // sin comprobar.
+                    if let (Some(u), Some(p)) = (admin_user, admin_pass) {
+                        if u != user {
+                            return Some(Err(CliError::Generic(
+                                "Credenciales admin incorrectas.".to_string(),
+                            )));
+                        }
+                        if !pass_hash.is_empty() {
+                            if bcrypt::verify(p, &pass_hash).unwrap_or(false) {
+                                return Some(Ok((user, p.to_string())));
+                            }
+                            return Some(Err(CliError::Generic(
+                                "Credenciales admin incorrectas.".to_string(),
+                            )));
+                        }
+                        if let Some(plain) = pass_plain {
+                            if p == plain {
+                                return Some(Ok((user, plain)));
+                            }
+                            return Some(Err(CliError::Generic(
+                                "Credenciales admin incorrectas.".to_string(),
+                            )));
+                        }
+                    }
+
+                    // Sin flags explícitas: si tenemos plaintext legacy, usarlo.
+                    if let Some(pass) = pass_plain {
+                        return Some(Ok((user, pass)));
+                    }
+
+                    // SEC-002: bcrypt hash — prompt interactively
+                    if !pass_hash.is_empty() {
+                        eprintln!("🔐 Servidor '{}' — credenciales admin (modo CLI)", server);
+                        eprintln!("   Usuario: {}", user);
+                        let prompt_pass = match rpassword::prompt_password("   Contraseña admin: ")
+                        {
+                            Ok(p) => p,
+                            Err(e) => {
+                                return Some(Err(CliError::Generic(format!(
+                                    "No se pudo leer la contraseña: {}",
+                                    e
+                                ))));
+                            }
+                        };
+                        if bcrypt::verify(&prompt_pass, &pass_hash).unwrap_or(false) {
+                            return Some(Ok((user, prompt_pass)));
+                        }
+                        return Some(Err(CliError::Generic(
+                            "Contraseña admin incorrecta.".to_string(),
+                        )));
+                    }
+                }
+            }
+
+            // Servidor en modo web (sin .enola-admin-creds): si se pasan flags
+            // explícitas no vacías, avisar que no son verificables localmente.
+            if let (Some(u), Some(p)) = (admin_user, admin_pass) {
+                if !u.is_empty() && !p.is_empty() {
+                    eprintln!(
+                        "⚠️  Servidor '{}': credenciales admin en modo web no verificables localmente (sin .enola-admin-creds); operación autorizada por root.",
+                        server
+                    );
+                    return Some(Ok((u.to_string(), p.to_string())));
+                }
+            }
+
+            None
         }
 
         // ─── Comandos públicos ───────────────────────────────────────────────────
@@ -3148,11 +3207,12 @@ pub mod git {
 
         /// Extrae la contraseña generada por `--random-password` de la salida
         /// de Forgejo (imprime una línea tipo `generated random password is
-        /// 'XXX'`). Devuelve None si el formato no coincide.
+        /// 'XXX'`). Exige que la línea contenga tanto "random" como "password"
+        /// (C-03) para no capturar tokens de avisos o líneas previas.
         fn parse_random_password(output: &str) -> Option<String> {
             for line in output.lines() {
                 let lower = line.to_lowercase();
-                if lower.contains("password") {
+                if lower.contains("random") && lower.contains("password") {
                     // Último token entre comillas simples de la línea.
                     if let Some(start) = line.rfind('\'') {
                         let before = &line[..start];
@@ -3168,6 +3228,16 @@ pub mod git {
             None
         }
 
+        fn user_create_explicit_password_warning(password: Option<&str>) -> Option<&'static str> {
+            match password {
+                Some(p) if !p.is_empty() => Some(
+                    "⚠️  --password expone la contraseña en el argv del proceso (/proc/*/cmdline). \
+                     Omita --password para generar una contraseña aleatoria segura.",
+                ),
+                _ => None,
+            }
+        }
+
         pub async fn create(
             server: &str,
             username: &str,
@@ -3180,38 +3250,31 @@ pub mod git {
             let container = format!("enola-git-{}", server);
             let port = get_forgejo_host_port(&container)?;
 
-            // Autorización: exige credenciales admin válidas antes de operar (SEC-005).
+            // Autorización: exige credenciales admin válidas antes de operar (SEC-005 / C-04b).
             let (_au, _ap) = resolve_admin_credentials(server, &container, admin_user, admin_pass)?;
 
             wait_for_forgejo_ready(port, 90)?;
 
-            // T1: si no se pasa --password, pedirlo interactivamente (no queda en el
-            // historial de shell). El flag sigue disponible como ruta secundaria
-            // (visible en el historial — documentado).
-            let resolved_password = match password {
-                Some(p) if !p.is_empty() => p.to_string(),
-                _ => rpassword::prompt_password(format!("   Contraseña para '{}': ", username))
-                    .map_err(|e| {
-                        CliError::Generic(format!("No se pudo leer la contraseña: {}", e))
-                    })?,
-            };
+            // C-02: por defecto (sin --password), usar --random-password +
+            // --must-change-password=true para que la contraseña nunca pase por
+            // argv ni /proc/*/cmdline. Si se pasa --password explícito, mantener
+            // por compatibilidad de scripts pero emitir warning en stderr.
+            let explicit_password = password.filter(|p| !p.is_empty());
+            if let Some(warn) = user_create_explicit_password_warning(explicit_password) {
+                eprintln!("{}", warn);
+            }
 
-            let args = forgejo_user_create_argv(
-                &container,
-                username,
-                Some(&resolved_password),
-                email,
-                is_admin,
-            );
+            let args =
+                forgejo_user_create_argv(&container, username, explicit_password, email, is_admin);
 
             let output = std::process::Command::new("docker")
                 .args(&args)
                 .output()
                 .map_err(|e| CliError::Generic(format!("docker exec error: {}", e)))?;
 
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
                 return Err(CliError::Generic(format!(
                     "Failed to create user '{}': {} {}",
                     username,
@@ -3220,7 +3283,27 @@ pub mod git {
                 )));
             }
 
+            let generated_pw = if explicit_password.is_none() {
+                Some(
+                    parse_random_password(&format!("{}{}", stdout, stderr)).ok_or_else(|| {
+                        CliError::Generic(format!(
+                            "Usuario '{}' creado pero no se pudo extraer la contraseña generada: {}",
+                            username,
+                            stdout.trim()
+                        ))
+                    })?,
+                )
+            } else {
+                None
+            };
+
             eprintln!("✅ Usuario '{}' creado en '{}'", username, server);
+            if let Some(pw) = generated_pw {
+                eprintln!(
+                    "   🔑 Contraseña temporal (cambiar en primer login): {}",
+                    pw
+                );
+            }
             if is_admin {
                 eprintln!("   🔑 Permisos de administrador asignados");
             }
@@ -3320,7 +3403,10 @@ pub mod git {
 
         #[cfg(test)]
         mod tests {
-            use super::forgejo_user_create_argv;
+            use super::{
+                forgejo_user_create_argv, parse_random_password,
+                user_create_explicit_password_warning, verify_explicit_or_stored_creds,
+            };
 
             #[test]
             fn user_create_argv_places_password_and_flags() {
@@ -3352,6 +3438,91 @@ pub mod git {
                     true,
                 );
                 assert!(args.iter().any(|a| a == "--admin"));
+            }
+
+            #[test]
+            fn user_create_argv_without_password_uses_random_password() {
+                let args = forgejo_user_create_argv(
+                    "enola-git-demo",
+                    "bob",
+                    None,
+                    "bob@example.com",
+                    false,
+                );
+                assert!(args.iter().any(|a| a == "--random-password"));
+                assert!(!args.iter().any(|a| a == "--password"));
+                assert!(args.iter().any(|a| a == "--must-change-password=true"));
+                assert_eq!(user_create_explicit_password_warning(None), None);
+                assert_eq!(user_create_explicit_password_warning(Some("")), None);
+                assert!(user_create_explicit_password_warning(Some("S3cret!"))
+                    .expect("warning expected")
+                    .contains("/proc"));
+            }
+
+            #[test]
+            fn parse_random_password_extracts_typical_forgejo_output() {
+                let out = "New user 'bob' has been successfully created!\n\
+                           generated random password is 'AbC123!xyz'\n";
+                assert_eq!(parse_random_password(out).as_deref(), Some("AbC123!xyz"));
+            }
+
+            #[test]
+            fn parse_random_password_ignores_decoy_password_line_before_real_one() {
+                let out = "WARN: password for 'admin' set in config\n\
+                           generated random password is 'RealPw99'\n";
+                assert_eq!(parse_random_password(out).as_deref(), Some("RealPw99"));
+            }
+
+            #[test]
+            fn parse_random_password_rejects_output_without_random_keyword_or_single_quotes() {
+                assert_eq!(parse_random_password("password for 'admin' set\n"), None);
+                assert_eq!(
+                    parse_random_password("generated random password is \"doublequoted\"\n"),
+                    None
+                );
+            }
+
+            #[test]
+            fn verify_explicit_creds_checks_bcrypt_against_creds_file() {
+                let dir = tempfile::tempdir().expect("tempdir");
+                let creds_file = dir.path().join(".enola-admin-creds");
+                let hash = bcrypt::hash("CorrectHorse1!", 4).expect("bcrypt hash");
+                std::fs::write(
+                    &creds_file,
+                    format!(
+                        "ADMIN_USER=alice\nADMIN_PASS_HASH={}\nADMIN_PASS_HASH_ALGO=bcrypt\n",
+                        hash
+                    ),
+                )
+                .expect("write creds");
+
+                let bad_pass = verify_explicit_or_stored_creds(
+                    "demo",
+                    &creds_file,
+                    Some("alice"),
+                    Some("WrongPass"),
+                )
+                .expect("explicit branch");
+                assert!(bad_pass.is_err(), "wrong password must be rejected");
+
+                let bad_user = verify_explicit_or_stored_creds(
+                    "demo",
+                    &creds_file,
+                    Some("mallory"),
+                    Some("CorrectHorse1!"),
+                )
+                .expect("explicit branch");
+                assert!(bad_user.is_err(), "wrong user must be rejected");
+
+                let ok = verify_explicit_or_stored_creds(
+                    "demo",
+                    &creds_file,
+                    Some("alice"),
+                    Some("CorrectHorse1!"),
+                )
+                .expect("explicit branch")
+                .expect("valid credentials must pass");
+                assert_eq!(ok.0, "alice");
             }
         }
     }
