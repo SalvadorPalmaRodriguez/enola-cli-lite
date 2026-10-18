@@ -558,6 +558,21 @@ pub enum Commands {
         /// Approve mutating/destructive operations without interactive TTY prompt
         #[arg(short = 'y', long)]
         yes: bool,
+
+        /// Send the prompt to an external cloud provider instead of local Ollama
+        /// (BYOK: requires `ai provider set <p>` first; sends data off-machine —
+        /// privacy consent required)
+        #[arg(long, value_name = "PROVIDER")]
+        provider: Option<String>,
+
+        /// Explicitly accept sending data to the external provider without the
+        /// interactive privacy prompt (required in non-TTY contexts)
+        #[arg(long)]
+        accept_risks: bool,
+
+        /// Route external provider traffic through the Tor SOCKS5h proxy
+        #[arg(long)]
+        tor: bool,
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -2595,6 +2610,41 @@ pub enum AiCommands {
     ///   sudo enola-cli ai rag config dev --preset code
     #[command(subcommand)]
     Rag(AiRagCommands),
+
+    /// Measure generation speed (tokens/s), latency and model size of an AI instance
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai benchmark dev
+    ///   sudo enola-cli ai benchmark dev --model qwen3:4b --runs 5
+    ///   sudo enola-cli ai benchmark dev --prompt "Write a haiku about Rust"
+    Benchmark {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Model to benchmark (defaults to the instance model)
+        #[arg(short = 'm', long)]
+        model: Option<String>,
+
+        /// Prompt used for generation (defaults to a built-in prompt)
+        #[arg(short = 'p', long)]
+        prompt: Option<String>,
+
+        /// Number of benchmark runs (1-20, default 3)
+        #[arg(short = 'r', long, default_value_t = 3)]
+        runs: usize,
+    },
+
+    /// Manage external cloud AI providers (BYOK — data leaves this machine;
+    /// disabled by default, privacy consent required before any send)
+    ///
+    /// Examples:
+    ///   enola-cli ai provider list
+    ///   enola-cli ai provider set openai          # key via secure TTY prompt
+    ///   enola-cli ai provider test groq --accept-risks
+    ///   enola-cli ask "hola" --provider openai --accept-risks
+    #[command(subcommand)]
+    Provider(AiProviderCommands),
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2829,5 +2879,97 @@ pub enum AiModelCommands {
         /// AI instance name
         #[arg(value_name = "NAME")]
         instance: String,
+    },
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI PROVIDER COMMANDS (Fase 13.2 — providers cloud BYOK)
+// ═══════════════════════════════════════════════════════════════════
+
+/// External cloud AI providers (BYOK). Disabled by default; any operation
+/// that sends data requires privacy consent (`--accept-risks` or TTY prompt).
+/// API keys live in `~/.enola/providers.env` (atomic write, `0600`) and are
+/// NEVER echoed to stdout/logs/errors.
+#[derive(Subcommand, Debug)]
+pub enum AiProviderCommands {
+    /// List all known providers with their configuration status (never shows keys)
+    ///
+    /// Example:
+    ///   enola-cli ai provider list
+    List,
+
+    /// Show one provider's configuration status
+    ///
+    /// Example:
+    ///   enola-cli ai provider status openai
+    Status {
+        /// Provider name (openai|anthropic|grok|groq|openrouter)
+        #[arg(value_name = "PROVIDER")]
+        provider: String,
+    },
+
+    /// Configure a provider's API key (secure TTY prompt or --key-stdin),
+    /// model, endpoint and enable it
+    ///
+    /// Examples:
+    ///   enola-cli ai provider set openai
+    ///   cat keyfile | enola-cli ai provider set groq --key-stdin
+    ///   enola-cli ai provider set openai --model gpt-4o --disable
+    Set {
+        /// Provider name (openai|anthropic|grok|groq|openrouter)
+        #[arg(value_name = "PROVIDER")]
+        provider: String,
+
+        /// Model to use (defaults to the provider's default model)
+        #[arg(long, value_name = "MODEL")]
+        model: Option<String>,
+
+        /// Custom API endpoint (defaults to the provider's public API)
+        #[arg(long, value_name = "URL")]
+        endpoint: Option<String>,
+
+        /// Read the API key from stdin instead of the interactive TTY prompt
+        /// (the key is NEVER accepted as a positional arg — it must not leak
+        /// into argv/shell history)
+        #[arg(long)]
+        key_stdin: bool,
+
+        /// Store configuration but keep the provider disabled
+        #[arg(long)]
+        disable: bool,
+    },
+
+    /// Remove a provider's stored credentials and configuration (requires --force)
+    ///
+    /// Example:
+    ///   enola-cli ai provider remove openai --force
+    Remove {
+        /// Provider name
+        #[arg(value_name = "PROVIDER")]
+        provider: String,
+
+        /// Required confirmation for deleting credentials
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Send a minimal test request to the provider (sends data off-machine;
+    /// requires privacy consent)
+    ///
+    /// Examples:
+    ///   enola-cli ai provider test openai
+    ///   enola-cli ai provider test groq --accept-risks --tor
+    Test {
+        /// Provider name
+        #[arg(value_name = "PROVIDER")]
+        provider: String,
+
+        /// Accept sending data to the provider without the interactive prompt
+        #[arg(long)]
+        accept_risks: bool,
+
+        /// Route the request through the Tor SOCKS5h proxy
+        #[arg(long)]
+        tor: bool,
     },
 }

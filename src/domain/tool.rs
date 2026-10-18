@@ -147,6 +147,10 @@ pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &[&str])] = &[
     ("ai", &["model", "validate"]),
     // Fase 12 — ai rag: consulta de estado es ReadOnly.
     ("ai", &["rag", "status"]),
+    // Fase 13.2 — providers externos: list/status solo leen el estado local
+    // (jamás la API key, que solo aparece como "(set)"/"(not set)").
+    ("ai", &["provider", "list"]),
+    ("ai", &["provider", "status"]),
 ];
 
 /// Familias HOJA (sin subcomando) que son de LECTURA.
@@ -239,6 +243,8 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     ("ai", &["model", "delete"]),
     // Fase 12 — ai rag bind expone un directorio local al índice → Destructive.
     ("ai", &["rag", "bind"]),
+    // Fase 13.2 — borra credenciales del disco (`~/.enola/providers.env`).
+    ("ai", &["provider", "remove"]),
 ];
 
 /// Familias HOJA destructivas (sin subcomando).
@@ -635,6 +641,9 @@ mod tests {
         assert_eq!(classify("ai", &["delete"]), ToolKind::Destructive);
         assert_eq!(classify("ai", &["publish"]), ToolKind::Destructive);
         assert_eq!(classify("ai", &["hide"]), ToolKind::Destructive);
+        // Fase 13 — `ai benchmark` consume cómputo en la instancia: Mutating
+        // por default-deny (no es una ruta listada explícitamente).
+        assert_eq!(classify("ai", &["benchmark"]), ToolKind::Mutating);
     }
 
     #[test]
@@ -663,6 +672,20 @@ mod tests {
         assert_eq!(classify("ai", &["rag", "config"]), ToolKind::Mutating);
         assert_eq!(classify("ai", &["rag", "unbind"]), ToolKind::Mutating);
         assert_eq!(classify("ai", &["rag"]), ToolKind::Mutating);
+    }
+
+    #[test]
+    fn ai_provider_level3_paths_are_classified() {
+        // Fase 13.2 — `ai provider` (BYOK cloud).
+        assert_eq!(classify("ai", &["provider", "list"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["provider", "status"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["provider", "set"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["provider", "test"]), ToolKind::Mutating);
+        assert_eq!(
+            classify("ai", &["provider", "remove"]),
+            ToolKind::Destructive
+        );
+        assert_eq!(classify("ai", &["provider"]), ToolKind::Mutating);
     }
 
     #[test]

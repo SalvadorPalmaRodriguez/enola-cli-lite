@@ -8,6 +8,7 @@ pub mod cms;
 pub mod connector;
 pub mod container;
 pub mod dependencies; // DEP-001..003 — System dependency port
+pub mod external_ai; // Fase 13 — providers IA externos BYOK (OpenAI-compat + Anthropic)
 pub mod file;
 pub mod firewall; // Gestión de firewall UFW (UFW-002)
 pub mod hardware;

@@ -172,6 +172,14 @@ const KNOWN_KEYS: &[ConfigKeySpec] = &[
         alias: None,
         redact: false,
     },
+    ConfigKeySpec {
+        section: "ai",
+        key: "tor_proxy",
+        env_var: "ENOLA_AI_TOR_PROXY",
+        default_value: "false",
+        alias: None,
+        redact: false,
+    },
 ];
 
 /// Devuelve `true` si una clave parece sensible por su nombre.

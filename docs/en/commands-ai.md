@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.2 | **Updated:** 2026-10-18
+> **Version:** 1.3 | **Updated:** 2026-10-18
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -48,6 +48,20 @@ sudo enola-cli ai rag sync <NAME>
 sudo enola-cli ai rag config <NAME> [--chunk-size N] [--chunk-overlap N]
                                 [--remove-code] [--preset docs|code|faq|large]
                                 [--vector-store chroma|qdrant] [--show]
+
+# Local benchmark (level 2)
+sudo enola-cli ai benchmark <NAME> [--model <M>] [--prompt <P>] [--runs <N>]
+
+# BYOK cloud providers (level 3)
+enola-cli ai provider list
+enola-cli ai provider status <PROVIDER>
+enola-cli ai provider set <PROVIDER> [--model <M>] [--endpoint <URL>]
+                                    [--key-stdin] [--disable]
+enola-cli ai provider remove <PROVIDER> --force
+enola-cli ai provider test <PROVIDER> [--accept-risks] [--tor]
+
+# ask against an external provider (BYOK — data leaves your machine)
+enola-cli ask "question" --provider openai [--model <M>] [--accept-risks] [--tor]
 ```
 
 | Subcommand | MCP Class | Description |
@@ -73,6 +87,32 @@ sudo enola-cli ai rag config <NAME> [--chunk-size N] [--chunk-overlap N]
 | `ai rag bind <N> -s <T> -p <P> --force` | `Destructive` | Binds a source (`git`, `filesystem`, `wordpress`) to the index for `sync`. Requires `--force`; paths are canonicalized and system prefixes (`/etc`, `/root`, `/proc`…) are rejected. |
 | `ai rag sync <N>` | `Mutating` | Re-ingests all bound sources (`git pull --ff-only` as the invoking user for git; REST `/wp-json/wp/v2/posts` for wordpress). |
 | `ai rag config <N> [--show]` | `Mutating` | Shows or edits `rag_config.json` (chunking, presets `docs|code|faq|large`, backend `chroma|qdrant`). |
+| `ai benchmark <N>` | `Mutating` | Measures tokens/s (Ollama eval_duration), average latency and model size on the instance (`--runs`, `--model`, `--prompt`). |
+| `ai provider list` | `ReadOnly` | Lists BYOK providers and their status (the key only shows as `(set)`/`(not set)`). |
+| `ai provider status <P>` | `ReadOnly` | One provider's configuration status (never reveals the key). |
+| `ai provider set <P>` | `Mutating` | Configures key/model/endpoint. The key is read via secure TTY prompt or `--key-stdin` — **never via argv**. |
+| `ai provider remove <P> --force` | `Destructive` | Deletes the provider's entry from `~/.enola/providers.env`. Requires `--force`. |
+| `ai provider test <P>` | `Mutating` | Minimal ping to the provider: sends data off-machine → requires consent (`--accept-risks` or TTY `[s/N]` prompt; fails closed without TTY). |
+| `ask --provider <P>` | — | Single-shot chat via the external provider **without the tool registry** (cloud cannot run enola commands). Same privacy gate. |
+
+---
+
+## External BYOK providers (`ai provider` / `ask --provider`)
+
+Cloud providers (`openai`, `anthropic`, `grok`, `groq`, `openrouter`) are
+**the only place in the CLI where user data leaves the machine**. They are
+**disabled by default** and enforce strict guarantees:
+
+- **Consent before any send**: explicit TTY `[s/N]` prompt; scripts/CI must
+  pass `--accept-risks` (fails closed without TTY).
+- **Keys live in `~/.enola/providers.env`** (honors `SUDO_USER`), atomic
+  write + `0600` permissions, validated against control characters.
+  Never shown in output, logs, errors or `config show`.
+- **The key never travels via argv** — TTY prompt (no echo) or `--key-stdin`.
+- **Route is reported**: clearnet by default; `--tor`, `ENOLA_AI_TOR_PROXY`
+  or `[ai].tor_proxy = true` forces SOCKS5h (output states the route).
+- **`ask --provider` is single-shot without tools**: the cloud cannot run
+  `enola-cli` commands (minimal leak surface by design).
 
 ---
 

@@ -3549,6 +3549,36 @@
           ],
           "required": false,
           "value_name": "YES"
+        },
+        {
+          "boolean": false,
+          "name": "provider",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "PROVIDER"
+        },
+        {
+          "boolean": true,
+          "name": "accept-risks",
+          "positional": false,
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "ACCEPT_RISKS"
+        },
+        {
+          "boolean": true,
+          "name": "tor",
+          "positional": false,
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "TOR"
         }
       ],
       "name": "ask",
@@ -4172,6 +4202,189 @@
                 }
               ],
               "name": "config",
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "description": "Measure generation speed (tokens/s), latency and model size of an AI instance",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "boolean": false,
+              "name": "model",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "MODEL"
+            },
+            {
+              "boolean": false,
+              "name": "prompt",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "PROMPT"
+            },
+            {
+              "boolean": false,
+              "name": "runs",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "RUNS"
+            }
+          ],
+          "name": "benchmark",
+          "subcommands": []
+        },
+        {
+          "description": "Manage external cloud AI providers (BYOK — data leaves this machine; disabled by default, privacy consent required before any send)",
+          "flags": [],
+          "name": "provider",
+          "subcommands": [
+            {
+              "description": "List all known providers with their configuration status (never shows keys)",
+              "flags": [],
+              "name": "list",
+              "subcommands": []
+            },
+            {
+              "description": "Show one provider's configuration status",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "provider",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PROVIDER"
+                }
+              ],
+              "name": "status",
+              "subcommands": []
+            },
+            {
+              "description": "Configure a provider's API key (secure TTY prompt or --key-stdin), model, endpoint and enable it",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "provider",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PROVIDER"
+                },
+                {
+                  "boolean": false,
+                  "name": "model",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "MODEL"
+                },
+                {
+                  "boolean": false,
+                  "name": "endpoint",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "URL"
+                },
+                {
+                  "boolean": true,
+                  "name": "key-stdin",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "KEY_STDIN"
+                },
+                {
+                  "boolean": true,
+                  "name": "disable",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "DISABLE"
+                }
+              ],
+              "name": "set",
+              "subcommands": []
+            },
+            {
+              "description": "Remove a provider's stored credentials and configuration (requires --force)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "provider",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PROVIDER"
+                },
+                {
+                  "boolean": true,
+                  "name": "force",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "FORCE"
+                }
+              ],
+              "name": "remove",
+              "subcommands": []
+            },
+            {
+              "description": "Send a minimal test request to the provider (sends data off-machine; requires privacy consent)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "provider",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PROVIDER"
+                },
+                {
+                  "boolean": true,
+                  "name": "accept-risks",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "ACCEPT_RISKS"
+                },
+                {
+                  "boolean": true,
+                  "name": "tor",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "TOR"
+                }
+              ],
+              "name": "test",
               "subcommands": []
             }
           ]

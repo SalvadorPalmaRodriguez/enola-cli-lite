@@ -196,9 +196,16 @@ fn parse_chat_response_body(body: &str) -> Result<LlmChatResponse> {
             .unwrap_or("")
             .to_string();
         let tool_calls = parse_tool_calls_from_message(msg);
+        // Fase 13.1 — métricas de generación para `ai benchmark`.
+        let eval_count = v.get("eval_count").and_then(|n| n.as_u64());
+        let prompt_eval_count = v.get("prompt_eval_count").and_then(|n| n.as_u64());
+        let eval_duration_ns = v.get("eval_duration").and_then(|n| n.as_u64());
         return Ok(LlmChatResponse {
             content,
             tool_calls,
+            eval_count,
+            prompt_eval_count,
+            eval_duration_ns,
         });
     }
 
@@ -206,6 +213,10 @@ fn parse_chat_response_body(body: &str) -> Result<LlmChatResponse> {
     let mut content = String::new();
     let mut tool_calls = Vec::new();
     let mut parsed_any = false;
+    // Fase 13.1 — métricas: en NDJSON viven en la última línea (done:true).
+    let mut eval_count = None;
+    let mut prompt_eval_count = None;
+    let mut eval_duration_ns = None;
     for line in body.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -217,6 +228,15 @@ fn parse_chat_response_body(body: &str) -> Result<LlmChatResponse> {
             ))
         })?;
         parsed_any = true;
+        eval_count = v.get("eval_count").and_then(|n| n.as_u64()).or(eval_count);
+        prompt_eval_count = v
+            .get("prompt_eval_count")
+            .and_then(|n| n.as_u64())
+            .or(prompt_eval_count);
+        eval_duration_ns = v
+            .get("eval_duration")
+            .and_then(|n| n.as_u64())
+            .or(eval_duration_ns);
         let msg = v.get("message").unwrap_or(&v);
         if let Some(chunk) = msg.get("content").and_then(|c| c.as_str()) {
             content.push_str(chunk);
@@ -233,6 +253,9 @@ fn parse_chat_response_body(body: &str) -> Result<LlmChatResponse> {
     Ok(LlmChatResponse {
         content,
         tool_calls,
+        eval_count,
+        prompt_eval_count,
+        eval_duration_ns,
     })
 }
 

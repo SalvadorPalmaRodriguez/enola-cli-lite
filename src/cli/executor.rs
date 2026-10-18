@@ -118,6 +118,9 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             instance,
             no_exec,
             yes,
+            provider,
+            accept_risks,
+            tor,
         } => {
             execute_ask(
                 prompt,
@@ -126,6 +129,9 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
                 instance,
                 no_exec,
                 yes,
+                provider,
+                accept_risks,
+                tor,
                 cli.format.as_str(),
             )
             .await
@@ -222,6 +228,9 @@ async fn execute_ask(
     instance: Option<String>,
     no_exec: bool,
     yes: bool,
+    provider: Option<String>,
+    accept_risks: bool,
+    tor: bool,
     format: &str,
 ) -> CliResult<String> {
     use crate::adapters::ai::ollama::OllamaAdapter;
@@ -241,6 +250,13 @@ async fn execute_ask(
             "El prompt no puede estar vacío. Ejemplo: enola-cli ask \"lista mis servicios tor\""
                 .to_string(),
         ));
+    }
+
+    // Fase 13.2 — provider externo (BYOK): ruta single-shot SIN tool registry
+    // (los providers cloud no ejecutan comandos enola — menor superficie de
+    // fuga) con gate de privacidad previo (fail-closed).
+    if let Some(prov_name) = &provider {
+        return ask_via_provider(prov_name, &prompt, model.as_deref(), accept_risks, tor).await;
     }
 
     let explicit_endpoint = endpoint.is_some();
@@ -4312,6 +4328,287 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
         }
         A::Model(model_cmd) => execute_ai_model(model_cmd, format).await,
         A::Rag(rag_cmd) => execute_ai_rag(rag_cmd, format).await,
+        A::Provider(provider_cmd) => execute_ai_provider(provider_cmd, format).await,
+        A::Benchmark {
+            name,
+            model,
+            prompt,
+            runs,
+        } => execute_ai_benchmark(&name, model.as_deref(), prompt.as_deref(), runs, format).await,
+    }
+}
+
+async fn execute_ai_benchmark(
+    instance: &str,
+    model: Option<&str>,
+    prompt: Option<&str>,
+    runs: usize,
+    format: &str,
+) -> CliResult<String> {
+    use crate::adapters::ai::ollama::OllamaAdapter;
+    use crate::application::ai_benchmark::RunAiBenchmark;
+    use crate::ports::ai::AiAdapterPort;
+    use std::time::Duration;
+
+    let adapter = build_ai_adapter()?;
+    let inst = adapter
+        .get_instance(instance)
+        .await
+        .map_err(CliError::from)?;
+    let api_port = inst.api_port.ok_or_else(|| {
+        CliError::Generic(format!(
+            "La instancia '{instance}' no tiene la API Ollama activa (¿`ai start {instance}`?)"
+        ))
+    })?;
+    let engine: Arc<dyn crate::ports::llm::LlmEngine + Send + Sync> = Arc::new(OllamaAdapter::new(
+        &format!("http://127.0.0.1:{api_port}"),
+        Duration::from_secs(300),
+    ));
+    let bench = RunAiBenchmark::new(adapter, engine);
+    let rep = bench
+        .run(instance, model, prompt.unwrap_or(""), runs)
+        .await
+        .map_err(CliError::from)?;
+
+    if format == "json" {
+        return serde_json::to_string_pretty(&rep)
+            .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+    }
+    let mut out = format!("🏁 Benchmark — instance '{instance}'\n");
+    out.push_str(&format!("   Model:      {}\n", rep.model));
+    if let Some(size) = rep.model_size_bytes {
+        out.push_str(&format!("   Model size: {:.1} GiB\n", size as f64 / 1e9));
+    }
+    out.push_str(&format!("   Runs:       {}\n", rep.samples.len()));
+    out.push_str(&format!("   Avg latency: {} ms\n", rep.avg_latency_ms));
+    out.push_str(&format!(
+        "   Total eval tokens: {}\n",
+        rep.total_eval_tokens
+    ));
+    if let Some(tps) = rep.tokens_per_sec {
+        out.push_str(&format!("   ⚡ Tokens/s:  {:.1}\n", tps));
+    } else if let Some(wtps) = rep.wall_tokens_per_sec {
+        out.push_str(&format!("   ⚡ Tokens/s:  ~{:.1} (wall-clock)\n", wtps));
+    }
+    for (i, s) in rep.samples.iter().enumerate() {
+        out.push_str(&format!(
+            "     run {}: {} ms, {} tokens\n",
+            i + 1,
+            s.latency_ms,
+            s.eval_count.unwrap_or(0)
+        ));
+    }
+    if let Some(note) = rep.note {
+        out.push_str(&format!("   ⚠️  {note}\n"));
+    }
+    Ok(out)
+}
+
+// ── Fase 13.2 — providers externos BYOK ──────────────────────────────────
+
+/// Construye `ManageAiProviders` con el store fs y el router externo.
+/// `use_tor` decide el enrutado SOCKS5h (flag > env > [ai].tor_proxy).
+fn build_providers_service(
+    use_tor_flag: bool,
+) -> CliResult<crate::application::ai_providers::ManageAiProviders> {
+    use crate::adapters::ai::external_router::ExternalAiAdapter;
+    use crate::adapters::ai::providers_store::FsProvidersStore;
+    use crate::application::ai_providers::{resolve_provider_tor, ManageAiProviders};
+    use crate::ports::external_ai::ExternalAiPort;
+
+    let via_tor = resolve_provider_tor(use_tor_flag);
+    let store: Arc<dyn crate::ports::external_ai::AiProvidersStorePort + Send + Sync> =
+        Arc::new(FsProvidersStore::default().map_err(CliError::from)?);
+    let client: Arc<dyn ExternalAiPort + Send + Sync> =
+        Arc::new(ExternalAiAdapter::new(via_tor).map_err(CliError::from)?);
+    Ok(ManageAiProviders::new(store, client, via_tor))
+}
+
+/// Prompt TTY `[s/N]` de consentimiento para envío a providers externos.
+/// Devuelve `true` solo si el usuario confirma afirmativamente.
+fn external_privacy_prompt(provider: crate::domain::ai_providers::ExternalProvider) -> bool {
+    use crate::application::ai_providers::privacy_notice;
+    eprintln!("{}", privacy_notice(provider, provider.default_endpoint()));
+    eprint!("   [s/N]: ");
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_err() {
+        return false;
+    }
+    matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "s" | "y" | "si" | "sí" | "yes"
+    )
+}
+
+/// `ask --provider <p>` — chat single-shot por provider externo.
+async fn ask_via_provider(
+    provider_name: &str,
+    prompt: &str,
+    model: Option<&str>,
+    accept_risks: bool,
+    tor: bool,
+) -> CliResult<String> {
+    use crate::application::ai_providers::require_external_consent;
+    use crate::domain::ai_providers::ExternalProvider;
+
+    let provider = ExternalProvider::from_str_ci(provider_name).map_err(CliError::from)?;
+    require_external_consent(provider, accept_risks, || external_privacy_prompt(provider))
+        .map_err(CliError::from)?;
+
+    let svc = build_providers_service(tor)?;
+    let route = if svc.is_via_tor() {
+        "Tor SOCKS5h"
+    } else {
+        "clearnet"
+    };
+    let resp = svc
+        .send_chat(provider, prompt, None, model)
+        .await
+        .map_err(CliError::from)?;
+    Ok(format!(
+        "{resp}\n\n— via {} ({}, sin tools locales)",
+        provider.as_str(),
+        route
+    ))
+}
+
+async fn execute_ai_provider(
+    cmd: crate::cli::AiProviderCommands,
+    format: &str,
+) -> CliResult<String> {
+    use crate::application::ai_providers::require_external_consent;
+    use crate::cli::AiProviderCommands as P;
+    use crate::domain::ai_providers::ExternalProvider;
+
+    match cmd {
+        P::List => {
+            let svc = build_providers_service(false)?;
+            let list = svc.list().await.map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&list)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let mut out = "☁️  External AI providers (BYOK — disabled by default)\n".to_string();
+            for p in &list {
+                out.push_str(&format!(
+                    "   {} {} — {} key: {}, model: {}, endpoint: {}\n",
+                    if p.usable { "✅" } else { "⬜" },
+                    p.provider,
+                    if p.enabled { "enabled " } else { "disabled" },
+                    p.api_key,
+                    p.model,
+                    p.endpoint
+                ));
+            }
+            out.push_str(
+                "\n   ⚠️  Sending data to a provider requires privacy consent \
+                 (--accept-risks or TTY prompt).\n",
+            );
+            Ok(out)
+        }
+        P::Status { provider } => {
+            let p = ExternalProvider::from_str_ci(&provider).map_err(CliError::from)?;
+            let svc = build_providers_service(false)?;
+            let view = svc.status(p).await.map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&view)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "☁️  Provider '{}' — {}, key: {}, model: {}, endpoint: {}",
+                view.provider,
+                if view.enabled { "enabled" } else { "disabled" },
+                view.api_key,
+                view.model,
+                view.endpoint
+            ))
+        }
+        P::Set {
+            provider,
+            model,
+            endpoint,
+            key_stdin,
+            disable,
+        } => {
+            let p = ExternalProvider::from_str_ci(&provider).map_err(CliError::from)?;
+            // La key JAMÁS viaja por argv (no aparece en ps/history).
+            let key = if key_stdin {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_line(&mut buf)
+                    .map_err(|e| CliError::Generic(format!("Error leyendo stdin: {e}")))?;
+                Some(buf.trim().to_string())
+            } else {
+                // Prompt TTY seguro (rpassword no ecoa la entrada).
+                match rpassword::prompt_password(format!(
+                    "API key para '{}' (no se mostrará): ",
+                    p.as_str()
+                )) {
+                    Ok(k) => Some(k),
+                    Err(e) => {
+                        return Err(CliError::Generic(format!(
+                            "No se pudo leer la key por TTY ({e}). Usa --key-stdin en scripts."
+                        )))
+                    }
+                }
+            };
+            let svc = build_providers_service(false)?;
+            svc.set(p, key, model, endpoint, !disable)
+                .await
+                .map_err(CliError::from)?;
+            Ok(format!(
+                "✅ Provider '{}' configurado{} (key: (set) — nunca se muestra)",
+                p.as_str(),
+                if disable {
+                    " [disabled]"
+                } else {
+                    " y habilitado"
+                }
+            ))
+        }
+        P::Remove { provider, force } => {
+            let p = ExternalProvider::from_str_ci(&provider).map_err(CliError::from)?;
+            let svc = build_providers_service(false)?;
+            svc.remove(p, force).await.map_err(CliError::from)?;
+            Ok(format!(
+                "🗑️  Provider '{}' eliminado de providers.env",
+                p.as_str()
+            ))
+        }
+        P::Test {
+            provider,
+            accept_risks,
+            tor,
+        } => {
+            let p = ExternalProvider::from_str_ci(&provider).map_err(CliError::from)?;
+            require_external_consent(p, accept_risks, || external_privacy_prompt(p))
+                .map_err(CliError::from)?;
+            let svc = build_providers_service(tor)?;
+            let res = svc.test(p).await.map_err(CliError::from)?;
+            let route = if svc.is_via_tor() {
+                "Tor SOCKS5h"
+            } else {
+                "clearnet"
+            };
+            if format == "json" {
+                return serde_json::to_string_pretty(&res)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            if res.success {
+                Ok(format!(
+                    "✅ {} — {} responde en {} ms (via {})",
+                    res.provider, res.model, res.latency_ms, route
+                ))
+            } else {
+                Ok(format!(
+                    "❌ {} — fallo ({} ms, via {}): {}",
+                    res.provider,
+                    res.latency_ms,
+                    route,
+                    res.error.unwrap_or_default()
+                ))
+            }
+        }
     }
 }
 
@@ -4737,6 +5034,7 @@ mod tests {
                 instance,
                 no_exec,
                 yes,
+                ..
             } => {
                 assert_eq!(prompt, "lista mis servicios tor");
                 assert_eq!(model.as_deref(), Some("qwen2.5:7b"));

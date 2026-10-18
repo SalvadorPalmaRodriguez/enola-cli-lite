@@ -677,6 +677,7 @@ mod tests {
                             name: "tor_list".to_string(),
                             arguments: json!({}),
                         }],
+                        ..Default::default()
                     })
                 } else {
                     assert!(
@@ -686,6 +687,7 @@ mod tests {
                     Ok(LlmChatResponse {
                         content: "Tienes 1 servicio Tor activo: blog (abc.onion).".to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     })
                 }
             });
@@ -749,6 +751,7 @@ mod tests {
                             name: "wp_list".to_string(),
                             arguments: json!({}),
                         }],
+                        ..Default::default()
                     }),
                     2 => Ok(LlmChatResponse {
                         content: String::new(),
@@ -756,10 +759,12 @@ mod tests {
                             name: "wp_status".to_string(),
                             arguments: json!({"name": "miblog"}),
                         }],
+                        ..Default::default()
                     }),
                     _ => Ok(LlmChatResponse {
                         content: "El sitio miblog está en ejecución.".to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     }),
                 }
             });
@@ -813,6 +818,7 @@ mod tests {
                             name: "wp_create".to_string(),
                             arguments: json!({"name": "blog1", "db_password": "my-secret-value"}),
                         }],
+                        ..Default::default()
                     })
                 } else {
                     let last = msgs.last().unwrap();
@@ -824,6 +830,7 @@ mod tests {
                     Ok(LlmChatResponse {
                         content: "Entendido, he cancelado la creación de blog1.".to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     })
                 }
             });
@@ -911,6 +918,7 @@ mod tests {
                                 "args": { "name": "old-svc", "force": true }
                             }),
                         }],
+                        ..Default::default()
                     })
                 } else {
                     let last = msgs.last().unwrap();
@@ -923,6 +931,7 @@ mod tests {
                     Ok(LlmChatResponse {
                         content: "El servicio Tor old-svc ha sido eliminado.".to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     })
                 }
             });
@@ -965,6 +974,7 @@ mod tests {
                     name: "wp_create".to_string(),
                     arguments: json!({"name": "blog1"}),
                 }],
+                ..Default::default()
             })
         });
 
@@ -1013,6 +1023,7 @@ mod tests {
                             name: "wp_create".to_string(),
                             arguments: json!({"name": "simblog"}),
                         }],
+                        ..Default::default()
                     })
                 } else {
                     let last = msgs.last().unwrap();
@@ -1026,6 +1037,7 @@ mod tests {
                         content: "Simulación (--no-exec): se crearía el WordPress simblog."
                             .to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     })
                 }
             });
@@ -1075,6 +1087,7 @@ mod tests {
                             name: "magic_nonexistent_tool".to_string(),
                             arguments: json!({}),
                         }],
+                        ..Default::default()
                     }),
                     2 => {
                         let last = msgs.last().unwrap();
@@ -1090,11 +1103,13 @@ mod tests {
                                 name: "tor_list".to_string(),
                                 arguments: json!({}),
                             }],
+                            ..Default::default()
                         })
                     }
                     _ => Ok(LlmChatResponse {
                         content: "No tienes servicios Tor.".to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     }),
                 }
             });
@@ -1140,6 +1155,7 @@ mod tests {
                             name: "ports_list".to_string(),
                             arguments: json!({}),
                         }],
+                        ..Default::default()
                     })
                 } else {
                     let last = msgs.last().unwrap();
@@ -1152,6 +1168,7 @@ mod tests {
                     Ok(LlmChatResponse {
                         content: "Resumen de puertos.".to_string(),
                         tool_calls: vec![],
+                        ..Default::default()
                     })
                 }
             });

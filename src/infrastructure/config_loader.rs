@@ -39,7 +39,7 @@ pub fn config_path() -> Option<PathBuf> {
 
 /// Home efectivo para la configuración: el del invocador bajo sudo;
 /// si no, el del proceso.
-fn effective_home() -> Option<PathBuf> {
+pub(crate) fn effective_home() -> Option<PathBuf> {
     let euid = unsafe { libc::geteuid() };
     if euid == 0 {
         if let Ok(user) = std::env::var("SUDO_USER") {

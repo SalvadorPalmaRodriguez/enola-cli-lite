@@ -3,7 +3,9 @@
 
 pub mod add_ssh_key;
 pub mod ai_assistant; // Fase 9 — orquestador `enola-cli ask` (loop chat → ToolRegistry + gate TTY)
+pub mod ai_benchmark; // Fase 13 — benchmark local `ai benchmark` (tokens/s, latencia)
 pub mod ai_models; // Fase 11 — biblioteca de modelos GGUF (`ai model`)
+pub mod ai_providers; // Fase 13 — providers IA externos BYOK (`ai provider`)
 pub mod ai_rag; // Fase 12 — índice RAG por instancia (`ai rag`)
 pub mod ai_service; // Fase 10 — casos de uso de instancias IA (create, publish, hide, verify)
 pub mod apparmor_manager; // AA-004..007 (204-207) — AppArmor orchestration

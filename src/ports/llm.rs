@@ -139,12 +139,22 @@ impl LlmToolDefinition {
 }
 
 /// Respuesta de un turno de `chat_tools`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LlmChatResponse {
     /// Respuesta textual del asistente (puede ser vacía si solo emite `tool_calls`).
     pub content: String,
     /// Llamadas a tools solicitadas por el modelo en este turno.
     pub tool_calls: Vec<LlmToolCall>,
+    /// Tokens evaluados en la generación (Ollama `eval_count`), si el motor lo reporta.
+    /// Fase 13.1 — métricas para `ai benchmark`.
+    #[serde(default)]
+    pub eval_count: Option<u64>,
+    /// Tokens del prompt evaluados (Ollama `prompt_eval_count`).
+    #[serde(default)]
+    pub prompt_eval_count: Option<u64>,
+    /// Nanosegundos de generación reportados por el motor (`eval_duration`).
+    #[serde(default)]
+    pub eval_duration_ns: Option<u64>,
 }
 
 /// Metadatos básicos de un modelo disponible en el motor LLM (`/api/tags`).
@@ -221,6 +231,7 @@ mod tests {
                 Ok(LlmChatResponse {
                     content: "Hola, ¿en qué puedo ayudarte?".to_string(),
                     tool_calls: vec![],
+                    ..Default::default()
                 })
             });
 
@@ -265,6 +276,7 @@ mod tests {
                     name: "wp_status".to_string(),
                     arguments: json!({"name": "myblog"}),
                 }],
+                ..Default::default()
             })
         });
 
@@ -315,6 +327,7 @@ mod tests {
                     // http_port fuera de rango y falta "name" requerido
                     arguments: json!({"http_port": 80}),
                 }],
+                ..Default::default()
             })
         });
 

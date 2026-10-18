@@ -191,6 +191,7 @@ Configuración del asistente de IA local (`enola-cli ask`) conectado a Ollama.
 | `model` | String | `llama3.1:8b` | `ENOLA_AI_MODEL` / `--model` | Modelo de Ollama usado en `enola-cli ask` |
 | `timeout_secs` | Integer | `120` | `ENOLA_AI_TIMEOUT_SECS` | Timeout por petición a Ollama en segundos |
 | `use_tor_for_downloads` | Boolean | `false` | `ENOLA_AI_USE_TOR_DOWNLOADS` / `--tor` | Si es `true`, `ai model download` sale por el proxy Tor SOCKS5h en lugar de clearnet |
+| `tor_proxy` | Boolean | `false` | `ENOLA_AI_TOR_PROXY` / `--tor` | Si es `true`, las peticiones a providers externos (`ai provider test`, `ask --provider`) salen por Tor SOCKS5h |
 
 ```toml
 [ai]

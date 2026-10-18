@@ -149,7 +149,7 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # vía `socks5h://` ([http].tor_socks_proxy).
 #
 # Env vars: ENOLA_AI_ENDPOINT, ENOLA_AI_MODEL, ENOLA_AI_TIMEOUT_SECS,
-#           ENOLA_AI_USE_TOR_DOWNLOADS
+#           ENOLA_AI_USE_TOR_DOWNLOADS, ENOLA_AI_TOR_PROXY
 # Flags:    --endpoint --model --instance --no-exec --yes --tor
 [ai]
 # endpoint = "http://127.0.0.1:11434"
@@ -158,6 +158,10 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # Si true, `ai model download` sale por Tor SOCKS5h (socks5h://127.0.0.1:9050)
 # en lugar de clearnet. El flag --tor tiene prioridad sobre esta clave.
 # use_tor_for_downloads = false
+# Si true, las peticiones a providers externos (`ai provider test`,
+# `ask --provider`) salen por Tor SOCKS5h en lugar de clearnet.
+# El flag --tor tiene prioridad sobre esta clave.
+# tor_proxy = false
 
 
 # ══════════════════════════════════════════════════════════════════════════
