@@ -444,8 +444,16 @@ impl AiAdapterPort for EnolaAiAdapter {
         // 5. Crear red Docker aislada.
         let net_name = ai_network_name(&config.name);
         if let Err(err) = self.container_manager.create_network(&net_name).await {
-            let _ = std::fs::remove_dir_all(&inst_dir);
-            return Err(err);
+            // La red puede ya existir (limpieza previa incompleta — hallazgo de
+            // la E2E real): es nuestra por naming `enola_net_ai_<n>` → reutilizar.
+            if !err.to_string().to_lowercase().contains("already exists") {
+                let _ = std::fs::remove_dir_all(&inst_dir);
+                return Err(err);
+            }
+            tracing::warn!(
+                network = %net_name,
+                "La red ya existe; se reutiliza (restos de una instancia anterior)"
+            );
         }
 
         // 6. Crear y arrancar contenedor Ollama.
@@ -591,14 +599,21 @@ impl AiAdapterPort for EnolaAiAdapter {
         }
 
         let _ = self.get_instance(name).await?;
-        let webui_name = webui_container_name(name);
-        let ollama_name = ollama_container_name(name);
         let net_name = ai_network_name(name);
 
-        let _ = self.container_manager.stop_container(&webui_name).await;
-        let _ = self.container_manager.remove_container(&webui_name).await;
-        let _ = self.container_manager.stop_container(&ollama_name).await;
-        let _ = self.container_manager.remove_container(&ollama_name).await;
+        // Borrar TODOS los contenedores de la instancia (ollama, webui,
+        // vector store, finetune) — la E2E real mostró huérfanos
+        // (`enola-ai-<n>-chromadb`) que bloqueaban el borrado de la red.
+        let prefix = format!("enola-ai-{name}-");
+        let all = self
+            .container_manager
+            .list_containers(true)
+            .await
+            .unwrap_or_default();
+        for c in all.iter().filter(|c| c.name.starts_with(&prefix)) {
+            let _ = self.container_manager.stop_container(&c.name).await;
+            let _ = self.container_manager.remove_container(&c.name).await;
+        }
         let _ = self.container_manager.remove_network(&net_name).await;
 
         let inst_dir = self.instance_dir(name);
