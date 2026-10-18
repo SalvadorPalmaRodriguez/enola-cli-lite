@@ -143,6 +143,11 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - gate: `ReadOnly` tools run directly; `Mutating`/`Destructive` tools require an interactive TTY `[s/N]` confirmation showing sanitized arguments (or `--yes` for scripts; fails closed without TTY), or `--no-exec` to simulate via `try_run` without side effects
 - MCP meta-keys (`confirm_token`, `try_run`) are stripped from schemas sent to the local LLM; `ask` is in `FORBIDDEN_FAMILIES` so `enola_run_command` never dispatches `ask` recursively
 
+### ai — local AI instances (Ollama + Open WebUI)
+- `ai create --name <n> [--model <m>] [--api-port <p>] [--webui-port <p>] [--no-gpu] [--memory-gb <gb>] [--no-pull]` — deploys `enola-ai-<n>-ollama` and `enola-ai-<n>-webui` bound to `127.0.0.1` over `ContainerPort` (Bollard) with `flock` port locks, calibrated limits (`memory_limit >= 8 GiB`, `pids_limit >= 4096`), and NVIDIA GPU detection via `EnolaHardwareProbe`
+- `ai list` / `ai status <n>` / `ai start <n>` / `ai stop <n>` / `ai delete <n> --force` / `ai logs <n> [--lines N]` (also via `logs view ai-<n>`)
+- `ai publish <n> [--verify]` / `ai hide <n>` — exposes/removes Open WebUI as a `.onion` hidden service via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`)
+
 ### Other
 - `license` — full license text
 - `quickref` — Docker ↔ Enola equivalence table

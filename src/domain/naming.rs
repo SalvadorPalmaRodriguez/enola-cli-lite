@@ -77,6 +77,7 @@ pub enum ServiceType {
     FileServer,
     Proxy,
     Raw,
+    Ai,
 }
 
 impl ServiceType {
@@ -90,6 +91,7 @@ impl ServiceType {
             ServiceType::FileServer => "enola_fileserver_",
             ServiceType::Proxy => "enola_proxy_",
             ServiceType::Raw => "enola_raw_",
+            ServiceType::Ai => "enola_ai_",
         }
     }
 
@@ -103,6 +105,7 @@ impl ServiceType {
             ServiceType::FileServer => "fileserver_",
             ServiceType::Proxy => "proxy_",
             ServiceType::Raw => "raw_",
+            ServiceType::Ai => "ai_",
         }
     }
 
@@ -116,6 +119,7 @@ impl ServiceType {
             ServiceType::FileServer => None,
             ServiceType::Proxy => None,
             ServiceType::Raw => None,
+            ServiceType::Ai => Some("enola-ai-"),
         }
     }
 
@@ -129,6 +133,7 @@ impl ServiceType {
             ServiceType::FileServer => Some("fileserver_"),
             ServiceType::Proxy => Some("proxy_"),
             ServiceType::Raw => None,
+            ServiceType::Ai => Some("proxy_ai_"),
         }
     }
 
@@ -141,6 +146,7 @@ impl ServiceType {
             "files" | "fileserver" => Some(ServiceType::FileServer),
             "proxy" | "web" | "http" => Some(ServiceType::Proxy),
             "raw" | "tcp" => Some(ServiceType::Raw),
+            "ai" | "ollama" | "webui" => Some(ServiceType::Ai),
             _ => None,
         }
     }
@@ -155,6 +161,7 @@ impl fmt::Display for ServiceType {
             ServiceType::FileServer => write!(f, "fileserver"),
             ServiceType::Proxy => write!(f, "proxy"),
             ServiceType::Raw => write!(f, "raw"),
+            ServiceType::Ai => write!(f, "ai"),
         }
     }
 }
@@ -234,6 +241,7 @@ impl ServiceName {
             ServiceType::FileServer,
             ServiceType::Proxy,
             ServiceType::Raw,
+            ServiceType::Ai,
         ] {
             let prefix = service_type.tor_dir_prefix();
             if dir_name.starts_with(prefix) {
@@ -267,6 +275,7 @@ impl ServiceName {
             ServiceType::FileServer,
             ServiceType::Proxy,
             ServiceType::Raw,
+            ServiceType::Ai,
         ] {
             let prefix = service_type.tor_config_prefix();
             if config_name.starts_with(prefix) {
@@ -289,12 +298,15 @@ impl ServiceName {
             ServiceType::FileServer,
             ServiceType::Proxy,
             ServiceType::Raw,
+            ServiceType::Ai,
         ] {
             names.push(format!("{}{}", service_type.tor_config_prefix(), base_name));
         }
 
-        // Legacy names
+        // Legacy & hyphenated names
         names.push(format!("proxy_{}", base_name));
+        names.push(format!("ai-{}", base_name));
+        names.push(format!("proxy_ai-{}", base_name));
 
         names
     }
@@ -381,6 +393,23 @@ mod tests {
         assert!(names.contains(&"wp_myservice".to_string()));
         assert!(names.contains(&"proxy_myservice".to_string()));
         assert!(names.contains(&"fileserver_myservice".to_string()));
+    }
+
+    #[test]
+    fn test_service_name_ai() {
+        let parsed_type = ServiceType::parse_from_str("ai").expect("ServiceType::Ai");
+        let name = ServiceName::new("dev", parsed_type);
+        assert_eq!(name.tor_dir_name(), "enola_ai_dev");
+        assert_eq!(name.tor_config_name(), "ai_dev");
+        assert_eq!(
+            name.docker_container_name(),
+            Some("enola-ai-dev".to_string())
+        );
+        assert_eq!(name.nginx_config_name(), Some("proxy_ai_dev".to_string()));
+        let lookup = ServiceName::possible_names_for_lookup("dev");
+        assert!(lookup.contains(&"ai_dev".to_string()));
+        assert!(lookup.contains(&"ai-dev".to_string()));
+        assert!(lookup.contains(&"proxy_ai-dev".to_string()));
     }
 
     // ── TEST-COV-NEG-001: Args inválidos — validate_service_name ─────────────

@@ -3553,6 +3553,223 @@
       ],
       "name": "ask",
       "subcommands": []
+    },
+    {
+      "description": "Deploys hardened Ollama (`enola-ai-<name>-ollama`) and Open WebUI (`enola-ai-<name>-webui`) containers bound exclusively to `127.0.0.1`, with optional NVIDIA GPU passthrough and `.onion` publication via Tor + Nginx.",
+      "flags": [],
+      "name": "ai",
+      "subcommands": [
+        {
+          "description": "Create a new local AI instance (Ollama + Open WebUI bound to 127.0.0.1)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": false,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "boolean": false,
+              "name": "model",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "MODEL"
+            },
+            {
+              "boolean": false,
+              "name": "api-port",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            },
+            {
+              "boolean": false,
+              "name": "webui-port",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "PORT"
+            },
+            {
+              "boolean": true,
+              "name": "no-gpu",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "NO_GPU"
+            },
+            {
+              "boolean": false,
+              "name": "memory-gb",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "GIB"
+            },
+            {
+              "boolean": true,
+              "name": "no-pull",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "NO_PULL"
+            }
+          ],
+          "name": "create",
+          "subcommands": []
+        },
+        {
+          "description": "List all local AI instances and their status",
+          "flags": [],
+          "name": "list",
+          "subcommands": []
+        },
+        {
+          "description": "Show detailed status of an AI instance (Ollama, Open WebUI, ports, GPU, .onion)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "status",
+          "subcommands": []
+        },
+        {
+          "description": "Start a stopped AI instance (Ollama + Open WebUI containers)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "start",
+          "subcommands": []
+        },
+        {
+          "description": "Stop a running AI instance",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "stop",
+          "subcommands": []
+        },
+        {
+          "description": "Delete an AI instance (containers, network, data directory and .onion service)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "force",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "delete",
+          "subcommands": []
+        },
+        {
+          "description": "Publish the Open WebUI interface of an AI instance as a Tor .onion hidden service",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "verify",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "VERIFY"
+            }
+          ],
+          "name": "publish",
+          "subcommands": []
+        },
+        {
+          "description": "Hide an AI instance from Tor (removes its .onion hidden service and Nginx config)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "hide",
+          "subcommands": []
+        },
+        {
+          "description": "View container logs for an AI instance (Ollama + Open WebUI)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            },
+            {
+              "boolean": false,
+              "name": "lines",
+              "positional": false,
+              "possible_values": [],
+              "required": false,
+              "value_name": "LINES"
+            }
+          ],
+          "name": "logs",
+          "subcommands": []
+        }
+      ]
     }
   ]
 }

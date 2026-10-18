@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands.md`
-> **Version:** 3.7 | **Updated:** 2026-10-18
+> **Version:** 3.8 | **Updated:** 2026-10-18
 > **Status:** ✅ **CURRENT — Command Index**
 > **Spanish original:** [`docs/user/general/commands.md`](../user/general/commands.md)
 > **References:** commands.md
@@ -79,6 +79,7 @@ sudo enola-cli docs search <TERM>        # search all documentation
 | Web | `web` | Local web dashboard (GUI) | [web/README.md](../user/web/README.md) |
 | MCP | `mcp` | MCP server for AI agents (JSON-RPC over stdio) | [commands-mcp.md](commands-mcp.md) |
 | Ask | `ask` | Local AI assistant backed by Ollama (`[s/N]` gate & `--no-exec`) | [commands-ask.md](commands-ask.md) |
+| AI | `ai` | Local AI instances (Ollama + Open WebUI on `127.0.0.1` and `.onion`) | [commands-ai.md](commands-ai.md) |
 
 ---
 

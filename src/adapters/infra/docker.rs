@@ -72,7 +72,9 @@ impl BollardDockerAdapter {
         Ok(())
     }
 
-    fn build_localhost_port_maps(ports: &HashMap<u16, u16>) -> (ExposedPorts, PortBindings) {
+    pub(crate) fn build_localhost_port_maps(
+        ports: &HashMap<u16, u16>,
+    ) -> (ExposedPorts, PortBindings) {
         let mut exposed_ports = HashMap::new();
         let mut port_bindings = HashMap::new();
         for (host_port, container_port) in ports {

@@ -130,6 +130,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             )
             .await
         }
+        Commands::Ai(cmd) => execute_ai(cmd, cli.format.as_str()).await,
     }
 }
 
@@ -4033,6 +4034,266 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AI EXECUTOR (Fase 10 — Ollama + Open WebUI sobre ContainerPort)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn build_ai_adapter() -> CliResult<std::sync::Arc<crate::adapters::ai::adapter::EnolaAiAdapter>> {
+    use crate::adapters::ai::adapter::EnolaAiAdapter;
+    use crate::adapters::hardware::probe::EnolaHardwareProbe;
+    use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::adapters::infra::manifest::FileManifestAdapter;
+    use std::sync::Arc;
+
+    let docker = BollardDockerAdapter::new()
+        .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
+    let hw = EnolaHardwareProbe::new();
+    let manifest = FileManifestAdapter::new();
+    Ok(Arc::new(EnolaAiAdapter::new(
+        Arc::new(docker),
+        Arc::new(hw),
+        Arc::new(manifest),
+    )))
+}
+
+async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<String> {
+    use crate::adapters::ai::ollama::OllamaAdapter;
+    use crate::adapters::http_probe::ReqwestHttpProbe;
+    use crate::adapters::infra::manifest::FileManifestAdapter;
+    use crate::adapters::infra::nginx::NginxAdapter;
+    use crate::adapters::infra::systemd::SystemdAdapter;
+    use crate::adapters::tor::TorConfigAdapter;
+    use crate::application::ai_service::{
+        enrich_instances_with_onion, CreateAiInstance, HideAiInstance, PublishAiInstance,
+    };
+    use crate::cli::AiCommands as A;
+    use crate::domain::ai::{select_ai_ports, validate_ai_instance_name, AiStackConfig};
+    use crate::ports::ai::AiAdapterPort;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    match cmd {
+        A::Create {
+            name,
+            model,
+            api_port,
+            webui_port,
+            no_gpu,
+            memory_gb,
+            no_pull,
+        } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+
+            let adapter = build_ai_adapter()?;
+            let existing = adapter.list_instances().await.map_err(CliError::from)?;
+            let (resolved_api, resolved_webui) = select_ai_ports(
+                &existing,
+                api_port,
+                webui_port,
+                commands::is_port_free_shared,
+            )
+            .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+
+            let mut stack_cfg =
+                AiStackConfig::new(&name, &model, resolved_api, resolved_webui, !no_gpu)
+                    .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            stack_cfg.pull_model_on_create = !no_pull;
+
+            if let Some(gb) = memory_gb {
+                let bytes = (gb as i64).saturating_mul(1024 * 1024 * 1024);
+                stack_cfg = stack_cfg
+                    .with_memory_limit_bytes(bytes)
+                    .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            }
+
+            let mut use_case = CreateAiInstance::new(adapter);
+            if !no_pull {
+                let endpoint = format!("http://127.0.0.1:{resolved_api}");
+                let engine = OllamaAdapter::new(&endpoint, Duration::from_secs(300));
+                use_case = use_case.with_llm_engine(Arc::new(engine));
+            }
+
+            let inst = use_case.execute(stack_cfg).await.map_err(CliError::from)?;
+            sync_firewall_ports(&[resolved_api, resolved_webui]);
+
+            if format == "json" {
+                return serde_json::to_string_pretty(&inst)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "✅ AI instance '{}' created (status: {}).\n   \
+                 • Model:      {}\n   \
+                 • Ollama API: http://127.0.0.1:{}\n   \
+                 • Open WebUI: http://127.0.0.1:{}\n   \
+                 • GPU:        {}\n\
+                 💡 Ask directly: enola-cli ask \"...\" --instance {}\n\
+                 🧅 Publish on Tor: sudo enola-cli ai publish {}",
+                inst.name,
+                inst.status,
+                inst.model,
+                resolved_api,
+                resolved_webui,
+                if inst.gpu_enabled {
+                    "NVIDIA GPU enabled"
+                } else {
+                    "CPU mode"
+                },
+                inst.name,
+                inst.name,
+            ))
+        }
+        A::List => {
+            let adapter = build_ai_adapter()?;
+            let mut instances = adapter.list_instances().await.map_err(CliError::from)?;
+            let tor = TorConfigAdapter::new();
+            enrich_instances_with_onion(&mut instances, &tor).await;
+
+            if format == "json" {
+                return serde_json::to_string_pretty(&instances)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            if instances.is_empty() {
+                return Ok("No AI instances found.".to_string());
+            }
+            let mut out = format!("🧠 AI instances ({})\n", instances.len());
+            out.push_str("═══════════════════════════════════════════════════\n");
+            for inst in &instances {
+                out.push_str(&format!(
+                    "• {}  [{}]  model={}  api=127.0.0.1:{}  webui=127.0.0.1:{}  gpu={}  onion={}\n",
+                    inst.name,
+                    inst.status,
+                    inst.model,
+                    inst.api_port
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    inst.webui_port
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    inst.gpu_enabled,
+                    inst.onion_address.as_deref().unwrap_or("-"),
+                ));
+            }
+            Ok(out)
+        }
+        A::Status { name } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let adapter = build_ai_adapter()?;
+            let inst = adapter.get_instance(&name).await.map_err(CliError::from)?;
+            let mut list = vec![inst];
+            let tor = TorConfigAdapter::new();
+            enrich_instances_with_onion(&mut list, &tor).await;
+            let inst = list.remove(0);
+
+            if format == "json" {
+                return serde_json::to_string_pretty(&inst)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "🧠 AI instance '{}'\n  \
+                 status:        {}\n  \
+                 model:         {}\n  \
+                 api_port:      {}\n  \
+                 webui_port:    {}\n  \
+                 ollama_status: {}\n  \
+                 webui_status:  {}\n  \
+                 gpu_enabled:   {}\n  \
+                 onion_address: {}",
+                inst.name,
+                inst.status,
+                inst.model,
+                inst.api_port
+                    .map(|p| format!("127.0.0.1:{p}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                inst.webui_port
+                    .map(|p| format!("127.0.0.1:{p}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                inst.ollama_status,
+                inst.webui_status,
+                inst.gpu_enabled,
+                inst.onion_address.as_deref().unwrap_or("-"),
+            ))
+        }
+        A::Start { name } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let adapter = build_ai_adapter()?;
+            adapter
+                .start_instance(&name)
+                .await
+                .map_err(CliError::from)?;
+            Ok(format!("✅ AI instance '{}' started", name))
+        }
+        A::Stop { name } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let adapter = build_ai_adapter()?;
+            adapter.stop_instance(&name).await.map_err(CliError::from)?;
+            Ok(format!("✅ AI instance '{}' stopped", name))
+        }
+        A::Delete { name, force } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let adapter = build_ai_adapter()?;
+            adapter
+                .delete_instance(&name, force)
+                .await
+                .map_err(CliError::from)?;
+
+            let hide_uc = HideAiInstance::new(
+                Arc::new(TorConfigAdapter::new()),
+                Some(Arc::new(NginxAdapter::new())),
+            );
+            let _ = hide_uc.execute(&name).await;
+
+            Ok(format!("✅ AI instance '{}' deleted", name))
+        }
+        A::Publish { name, verify } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let adapter = build_ai_adapter()?;
+            let mut uc = PublishAiInstance::new(
+                adapter,
+                Arc::new(NginxAdapter::new()),
+                Arc::new(TorConfigAdapter::new()),
+                Arc::new(SystemdAdapter),
+                Arc::new(FileManifestAdapter::new()),
+            );
+            if verify {
+                uc = uc.with_probe(Arc::new(ReqwestHttpProbe));
+            }
+            let res = uc.execute(&name, verify).await.map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&res)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let mut out = format!(
+                "✅ AI instance '{}' published on Tor!\n🧅 Address: http://{}\n   Local WebUI: http://127.0.0.1:{}",
+                res.name, res.onion_address, res.webui_port
+            );
+            if let Some(v) = &res.verification {
+                out.push_str(&format!(
+                    "\n   Verification: reachable={} status={:?} attempts={}",
+                    v.reachable, v.status, v.attempts
+                ));
+            }
+            Ok(out)
+        }
+        A::Hide { name } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let hide_uc = HideAiInstance::new(
+                Arc::new(TorConfigAdapter::new()),
+                Some(Arc::new(NginxAdapter::new())),
+            );
+            hide_uc.execute(&name).await.map_err(CliError::from)?;
+            Ok(format!("✅ AI instance '{}' hidden from Tor", name))
+        }
+        A::Logs { name, lines } => {
+            validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let adapter = build_ai_adapter()?;
+            adapter
+                .get_instance_logs(&name, lines)
+                .await
+                .map_err(CliError::from)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::uninstall_script_candidates;
@@ -4102,6 +4363,50 @@ mod tests {
                 assert!(yes);
             }
             other => panic!("expected Commands::Ask, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ai_subcommands_parse_all_fase_10_5_variants() {
+        use clap::Parser;
+
+        let create = crate::cli::Cli::try_parse_from([
+            "enola",
+            "ai",
+            "create",
+            "--name",
+            "dev",
+            "--model",
+            "llama3.1:8b",
+            "--api-port",
+            "11435",
+            "--webui-port",
+            "8081",
+            "--no-gpu",
+            "--memory-gb",
+            "12",
+            "--no-pull",
+        ])
+        .expect("ai create must parse");
+        assert!(matches!(
+            create.command,
+            crate::cli::Commands::Ai(crate::cli::AiCommands::Create { .. })
+        ));
+
+        for args in [
+            vec!["enola", "ai", "list"],
+            vec!["enola", "ai", "status", "dev"],
+            vec!["enola", "ai", "start", "dev"],
+            vec!["enola", "ai", "stop", "dev"],
+            vec!["enola", "ai", "delete", "dev", "--force"],
+            vec!["enola", "ai", "publish", "dev", "--verify"],
+            vec!["enola", "ai", "hide", "dev"],
+            vec!["enola", "ai", "logs", "dev", "--lines", "100"],
+        ] {
+            assert!(
+                crate::cli::Cli::try_parse_from(args.clone()).is_ok(),
+                "failed to parse {args:?}"
+            );
         }
     }
 }

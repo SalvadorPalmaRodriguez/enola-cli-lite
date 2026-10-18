@@ -1,0 +1,1017 @@
+// Fase 10.3 + 10.4 — Adapter de ciclo de vida de instancias de IA (Ollama + Open WebUI)
+// reescrito íntegramente sobre `ContainerPort` (`BollardDockerAdapter`).
+//
+// Reglas inviolables aplicadas:
+// - CERO `docker compose`, CERO `Command::new("docker")`.
+// - Todos los puertos host bindean exclusivamente a `127.0.0.1` (`build_localhost_port_maps`
+//   en `BollardDockerAdapter` + verificación explícita).
+// - Reserva anti-TOCTOU de puertos con `infrastructure::port_lock::acquire_port_lock` (flock).
+// - Hardening centralizado con `build_default_security_opt`, `no_new_privileges: true`,
+//   `cap_drop: ["ALL"]` y soporte de `image_digest`.
+// - Límites R20 calibrados para IA: `memory_limit` >= 8 GiB en Ollama (evita OOM exit 137
+//   del default de 2 GiB), `pids_limit` >= 4096 (hilos BLAS/CUDA) y volúmenes persistentes.
+// - Soporte GPU (Paso 10.4, R21) reutilizando `HardwareProbePort` (`EnolaHardwareProbe`),
+//   sin duplicar sondas NVML/`nvidia-smi`, degradando a CPU con aviso claro si no hay GPU.
+
+use crate::domain::ai::{
+    ai_network_name, ollama_container_name, validate_ai_instance_name, webui_container_name,
+    AiInstance, AiInstanceStatus, AiStackConfig, DEFAULT_AI_BASE_DIR, DEFAULT_AI_MODEL,
+    DEFAULT_WEBUI_MEMORY_BYTES, MIN_AI_PIDS_LIMIT, MIN_OLLAMA_MEMORY_BYTES, OLLAMA_INTERNAL_PORT,
+    WEBUI_INTERNAL_PORT,
+};
+use crate::domain::error::{EnolaError, Result};
+use crate::infrastructure::file_lock::FileLock;
+use crate::infrastructure::port_lock::acquire_port_lock;
+use crate::infrastructure::security_opt::{apparmor_profile_opt, build_default_security_opt};
+use crate::ports::ai::AiAdapterPort;
+use crate::ports::container::{ContainerConfig, ContainerInfo, ContainerPort};
+use crate::ports::hardware::{GpuBrand, HardwareProbePort};
+use crate::ports::manifest::ManifestPort;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashMap};
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// Metadatos persistidos en `<base_dir>/<name>/instance.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredInstanceMeta {
+    name: String,
+    model: String,
+    api_port: u16,
+    webui_port: u16,
+    gpu_enabled: bool,
+}
+
+/// Adapter de infraestructura para gestionar stacks Ollama + Open WebUI vía `ContainerPort`.
+pub struct EnolaAiAdapter {
+    container_manager: Arc<dyn ContainerPort + Send + Sync>,
+    hardware_probe: Arc<dyn HardwareProbePort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+    base_dir: PathBuf,
+}
+
+impl EnolaAiAdapter {
+    /// Crea un nuevo `EnolaAiAdapter` con el directorio de datos por defecto (`/srv/enola-ai`).
+    pub fn new(
+        container_manager: Arc<dyn ContainerPort + Send + Sync>,
+        hardware_probe: Arc<dyn HardwareProbePort + Send + Sync>,
+        manifest: Arc<dyn ManifestPort + Send + Sync>,
+    ) -> Self {
+        Self {
+            container_manager,
+            hardware_probe,
+            manifest,
+            base_dir: PathBuf::from(DEFAULT_AI_BASE_DIR),
+        }
+    }
+
+    /// Constructor con `base_dir` inyectable (tests unitarios sin tocar `/srv/enola-ai`).
+    pub fn new_with_base(
+        container_manager: Arc<dyn ContainerPort + Send + Sync>,
+        hardware_probe: Arc<dyn HardwareProbePort + Send + Sync>,
+        manifest: Arc<dyn ManifestPort + Send + Sync>,
+        base_dir: PathBuf,
+    ) -> Self {
+        Self {
+            container_manager,
+            hardware_probe,
+            manifest,
+            base_dir,
+        }
+    }
+
+    /// Directorio en disco de una instancia: `<base_dir>/<name>`.
+    pub fn instance_dir(&self, name: &str) -> PathBuf {
+        self.base_dir.join(name)
+    }
+
+    fn meta_file_path(&self, name: &str) -> PathBuf {
+        self.instance_dir(name).join("instance.json")
+    }
+
+    fn read_meta(&self, name: &str) -> Option<StoredInstanceMeta> {
+        let path = self.meta_file_path(name);
+        let raw = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&raw).ok()
+    }
+
+    fn write_meta(&self, meta: &StoredInstanceMeta) -> Result<()> {
+        let dir = self.instance_dir(&meta.name);
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "No se pudo crear el directorio de instancia IA '{}': {e}",
+                dir.display()
+            ))
+        })?;
+        let json = serde_json::to_string_pretty(meta).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo serializar metadatos IA: {e}"))
+        })?;
+        std::fs::write(self.meta_file_path(&meta.name), json).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo escribir instance.json: {e}"))
+        })
+    }
+
+    /// Reserva un puerto con `acquire_port_lock` (flock exclusivo no bloqueante).
+    fn reserve_port(port: u16, label: &str) -> Result<FileLock> {
+        acquire_port_lock(port).map_err(|e| {
+            if e.kind() == ErrorKind::WouldBlock {
+                EnolaError::ValidationError(format!(
+                    "El puerto {port} ({label}) está reservado por otra operación concurrente de enola-cli"
+                ))
+            } else {
+                EnolaError::InfrastructureError(format!(
+                    "No se pudo adquirir el lockfile del puerto {port} ({label}): {e}"
+                ))
+            }
+        })
+    }
+
+    /// Resuelve si hay GPU NVIDIA disponible a través de `HardwareProbePort` (Paso 10.4).
+    /// Si el usuario solicitó GPU pero no hay GPU NVIDIA disponible, degrada a CPU con warning.
+    pub async fn resolve_effective_gpu(&self, requested_gpu: bool, instance_name: &str) -> bool {
+        if !requested_gpu {
+            return false;
+        }
+        match self.hardware_probe.probe().await {
+            Ok(specs) => {
+                let has_nvidia = specs.gpu_brand == GpuBrand::Nvidia
+                    || specs.gpus.iter().any(|g| g.brand == GpuBrand::Nvidia);
+                if has_nvidia {
+                    true
+                } else {
+                    tracing::warn!(
+                        instance = instance_name,
+                        "No se detectó GPU NVIDIA disponible; degradando instancia IA a modo CPU"
+                    );
+                    eprintln!(
+                        "⚠️  No se detectó GPU NVIDIA disponible para '{}'; degradando a modo CPU.",
+                        instance_name
+                    );
+                    false
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    instance = instance_name,
+                    error = %err,
+                    "Fallo al sondear hardware GPU; degradando instancia IA a modo CPU"
+                );
+                eprintln!(
+                    "⚠️  No se pudo verificar GPU NVIDIA ({}); degradando '{}' a modo CPU.",
+                    err, instance_name
+                );
+                false
+            }
+        }
+    }
+
+    /// Construye el `ContainerConfig` endurecido y calibrado (R20) para Ollama.
+    pub fn build_ollama_container_config(
+        config: &AiStackConfig,
+        effective_gpu: bool,
+        inst_dir: &Path,
+    ) -> ContainerConfig {
+        let container_name = ollama_container_name(&config.name);
+        let net_name = ai_network_name(&config.name);
+        let ollama_data = inst_dir.join("ollama");
+
+        let mut env = HashMap::new();
+        env.insert("OLLAMA_HOST".to_string(), "0.0.0.0:11434".to_string());
+        env.insert(
+            "OLLAMA_MODELS".to_string(),
+            "/root/.ollama/models".to_string(),
+        );
+
+        let mut ports = HashMap::new();
+        ports.insert(config.api_port, OLLAMA_INTERNAL_PORT);
+
+        let mut volumes = HashMap::new();
+        volumes.insert(
+            ollama_data.to_string_lossy().to_string(),
+            "/root/.ollama".to_string(),
+        );
+
+        let mut user_sec_opts = Vec::new();
+        if let Some(profile) = apparmor_profile_opt(&container_name) {
+            user_sec_opts.push(profile);
+        }
+        let security_opt = build_default_security_opt(user_sec_opts);
+
+        ContainerConfig {
+            name: container_name,
+            image: config.ollama_image.clone(),
+            command: None,
+            env,
+            ports,
+            volumes,
+            network: Some(net_name),
+            restart_policy: Some("unless-stopped".to_string()),
+            gpu_support: effective_gpu,
+            auto_remove: false,
+            working_dir: None,
+            security_opt,
+            memory_limit: Some(config.memory_limit_bytes.max(MIN_OLLAMA_MEMORY_BYTES)),
+            nano_cpus: Some(config.nano_cpus),
+            pids_limit: Some(config.pids_limit.max(MIN_AI_PIDS_LIMIT)),
+            secrets: HashMap::new(),
+            // R20: Ollama escribe cachés temporales y metadatos de runtime además de `/root/.ollama`.
+            read_only_rootfs: false,
+            no_new_privileges: true,
+            cap_drop: vec!["ALL".to_string()],
+            cap_add: vec![
+                "CHOWN".to_string(),
+                "SETUID".to_string(),
+                "SETGID".to_string(),
+                "DAC_OVERRIDE".to_string(),
+            ],
+            image_digest: config.ollama_image_digest.clone(),
+        }
+    }
+
+    /// Construye el `ContainerConfig` endurecido y calibrado (R20) para Open WebUI.
+    pub fn build_webui_container_config(
+        config: &AiStackConfig,
+        inst_dir: &Path,
+    ) -> ContainerConfig {
+        let container_name = webui_container_name(&config.name);
+        let ollama_name = ollama_container_name(&config.name);
+        let net_name = ai_network_name(&config.name);
+        let webui_data = inst_dir.join("webui");
+
+        let mut env = HashMap::new();
+        env.insert(
+            "OLLAMA_BASE_URL".to_string(),
+            format!("http://{ollama_name}:{OLLAMA_INTERNAL_PORT}"),
+        );
+        env.insert("DEFAULT_MODELS".to_string(), config.model.clone());
+        env.insert("WEBUI_AUTH".to_string(), "true".to_string());
+        env.insert("SCARF_NO_ANALYTICS".to_string(), "true".to_string());
+        env.insert("DO_NOT_TRACK".to_string(), "true".to_string());
+        env.insert("ANONYMIZED_TELEMETRY".to_string(), "false".to_string());
+
+        let mut ports = HashMap::new();
+        ports.insert(config.webui_port, WEBUI_INTERNAL_PORT);
+
+        let mut volumes = HashMap::new();
+        volumes.insert(
+            webui_data.to_string_lossy().to_string(),
+            "/app/backend/data".to_string(),
+        );
+
+        let mut user_sec_opts = Vec::new();
+        if let Some(profile) = apparmor_profile_opt(&container_name) {
+            user_sec_opts.push(profile);
+        }
+        let security_opt = build_default_security_opt(user_sec_opts);
+
+        ContainerConfig {
+            name: container_name,
+            image: config.webui_image.clone(),
+            command: None,
+            env,
+            ports,
+            volumes,
+            network: Some(net_name),
+            restart_policy: Some("unless-stopped".to_string()),
+            gpu_support: false,
+            auto_remove: false,
+            working_dir: None,
+            security_opt,
+            memory_limit: Some(
+                config
+                    .webui_memory_limit_bytes
+                    .max(DEFAULT_WEBUI_MEMORY_BYTES),
+            ),
+            nano_cpus: Some(config.nano_cpus),
+            pids_limit: Some(config.pids_limit.max(MIN_AI_PIDS_LIMIT)),
+            secrets: HashMap::new(),
+            // R20: Open WebUI inicializa migraciones SQLite y cachés en `/app/backend/data` y `/tmp`.
+            read_only_rootfs: false,
+            no_new_privileges: true,
+            cap_drop: vec!["ALL".to_string()],
+            cap_add: vec![
+                "CHOWN".to_string(),
+                "SETUID".to_string(),
+                "SETGID".to_string(),
+                "DAC_OVERRIDE".to_string(),
+            ],
+            image_digest: config.webui_image_digest.clone(),
+        }
+    }
+
+    /// Extrae el puerto host mapeado a `internal_port` desde las cadenas de `ContainerInfo::ports`.
+    fn parse_host_port(ports: &[String], internal_port: u16) -> Option<u16> {
+        let needle = format!("->{internal_port}/tcp");
+        for entry in ports {
+            if let Some(prefix) = entry.split(needle.as_str()).next() {
+                if prefix.len() == entry.len() {
+                    continue;
+                }
+                let host_part = prefix.rsplit(':').next().unwrap_or(prefix);
+                if let Ok(port) = host_part.trim().parse::<u16>() {
+                    return Some(port);
+                }
+            }
+        }
+        None
+    }
+
+    fn is_running_status(status: &str) -> bool {
+        let lower = status.to_ascii_lowercase();
+        lower.contains("up") || lower.contains("running")
+    }
+
+    fn build_instance_from_state(
+        &self,
+        name: &str,
+        ollama: Option<&ContainerInfo>,
+        webui: Option<&ContainerInfo>,
+    ) -> Option<AiInstance> {
+        let meta = self.read_meta(name);
+        if ollama.is_none() && webui.is_none() && meta.is_none() {
+            return None;
+        }
+
+        let ollama_running = ollama.map(|c| Self::is_running_status(&c.status));
+        let webui_running = webui.map(|c| Self::is_running_status(&c.status));
+        let status = AiInstanceStatus::from_container_states(ollama_running, webui_running);
+
+        let api_port = ollama
+            .and_then(|c| Self::parse_host_port(&c.ports, OLLAMA_INTERNAL_PORT))
+            .or_else(|| meta.as_ref().map(|m| m.api_port));
+        let webui_port = webui
+            .and_then(|c| Self::parse_host_port(&c.ports, WEBUI_INTERNAL_PORT))
+            .or_else(|| meta.as_ref().map(|m| m.webui_port));
+
+        let model = meta
+            .as_ref()
+            .map(|m| m.model.clone())
+            .unwrap_or_else(|| DEFAULT_AI_MODEL.to_string());
+        let gpu_enabled = meta.as_ref().map(|m| m.gpu_enabled).unwrap_or(false);
+
+        Some(AiInstance {
+            name: name.to_string(),
+            model,
+            api_port,
+            webui_port,
+            status,
+            ollama_status: ollama
+                .map(|c| c.status.clone())
+                .unwrap_or_else(|| "missing".to_string()),
+            webui_status: webui
+                .map(|c| c.status.clone())
+                .unwrap_or_else(|| "missing".to_string()),
+            gpu_enabled,
+            onion_address: None,
+        })
+    }
+
+    async fn rollback_partial_create(
+        &self,
+        name: &str,
+        ollama_created: bool,
+        webui_created: bool,
+        inst_dir: &Path,
+    ) {
+        let webui_name = webui_container_name(name);
+        let ollama_name = ollama_container_name(name);
+        let net_name = ai_network_name(name);
+
+        if webui_created {
+            let _ = self.container_manager.stop_container(&webui_name).await;
+            let _ = self.container_manager.remove_container(&webui_name).await;
+        }
+        if ollama_created {
+            let _ = self.container_manager.stop_container(&ollama_name).await;
+            let _ = self.container_manager.remove_container(&ollama_name).await;
+        }
+        let _ = self.container_manager.remove_network(&net_name).await;
+        if inst_dir.exists() {
+            let _ = std::fs::remove_dir_all(inst_dir);
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AiAdapterPort for EnolaAiAdapter {
+    async fn create_instance(&self, config: AiStackConfig) -> Result<AiInstance> {
+        validate_ai_instance_name(&config.name)?;
+
+        // 1. Adquirir locks exclusivos de puerto ANTES de tocar Docker (SEC-EXT-RACE-011).
+        //    Los guards viven hasta que ambos contenedores se han creado y arrancado.
+        let _api_port_lock = Self::reserve_port(config.api_port, "api-port")?;
+        let _webui_port_lock = Self::reserve_port(config.webui_port, "webui-port")?;
+
+        // 2. Comprobar que la instancia no exista ya.
+        let inst_dir = self.instance_dir(&config.name);
+        let ollama_name = ollama_container_name(&config.name);
+        let webui_name = webui_container_name(&config.name);
+        let existing_containers = self.container_manager.list_containers(true).await?;
+        if existing_containers
+            .iter()
+            .any(|c| c.name == ollama_name || c.name == webui_name)
+            || self.meta_file_path(&config.name).exists()
+        {
+            return Err(EnolaError::ValidationError(format!(
+                "La instancia IA '{}' ya existe",
+                config.name
+            )));
+        }
+
+        // 3. Resolver soporte GPU vía HardwareProbePort (Paso 10.4 — R21).
+        let effective_gpu = self
+            .resolve_effective_gpu(config.gpu_enabled, &config.name)
+            .await;
+
+        // 4. Preparar directorios de datos persistentes.
+        let ollama_data = inst_dir.join("ollama");
+        let webui_data = inst_dir.join("webui");
+        std::fs::create_dir_all(&ollama_data).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "No se pudo crear directorio de datos Ollama '{}': {e}",
+                ollama_data.display()
+            ))
+        })?;
+        std::fs::create_dir_all(&webui_data).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "No se pudo crear directorio de datos WebUI '{}': {e}",
+                webui_data.display()
+            ))
+        })?;
+
+        // 5. Crear red Docker aislada.
+        let net_name = ai_network_name(&config.name);
+        if let Err(err) = self.container_manager.create_network(&net_name).await {
+            let _ = std::fs::remove_dir_all(&inst_dir);
+            return Err(err);
+        }
+
+        // 6. Crear y arrancar contenedor Ollama.
+        let ollama_cfg = Self::build_ollama_container_config(&config, effective_gpu, &inst_dir);
+        if let Err(err) = self.container_manager.create_container(ollama_cfg).await {
+            self.rollback_partial_create(&config.name, false, false, &inst_dir)
+                .await;
+            return Err(err);
+        }
+        if let Err(err) = self.container_manager.start_container(&ollama_name).await {
+            self.rollback_partial_create(&config.name, true, false, &inst_dir)
+                .await;
+            return Err(err);
+        }
+
+        // 7. Crear y arrancar contenedor Open WebUI.
+        let webui_cfg = Self::build_webui_container_config(&config, &inst_dir);
+        if let Err(err) = self.container_manager.create_container(webui_cfg).await {
+            self.rollback_partial_create(&config.name, true, false, &inst_dir)
+                .await;
+            return Err(err);
+        }
+        if let Err(err) = self.container_manager.start_container(&webui_name).await {
+            self.rollback_partial_create(&config.name, true, true, &inst_dir)
+                .await;
+            return Err(err);
+        }
+
+        // 8. Persistir metadatos y registrar en el manifest de desinstalación.
+        let meta = StoredInstanceMeta {
+            name: config.name.clone(),
+            model: config.model.clone(),
+            api_port: config.api_port,
+            webui_port: config.webui_port,
+            gpu_enabled: effective_gpu,
+        };
+        if let Err(err) = self.write_meta(&meta) {
+            self.rollback_partial_create(&config.name, true, true, &inst_dir)
+                .await;
+            return Err(err);
+        }
+
+        let _ = self.manifest.append("docker_network", &net_name);
+        let _ = self.manifest.append("docker_container", &ollama_name);
+        let _ = self.manifest.append("docker_container", &webui_name);
+        let _ = self.manifest.append("dir", &inst_dir.to_string_lossy());
+
+        Ok(AiInstance {
+            name: config.name,
+            model: config.model,
+            api_port: Some(config.api_port),
+            webui_port: Some(config.webui_port),
+            status: AiInstanceStatus::Running,
+            ollama_status: "Up".to_string(),
+            webui_status: "Up".to_string(),
+            gpu_enabled: effective_gpu,
+            onion_address: None,
+        })
+    }
+
+    async fn list_instances(&self) -> Result<Vec<AiInstance>> {
+        let containers = self.container_manager.list_containers(true).await?;
+        let mut names = BTreeSet::new();
+
+        for c in &containers {
+            if let Some(rest) = c.name.strip_prefix("enola-ai-") {
+                if let Some(name) = rest.strip_suffix("-ollama") {
+                    if validate_ai_instance_name(name).is_ok() {
+                        names.insert(name.to_string());
+                    }
+                } else if let Some(name) = rest.strip_suffix("-webui") {
+                    if validate_ai_instance_name(name).is_ok() {
+                        names.insert(name.to_string());
+                    }
+                }
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&self.base_dir) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if validate_ai_instance_name(&name).is_ok()
+                        && self.meta_file_path(&name).exists()
+                    {
+                        names.insert(name);
+                    }
+                }
+            }
+        }
+
+        let mut instances = Vec::new();
+        for name in names {
+            let ollama_name = ollama_container_name(&name);
+            let webui_name = webui_container_name(&name);
+            let ollama = containers.iter().find(|c| c.name == ollama_name);
+            let webui = containers.iter().find(|c| c.name == webui_name);
+            if let Some(inst) = self.build_instance_from_state(&name, ollama, webui) {
+                instances.push(inst);
+            }
+        }
+        Ok(instances)
+    }
+
+    async fn get_instance(&self, name: &str) -> Result<AiInstance> {
+        validate_ai_instance_name(name)?;
+        let containers = self.container_manager.list_containers(true).await?;
+        let ollama_name = ollama_container_name(name);
+        let webui_name = webui_container_name(name);
+        let ollama = containers.iter().find(|c| c.name == ollama_name);
+        let webui = containers.iter().find(|c| c.name == webui_name);
+
+        self.build_instance_from_state(name, ollama, webui)
+            .ok_or_else(|| EnolaError::NotFound(format!("Instancia IA '{}' no encontrada", name)))
+    }
+
+    async fn start_instance(&self, name: &str) -> Result<()> {
+        validate_ai_instance_name(name)?;
+        let _ = self.get_instance(name).await?;
+        let ollama_name = ollama_container_name(name);
+        let webui_name = webui_container_name(name);
+        self.container_manager.start_container(&ollama_name).await?;
+        self.container_manager.start_container(&webui_name).await?;
+        Ok(())
+    }
+
+    async fn stop_instance(&self, name: &str) -> Result<()> {
+        validate_ai_instance_name(name)?;
+        let _ = self.get_instance(name).await?;
+        let webui_name = webui_container_name(name);
+        let ollama_name = ollama_container_name(name);
+        let _ = self.container_manager.stop_container(&webui_name).await;
+        self.container_manager.stop_container(&ollama_name).await?;
+        Ok(())
+    }
+
+    async fn delete_instance(&self, name: &str, force: bool) -> Result<()> {
+        validate_ai_instance_name(name)?;
+        if !force {
+            return Err(EnolaError::ValidationError(format!(
+                "Eliminar la instancia IA '{name}' requiere confirmar con --force"
+            )));
+        }
+
+        let _ = self.get_instance(name).await?;
+        let webui_name = webui_container_name(name);
+        let ollama_name = ollama_container_name(name);
+        let net_name = ai_network_name(name);
+
+        let _ = self.container_manager.stop_container(&webui_name).await;
+        let _ = self.container_manager.remove_container(&webui_name).await;
+        let _ = self.container_manager.stop_container(&ollama_name).await;
+        let _ = self.container_manager.remove_container(&ollama_name).await;
+        let _ = self.container_manager.remove_network(&net_name).await;
+
+        let inst_dir = self.instance_dir(name);
+        if inst_dir.exists() {
+            std::fs::remove_dir_all(&inst_dir).map_err(|e| {
+                EnolaError::InfrastructureError(format!(
+                    "No se pudo eliminar el directorio '{}': {e}",
+                    inst_dir.display()
+                ))
+            })?;
+        }
+        Ok(())
+    }
+
+    async fn get_instance_logs(&self, name: &str, lines: usize) -> Result<String> {
+        validate_ai_instance_name(name)?;
+        let _ = self.get_instance(name).await?;
+        let ollama_name = ollama_container_name(name);
+        let webui_name = webui_container_name(name);
+
+        let ollama_logs = self
+            .container_manager
+            .get_logs(&ollama_name, lines)
+            .await
+            .unwrap_or_else(|e| format!("(no logs from {ollama_name}: {e})"));
+        let webui_logs = self
+            .container_manager
+            .get_logs(&webui_name, lines)
+            .await
+            .unwrap_or_else(|e| format!("(no logs from {webui_name}: {e})"));
+
+        Ok(format!(
+            "=== {ollama_name} ===\n{}\n=== {webui_name} ===\n{}",
+            ollama_logs.trim_end(),
+            webui_logs.trim_end()
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::ports::container::MockContainerPort;
+    use crate::ports::hardware::{
+        BatteryState, GpuInfo, MockHardwareProbePort, SystemHardwareSpecs,
+    };
+    use crate::ports::manifest::MockManifestPort;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    fn lock_env_dir(tmp: &TempDir) -> std::sync::MutexGuard<'static, ()> {
+        let guard = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp.path());
+        guard
+    }
+
+    fn mock_manifest() -> Arc<dyn ManifestPort + Send + Sync> {
+        let mut m = MockManifestPort::new();
+        m.expect_append().returning(|_, _| Ok(())).times(0..);
+        Arc::new(m)
+    }
+
+    fn mock_hw_with_nvidia(has_nvidia: bool) -> Arc<dyn HardwareProbePort + Send + Sync> {
+        let mut hw = MockHardwareProbePort::new();
+        hw.expect_probe().returning(move || {
+            let gpus = if has_nvidia {
+                vec![GpuInfo {
+                    index: 0,
+                    name: "NVIDIA RTX 4060".into(),
+                    brand: GpuBrand::Nvidia,
+                    vram_total_mb: 8192,
+                    vram_used_mb: 512,
+                    vram_free_mb: 7680,
+                    temperature_c: Some(40),
+                    utilization_gpu: Some(5),
+                    driver_version: Some("550.0".into()),
+                }]
+            } else {
+                vec![]
+            };
+            Ok(SystemHardwareSpecs {
+                cpu_cores: 8,
+                ram_total_mb: 16384,
+                ram_available_mb: 12000,
+                ram_used_mb: 4384,
+                gpu_brand: if has_nvidia {
+                    GpuBrand::Nvidia
+                } else {
+                    GpuBrand::None
+                },
+                gpus,
+                battery_status: BatteryState::AcConnected,
+                platform: "Linux".into(),
+            })
+        });
+        Arc::new(hw)
+    }
+
+    #[tokio::test]
+    async fn create_instance_creates_ollama_and_webui_with_r20_limits_and_localhost_ports() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        let captured_configs: Arc<Mutex<Vec<ContainerConfig>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = captured_configs.clone();
+
+        let mut docker = MockContainerPort::new();
+        docker.expect_list_containers().returning(|_| Ok(vec![]));
+        docker
+            .expect_create_network()
+            .withf(|net| net == "enola_net_ai_dev")
+            .times(1)
+            .returning(|_| Ok(()));
+        docker
+            .expect_create_container()
+            .times(2)
+            .returning(move |cfg| {
+                let name = cfg.name.clone();
+                captured_clone.lock().unwrap().push(cfg);
+                Ok(format!("id-{name}"))
+            });
+        docker
+            .expect_start_container()
+            .times(2)
+            .returning(|_| Ok(()));
+
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(docker),
+            mock_hw_with_nvidia(true),
+            mock_manifest(),
+            tmp.path().join("ai_data"),
+        );
+
+        let mut stack_cfg = AiStackConfig::new("dev", "llama3.1:8b", 11435, 8081, true).unwrap();
+        stack_cfg.ollama_image_digest = Some("sha256:111122223333".into());
+
+        let inst = adapter.create_instance(stack_cfg).await.unwrap();
+        assert_eq!(inst.name, "dev");
+        assert_eq!(inst.api_port, Some(11435));
+        assert_eq!(inst.webui_port, Some(8081));
+        assert_eq!(inst.status, AiInstanceStatus::Running);
+        assert!(inst.gpu_enabled);
+
+        let configs = captured_configs.lock().unwrap();
+        assert_eq!(configs.len(), 2);
+
+        let ollama_cfg = configs
+            .iter()
+            .find(|c| c.name == "enola-ai-dev-ollama")
+            .expect("ollama container created");
+        assert_eq!(ollama_cfg.ports.get(&11435), Some(&11434));
+        assert!(
+            ollama_cfg.gpu_support,
+            "NVIDIA GPU detected -> gpu_support=true"
+        );
+        assert!(
+            ollama_cfg.memory_limit.unwrap_or(0) >= MIN_OLLAMA_MEMORY_BYTES,
+            "R20: memory_limit must be >= 8 GiB, never 2 GiB default"
+        );
+        assert!(
+            ollama_cfg.pids_limit.unwrap_or(0) >= MIN_AI_PIDS_LIMIT,
+            "R20: pids_limit must be >= 4096"
+        );
+        assert!(ollama_cfg.no_new_privileges);
+        assert_eq!(ollama_cfg.cap_drop, vec!["ALL".to_string()]);
+        assert!(ollama_cfg
+            .security_opt
+            .iter()
+            .any(|o| o == "no-new-privileges:true"));
+        assert_eq!(
+            ollama_cfg.image_digest.as_deref(),
+            Some("sha256:111122223333")
+        );
+
+        // Regla inviolable skill docker: TODOS los port bindings en 127.0.0.1
+        let (_, ollama_bindings) =
+            BollardDockerAdapter::build_localhost_port_maps(&ollama_cfg.ports);
+        for bindings in ollama_bindings.values().flatten() {
+            for b in bindings {
+                assert_eq!(b.host_ip.as_deref(), Some("127.0.0.1"));
+            }
+        }
+
+        let webui_cfg = configs
+            .iter()
+            .find(|c| c.name == "enola-ai-dev-webui")
+            .expect("webui container created");
+        assert_eq!(webui_cfg.ports.get(&8081), Some(&8080));
+        assert!(webui_cfg.memory_limit.unwrap_or(0) > 2 * 1024 * 1024 * 1024);
+        assert!(webui_cfg.pids_limit.unwrap_or(0) >= MIN_AI_PIDS_LIMIT);
+        assert!(webui_cfg.no_new_privileges);
+        assert_eq!(webui_cfg.cap_drop, vec!["ALL".to_string()]);
+        assert_eq!(
+            webui_cfg.env.get("OLLAMA_BASE_URL").map(String::as_str),
+            Some("http://enola-ai-dev-ollama:11434")
+        );
+
+        let (_, webui_bindings) = BollardDockerAdapter::build_localhost_port_maps(&webui_cfg.ports);
+        for bindings in webui_bindings.values().flatten() {
+            for b in bindings {
+                assert_eq!(b.host_ip.as_deref(), Some("127.0.0.1"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn create_instance_degrades_to_cpu_when_no_nvidia_gpu_available() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        let captured_configs: Arc<Mutex<Vec<ContainerConfig>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = captured_configs.clone();
+
+        let mut docker = MockContainerPort::new();
+        docker.expect_list_containers().returning(|_| Ok(vec![]));
+        docker.expect_create_network().returning(|_| Ok(()));
+        docker.expect_create_container().returning(move |cfg| {
+            let name = cfg.name.clone();
+            captured_clone.lock().unwrap().push(cfg);
+            Ok(format!("id-{name}"))
+        });
+        docker.expect_start_container().returning(|_| Ok(()));
+
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(docker),
+            mock_hw_with_nvidia(false),
+            mock_manifest(),
+            tmp.path().join("ai_data"),
+        );
+
+        let stack_cfg = AiStackConfig::new("cpuinst", "llama3.1:8b", 11440, 8085, true).unwrap();
+        let inst = adapter.create_instance(stack_cfg).await.unwrap();
+        assert!(
+            !inst.gpu_enabled,
+            "should degrade to CPU when no GPU is found"
+        );
+
+        let configs = captured_configs.lock().unwrap();
+        let ollama_cfg = configs
+            .iter()
+            .find(|c| c.name == "enola-ai-cpuinst-ollama")
+            .unwrap();
+        assert!(!ollama_cfg.gpu_support);
+    }
+
+    #[tokio::test]
+    async fn create_instance_rolls_back_ollama_and_network_when_webui_fails() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        let mut docker = MockContainerPort::new();
+        docker.expect_list_containers().returning(|_| Ok(vec![]));
+        docker
+            .expect_create_network()
+            .withf(|net| net == "enola_net_ai_rollback")
+            .times(1)
+            .returning(|_| Ok(()));
+
+        // 1er create_container (ollama) tiene éxito; 2º (webui) falla
+        let mut call_count = 0usize;
+        docker
+            .expect_create_container()
+            .times(2)
+            .returning(move |cfg| {
+                call_count += 1;
+                if call_count == 1 {
+                    assert_eq!(cfg.name, "enola-ai-rollback-ollama");
+                    Ok("id-ollama".into())
+                } else {
+                    Err(EnolaError::InfrastructureError(
+                        "simulated webui creation failure".into(),
+                    ))
+                }
+            });
+        docker
+            .expect_start_container()
+            .withf(|id| id == "enola-ai-rollback-ollama" || id == "id-ollama")
+            .times(1)
+            .returning(|_| Ok(()));
+
+        // Rollback esperado: stop + remove de ollama + remove_network
+        docker
+            .expect_stop_container()
+            .withf(|name| name == "enola-ai-rollback-ollama")
+            .times(1)
+            .returning(|_| Ok(()));
+        docker
+            .expect_remove_container()
+            .withf(|name| name == "enola-ai-rollback-ollama")
+            .times(1)
+            .returning(|_| Ok(()));
+        docker
+            .expect_remove_network()
+            .withf(|net| net == "enola_net_ai_rollback")
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let base_dir = tmp.path().join("ai_data");
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(docker),
+            mock_hw_with_nvidia(false),
+            mock_manifest(),
+            base_dir.clone(),
+        );
+
+        let stack_cfg = AiStackConfig::new("rollback", "llama3.1:8b", 11445, 8086, false).unwrap();
+        let res = adapter.create_instance(stack_cfg).await;
+        assert!(res.is_err());
+        assert!(
+            !base_dir.join("rollback").exists(),
+            "instance directory must be cleaned up on rollback"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_instance_rejects_port_already_locked_by_flock() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        // Pre-bloqueamos el puerto 11450 con acquire_port_lock
+        let _held_lock = acquire_port_lock(11450).expect("hold port lock");
+
+        let mut docker = MockContainerPort::new();
+        // No debe invocar create_container si el lock de puerto falla
+        docker.expect_create_container().times(0);
+
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(docker),
+            mock_hw_with_nvidia(false),
+            mock_manifest(),
+            tmp.path().join("ai_data"),
+        );
+
+        let stack_cfg = AiStackConfig::new("locked", "llama3.1:8b", 11450, 8087, false).unwrap();
+        let err = adapter.create_instance(stack_cfg).await.unwrap_err();
+        assert!(err.to_string().contains("11450"));
+    }
+
+    #[tokio::test]
+    async fn lifecycle_list_status_start_stop_delete_and_logs_work_via_container_port() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        let mut docker = MockContainerPort::new();
+        docker.expect_list_containers().returning(|_| {
+            Ok(vec![
+                ContainerInfo {
+                    id: "c1".into(),
+                    name: "enola-ai-dev-ollama".into(),
+                    image: "ollama/ollama:latest".into(),
+                    status: "Up 5 minutes".into(),
+                    ports: vec!["127.0.0.1:11435->11434/tcp".into()],
+                },
+                ContainerInfo {
+                    id: "c2".into(),
+                    name: "enola-ai-dev-webui".into(),
+                    image: "ghcr.io/open-webui/open-webui:main".into(),
+                    status: "Up 5 minutes".into(),
+                    ports: vec!["127.0.0.1:8081->8080/tcp".into()],
+                },
+            ])
+        });
+        docker
+            .expect_start_container()
+            .times(2)
+            .returning(|_| Ok(()));
+        docker
+            .expect_stop_container()
+            .times(4)
+            .returning(|_| Ok(()));
+        docker
+            .expect_remove_container()
+            .times(2)
+            .returning(|_| Ok(()));
+        docker
+            .expect_remove_network()
+            .withf(|n| n == "enola_net_ai_dev")
+            .times(1)
+            .returning(|_| Ok(()));
+        docker
+            .expect_get_logs()
+            .times(2)
+            .returning(|name, _| Ok(format!("log line from {name}")));
+
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(docker),
+            mock_hw_with_nvidia(false),
+            mock_manifest(),
+            tmp.path().join("ai_data"),
+        );
+
+        let list = adapter.list_instances().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "dev");
+        assert_eq!(list[0].api_port, Some(11435));
+        assert_eq!(list[0].webui_port, Some(8081));
+        assert_eq!(list[0].status, AiInstanceStatus::Running);
+
+        let status = adapter.get_instance("dev").await.unwrap();
+        assert_eq!(status.status, AiInstanceStatus::Running);
+
+        adapter.start_instance("dev").await.unwrap();
+        adapter.stop_instance("dev").await.unwrap();
+
+        let logs = adapter.get_instance_logs("dev", 50).await.unwrap();
+        assert!(logs.contains("enola-ai-dev-ollama"));
+        assert!(logs.contains("enola-ai-dev-webui"));
+
+        // delete sin --force debe fallar
+        assert!(adapter.delete_instance("dev", false).await.is_err());
+        // delete con --force elimina ambos contenedores y la red
+        adapter.delete_instance("dev", true).await.unwrap();
+    }
+}

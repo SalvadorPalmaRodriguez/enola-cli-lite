@@ -559,6 +559,25 @@ pub enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AI (🧠 Instancias de IA local: Ollama + Open WebUI — Fase 10)
+    // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/ai/commands-ai.md
+    /// Manage local AI instances (Ollama + Open WebUI on 127.0.0.1 and .onion).
+    ///
+    /// Deploys hardened Ollama (`enola-ai-<name>-ollama`) and Open WebUI
+    /// (`enola-ai-<name>-webui`) containers bound exclusively to `127.0.0.1`,
+    /// with optional NVIDIA GPU passthrough and `.onion` publication via Tor + Nginx.
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai create --name dev --model llama3.1:8b
+    ///   sudo enola-cli ai list
+    ///   sudo enola-cli ai status dev
+    ///   sudo enola-cli ai publish dev
+    ///   enola-cli ask "lista mis servicios tor" --instance dev
+    #[command(subcommand)]
+    Ai(AiCommands),
 }
 
 /// UPD-CLI-001: subcomandos del comando `update`.
@@ -2423,4 +2442,136 @@ pub enum DocsCommands {
     ///   sudo enola-cli docs install-from-iso
     #[command(name = "install-from-iso")]
     InstallFromIso,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI COMMANDS (Fase 10 — Ollama + Open WebUI)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Subcomandos de gestión de instancias de IA local (`enola-cli ai`).
+#[derive(Subcommand, Debug)]
+pub enum AiCommands {
+    /// Create a new local AI instance (Ollama + Open WebUI bound to 127.0.0.1)
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai create --name dev --model llama3.1:8b
+    ///   sudo enola-cli ai create --name cpu1 --no-gpu --api-port 11435 --webui-port 8081
+    Create {
+        /// Instance name (lowercase letters, digits and hyphens; max 63 chars)
+        #[arg(short, long)]
+        name: String,
+
+        /// Initial Ollama model to pull and configure (default: llama3.1:8b)
+        #[arg(short, long, default_value = "llama3.1:8b")]
+        model: String,
+
+        /// Host port on 127.0.0.1 for the Ollama HTTP API (default: auto 11435-12000)
+        #[arg(long, value_name = "PORT")]
+        api_port: Option<u16>,
+
+        /// Host port on 127.0.0.1 for Open WebUI (default: auto 8081-8200)
+        #[arg(long, value_name = "PORT")]
+        webui_port: Option<u16>,
+
+        /// Force CPU mode even if an NVIDIA GPU is detected
+        #[arg(long, default_value_t = false)]
+        no_gpu: bool,
+
+        /// Memory limit in GiB for the Ollama container (minimum 8 GiB, default: 8)
+        #[arg(long, value_name = "GIB")]
+        memory_gb: Option<u64>,
+
+        /// Skip initial model pull (`/api/pull`) during creation
+        #[arg(long, default_value_t = false)]
+        no_pull: bool,
+    },
+
+    /// List all local AI instances and their status
+    ///
+    /// Example:
+    ///   sudo enola-cli ai list
+    List,
+
+    /// Show detailed status of an AI instance (Ollama, Open WebUI, ports, GPU, .onion)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai status dev
+    Status {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+
+    /// Start a stopped AI instance (Ollama + Open WebUI containers)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai start dev
+    Start {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+
+    /// Stop a running AI instance
+    ///
+    /// Example:
+    ///   sudo enola-cli ai stop dev
+    Stop {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+
+    /// Delete an AI instance (containers, network, data directory and .onion service)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai delete dev --force
+    Delete {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Confirm destructive deletion of the AI instance and its data
+        #[arg(short, long, default_value_t = false)]
+        force: bool,
+    },
+
+    /// Publish the Open WebUI interface of an AI instance as a Tor .onion hidden service
+    ///
+    /// Example:
+    ///   sudo enola-cli ai publish dev
+    ///   sudo enola-cli ai publish dev --verify
+    Publish {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Probe the resulting .onion address over Tor SOCKS5h after publishing
+        #[arg(long, default_value_t = false)]
+        verify: bool,
+    },
+
+    /// Hide an AI instance from Tor (removes its .onion hidden service and Nginx config)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai hide dev
+    Hide {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+
+    /// View container logs for an AI instance (Ollama + Open WebUI)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai logs dev --lines 100
+    Logs {
+        /// Instance name
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Number of log lines to retrieve per container
+        #[arg(short = 'n', long, default_value_t = 50)]
+        lines: usize,
+    },
 }

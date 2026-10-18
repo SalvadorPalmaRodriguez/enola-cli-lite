@@ -6364,7 +6364,7 @@ pub mod logs {
 
     /// List available log sources
     pub async fn list() -> CliResult<Vec<String>> {
-        Ok(vec![
+        let mut sources = vec![
             "system".to_string(),
             "tor".to_string(),
             "nginx".to_string(),
@@ -6372,12 +6372,46 @@ pub mod logs {
             "enola".to_string(),
             "install".to_string(),
             "smoke-test".to_string(),
-        ])
+        ];
+
+        if let Ok(docker) = crate::adapters::infra::docker::BollardDockerAdapter::new() {
+            let adapter = crate::adapters::ai::adapter::EnolaAiAdapter::new(
+                std::sync::Arc::new(docker),
+                std::sync::Arc::new(crate::adapters::hardware::probe::EnolaHardwareProbe::new()),
+                std::sync::Arc::new(FileManifestAdapter::new()),
+            );
+            if let Ok(instances) = crate::ports::ai::AiAdapterPort::list_instances(&adapter).await {
+                for inst in instances {
+                    sources.push(format!("ai-{}", inst.name));
+                }
+            }
+        }
+
+        Ok(sources)
     }
 
     /// View logs from a source
     pub async fn view(source: &str, lines: usize, _follow: bool) -> CliResult<Vec<String>> {
         use std::process::Command;
+
+        // Fase 10.5 (§3.6): `logs view ai-<name>` conecta con los contenedores de la instancia IA
+        // vía `ContainerPort` (`BollardDockerAdapter`), sin `Command::new("docker")`.
+        if let Some(instance_name) = source.strip_prefix("ai-") {
+            crate::domain::naming::validate_service_name(instance_name)
+                .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+            let docker = crate::adapters::infra::docker::BollardDockerAdapter::new()
+                .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
+            let adapter = crate::adapters::ai::adapter::EnolaAiAdapter::new(
+                std::sync::Arc::new(docker),
+                std::sync::Arc::new(crate::adapters::hardware::probe::EnolaHardwareProbe::new()),
+                std::sync::Arc::new(FileManifestAdapter::new()),
+            );
+            let combined =
+                crate::ports::ai::AiAdapterPort::get_instance_logs(&adapter, instance_name, lines)
+                    .await
+                    .map_err(CliError::from)?;
+            return Ok(combined.lines().map(|s| s.to_string()).collect());
+        }
 
         let lines_str = lines.to_string();
         let (cmd, args): (&str, Vec<&str>) = match source {

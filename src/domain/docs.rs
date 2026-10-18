@@ -68,6 +68,7 @@ pub const DOCS_COMMANDS_DOCS: &str = include_str!("../../docs/user/docs/commands
 pub const DOCS_TOR_CLIENT_AUTH: &str = include_str!("../../docs/user/tor/tor-client-auth.md");
 pub const DOCS_COMMANDS_MCP: &str = include_str!("../../docs/user/mcp/commands-mcp.md");
 pub const DOCS_COMMANDS_ASK: &str = include_str!("../../docs/user/ai/commands-ask.md");
+pub const DOCS_COMMANDS_AI: &str = include_str!("../../docs/user/ai/commands-ai.md");
 
 /// Prefijo del esquema de URIs de documentación MCP.
 pub const DOCS_URI_PREFIX: &str = "enola://docs/";
@@ -219,6 +220,10 @@ pub const DOC_CATALOG: &[DocEntry] = &[
     DocEntry {
         path: "ai/commands-ask.md",
         content: DOCS_COMMANDS_ASK,
+    },
+    DocEntry {
+        path: "ai/commands-ai.md",
+        content: DOCS_COMMANDS_AI,
     },
 ];
 

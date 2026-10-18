@@ -1,5 +1,23 @@
 {
   "flags": {
+    "ai.create": [
+      "--name",
+      "--model",
+      "--api-port",
+      "--webui-port",
+      "--no-gpu",
+      "--memory-gb",
+      "--no-pull"
+    ],
+    "ai.delete": [
+      "--force"
+    ],
+    "ai.logs": [
+      "--lines"
+    ],
+    "ai.publish": [
+      "--verify"
+    ],
     "apparmor.mode": [
       "--enforce",
       "--complain",
@@ -297,9 +315,21 @@
     "web",
     "plan",
     "mcp",
-    "ask"
+    "ask",
+    "ai"
   ],
   "subcommands": {
+    "ai": [
+      "create",
+      "list",
+      "status",
+      "start",
+      "stop",
+      "delete",
+      "publish",
+      "hide",
+      "logs"
+    ],
     "apparmor": [
       "setup",
       "status",

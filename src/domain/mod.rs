@@ -1,6 +1,7 @@
 // Domain Layer
 // Pure business logic and types. No external dependencies (if possible).
 
+pub mod ai; // Fase 10 — Tipos puros del stack IA local (Ollama + Open WebUI)
 pub mod app_config; // CONFIG-001 + CONFIG-002 — distribution & web URLs
 pub mod apparmor; // AA-001 (201) — AppArmor sandboxing domain types
 pub mod cms;

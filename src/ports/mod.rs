@@ -1,6 +1,7 @@
 // Ports Layer
 // Traits (Interfaces) describing what the application needs from the outside world.
 
+pub mod ai; // Fase 10 — Puerto de ciclo de vida de instancias IA (Ollama + Open WebUI)
 pub mod apparmor; // AA-002 (202) — AppArmor sandboxing port
 pub mod cert;
 pub mod cms;

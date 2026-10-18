@@ -74,69 +74,74 @@ pub(crate) fn truncate_output(text: &str, max: usize) -> (String, bool) {
     (text[..end].to_string(), true)
 }
 
-/// Subcomandos de LECTURA por familia (allowlist explícita).
+/// Subcomandos de LECTURA por ruta completa (familia → tokens de subcomando).
 ///
-/// Default-deny: cualquier (familia, subcomando) no listado aquí se clasifica
-/// como `Mutating`. Un comando nuevo NUNCA se cuela como lectura por descuido.
-pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &str)] = &[
-    ("tor", "list"),
-    ("git", "list"),
-    ("git", "status"),
-    ("wp", "list"),
-    ("wp", "status"),
-    ("drupal", "list"),
-    ("drupal", "status"),
-    ("ghost", "list"),
-    ("ghost", "status"),
-    ("magnolia", "list"),
-    ("magnolia", "status"),
-    ("strapi", "list"),
-    ("strapi", "status"),
-    ("wagtail", "list"),
-    ("wagtail", "status"),
-    ("files", "list"),
-    ("maintenance", "status"),
-    ("maintenance", "timer-status"),
-    ("maintenance", "ssh-config"),
-    ("diag", "summary"),
-    ("diag", "nginx"),
-    ("diag", "tor"),
-    ("diag", "ssh"),
-    ("diag", "word-press"),
-    ("diag", "wp-sync"),
-    ("diag", "nginx-test"),
-    ("diag", "resources"),
-    ("diag", "onion"),
-    ("test", "list"),
-    ("test", "results"),
-    ("logs", "list"),
-    ("logs", "view"),
-    ("logs", "install"),
-    ("logs", "smoke-test"),
-    ("ports", "list"),
-    ("firewall", "status"),
-    ("apparmor", "status"),
-    ("vpn", "list"),
-    ("vpn", "status"),
-    ("docs", "quickstart"),
-    ("docs", "commands"),
-    ("docs", "concepts"),
-    ("docs", "faq"),
-    ("docs", "examples"),
-    ("docs", "search"),
-    ("docs", "quantum-security"),
-    ("docs", "verify-downloads"),
-    ("docs", "security"),
-    ("docs", "install-from-iso"),
-    ("update", "check"),
-    ("update", "schema"),
+/// Default-deny: cualquier ruta no listada aquí se clasifica como `Mutating`
+/// (salvo que esté en `DESTRUCTIVE_COMMANDS`). Un comando nuevo NUNCA se cuela
+/// como lectura por descuido.
+pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &[&str])] = &[
+    ("tor", &["list"]),
+    ("git", &["list"]),
+    ("git", &["status"]),
+    ("wp", &["list"]),
+    ("wp", &["status"]),
+    ("drupal", &["list"]),
+    ("drupal", &["status"]),
+    ("ghost", &["list"]),
+    ("ghost", &["status"]),
+    ("magnolia", &["list"]),
+    ("magnolia", &["status"]),
+    ("strapi", &["list"]),
+    ("strapi", &["status"]),
+    ("wagtail", &["list"]),
+    ("wagtail", &["status"]),
+    ("files", &["list"]),
+    ("maintenance", &["status"]),
+    ("maintenance", &["timer-status"]),
+    ("maintenance", &["ssh-config"]),
+    ("diag", &["summary"]),
+    ("diag", &["nginx"]),
+    ("diag", &["tor"]),
+    ("diag", &["ssh"]),
+    ("diag", &["word-press"]),
+    ("diag", &["wp-sync"]),
+    ("diag", &["nginx-test"]),
+    ("diag", &["resources"]),
+    ("diag", &["onion"]),
+    ("test", &["list"]),
+    ("test", &["results"]),
+    ("logs", &["list"]),
+    ("logs", &["view"]),
+    ("logs", &["install"]),
+    ("logs", &["smoke-test"]),
+    ("ports", &["list"]),
+    ("firewall", &["status"]),
+    ("apparmor", &["status"]),
+    ("vpn", &["list"]),
+    ("vpn", &["status"]),
+    ("docs", &["quickstart"]),
+    ("docs", &["commands"]),
+    ("docs", &["concepts"]),
+    ("docs", &["faq"]),
+    ("docs", &["examples"]),
+    ("docs", &["search"]),
+    ("docs", &["quantum-security"]),
+    ("docs", &["verify-downloads"]),
+    ("docs", &["security"]),
+    ("docs", &["install-from-iso"]),
+    ("update", &["check"]),
+    ("update", &["schema"]),
     // `update verify-feed` NO es lectura (F-22): `--source` acepta rutas
     // locales (std::fs::read → oráculo de ficheros) y URLs http(s)
     // arbitrarias (SSRF). Mutating por defecto.
-    ("wp", "config"),
-    ("plan", "wp"),
-    ("plan", "tor"),
-    ("plan", "git"),
+    ("wp", &["config"]),
+    ("plan", &["wp"]),
+    ("plan", &["tor"]),
+    ("plan", &["git"]),
+    // Fase 10.5 — subcomandos de lectura de `ai`
+    ("ai", &["list"]),
+    ("ai", &["status"]),
+    ("ai", &["logs"]),
 ];
 
 /// Familias HOJA (sin subcomando) que son de LECTURA.
@@ -221,6 +226,10 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     // para que ninguna vía la ejecute sin confirmación.
     ("update", &["download"]),
     ("update", &["apply"]),
+    // Fase 10.5 — subcomandos destructivos de `ai` (criterio R-2/R13: borrado o exposición en red)
+    ("ai", &["delete"]),
+    ("ai", &["publish"]),
+    ("ai", &["hide"]),
 ];
 
 /// Familias HOJA destructivas (sin subcomando).
@@ -292,11 +301,12 @@ pub(crate) fn classify(family: &str, tokens: &[&str]) -> ToolKind {
             return ToolKind::Destructive;
         }
     }
-    // La lectura se otorga por allowlist sobre el primer token del path
-    // (`("plan","wp")` cubre `plan wp create`). Ningún path L3 bajo un
-    // primer token de lectura es mutante por construcción del árbol.
-    if READ_ONLY_SUBCOMMANDS.contains(&(family, tokens[0])) {
-        return ToolKind::ReadOnly;
+    // La lectura se otorga por allowlist por ruta completa (`("ai", &["list"])`),
+    // excepto para `plan`, donde `("plan", &["wp"])` cubre cualquier dry-run bajo `plan wp`.
+    for (fam, path) in READ_ONLY_SUBCOMMANDS {
+        if *fam == family && (*path == tokens || (family == "plan" && tokens.starts_with(path))) {
+            return ToolKind::ReadOnly;
+        }
     }
     ToolKind::Mutating
 }
@@ -569,13 +579,10 @@ mod tests {
     fn destructive_commands_are_never_readonly() {
         // Coherencia: ninguna entrada destructiva puede ser también lectura.
         for (fam, path) in DESTRUCTIVE_COMMANDS {
-            if path.len() == 1 {
-                assert!(
-                    !READ_ONLY_SUBCOMMANDS.contains(&(*fam, path[0])),
-                    "{fam} {} is both destructive and read-only",
-                    path[0]
-                );
-            }
+            assert!(
+                !READ_ONLY_SUBCOMMANDS.contains(&(*fam, *path)),
+                "{fam} {path:?} is both destructive and read-only",
+            );
         }
         for fam in DESTRUCTIVE_LEAF_FAMILIES {
             assert!(!READ_ONLY_LEAF_FAMILIES.contains(fam));
@@ -587,21 +594,17 @@ mod tests {
         let tree = load_tree();
         let families = tree["families"].as_array().unwrap();
 
-        for (fam, sub) in READ_ONLY_SUBCOMMANDS {
-            let node = families
+        for (fam, path) in READ_ONLY_SUBCOMMANDS {
+            let mut node = families
                 .iter()
                 .find(|f| f["name"].as_str() == Some(*fam))
                 .unwrap_or_else(|| panic!("allowlist family '{fam}' not in tree"));
-            let subs: Vec<&str> = node["subcommands"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|s| s["name"].as_str().unwrap())
-                .collect();
-            assert!(
-                subs.contains(sub),
-                "allowlist subcommand '{fam} {sub}' not in tree"
-            );
+            for tok in *path {
+                node = node["subcommands"]
+                    .as_array()
+                    .and_then(|s| s.iter().find(|s| s["name"].as_str() == Some(*tok)))
+                    .unwrap_or_else(|| panic!("allowlist subcommand '{fam} {path:?}' not in tree"));
+            }
         }
 
         for fam in READ_ONLY_LEAF_FAMILIES {
@@ -610,6 +613,19 @@ mod tests {
                 "allowlist leaf family '{fam}' not in tree"
             );
         }
+    }
+
+    #[test]
+    fn ai_commands_are_classified_according_to_fase_10_5() {
+        assert_eq!(classify("ai", &["list"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["status"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["logs"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["create"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["start"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["stop"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["delete"]), ToolKind::Destructive);
+        assert_eq!(classify("ai", &["publish"]), ToolKind::Destructive);
+        assert_eq!(classify("ai", &["hide"]), ToolKind::Destructive);
     }
 
     #[test]

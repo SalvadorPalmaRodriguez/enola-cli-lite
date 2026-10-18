@@ -54,7 +54,8 @@ const COMMAND_FAMILY_DOCS: &[(&[&str], &str)] = &[
         DOCS_TOR_CLIENT_AUTH,
     ),
     (&["mcp"], DOCS_COMMANDS_MCP),
-    (&["ask", "ai", "ollama"], DOCS_COMMANDS_ASK),
+    (&["ask"], DOCS_COMMANDS_ASK),
+    (&["ai", "ollama", "webui"], DOCS_COMMANDS_AI),
 ];
 
 /// Nombres canónicos (primer alias de cada familia) para los mensajes de ayuda.
