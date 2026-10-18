@@ -519,6 +519,46 @@ pub enum Commands {
         #[arg(long, value_name = "SECS")]
         request_timeout_secs: Option<u64>,
     },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ASK (🤖 Asistente de IA local sobre Ollama — Fase 9)
+    // ═══════════════════════════════════════════════════════════════════
+    /// DOC-SYNC: docs/user/ai/commands-ask.md
+    /// Ask the local AI assistant (Ollama) to inspect or operate Enola services.
+    ///
+    /// Connects to a local Ollama endpoint (`[ai].endpoint`, default `http://127.0.0.1:11434`)
+    /// and reuses the MCP `ToolRegistry`. Read-only tools execute directly; mutating and
+    /// destructive tools require interactive `[s/N]` confirmation on a TTY (or `--yes`),
+    /// or `--no-exec` to simulate via `try_run` with zero side effects.
+    ///
+    /// Examples:
+    ///   enola-cli ask "lista mis servicios tor"
+    ///   enola-cli ask "crea un wordpress llamado blog" --no-exec
+    ///   enola-cli ask "estado de mis sitios" --model llama3.1:8b --instance dev
+    Ask {
+        /// Natural-language question or instruction for the local AI assistant
+        prompt: String,
+
+        /// Ollama model name (override ENOLA_AI_MODEL / [ai].model; default: llama3.1:8b)
+        #[arg(long, value_name = "MODEL")]
+        model: Option<String>,
+
+        /// Ollama HTTP endpoint URL (override ENOLA_AI_ENDPOINT / [ai].endpoint; default: http://127.0.0.1:11434)
+        #[arg(long, value_name = "URL")]
+        endpoint: Option<String>,
+
+        /// Managed AI instance name (resolves local Ollama container port)
+        #[arg(long, value_name = "NAME")]
+        instance: Option<String>,
+
+        /// Simulate mutating/destructive operations via try_run without executing them
+        #[arg(long)]
+        no_exec: bool,
+
+        /// Approve mutating/destructive operations without interactive TTY prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 }
 
 /// UPD-CLI-001: subcomandos del comando `update`.

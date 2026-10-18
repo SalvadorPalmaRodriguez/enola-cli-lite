@@ -10,6 +10,13 @@
       "--mode",
       "--force"
     ],
+    "ask": [
+      "--model",
+      "--endpoint",
+      "--instance",
+      "--no-exec",
+      "--yes"
+    ],
     "config-show": [
       "--json"
     ],
@@ -289,7 +296,8 @@
     "update",
     "web",
     "plan",
-    "mcp"
+    "mcp",
+    "ask"
   ],
   "subcommands": {
     "apparmor": [

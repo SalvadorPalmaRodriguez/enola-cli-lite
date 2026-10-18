@@ -140,6 +140,30 @@ const KNOWN_KEYS: &[ConfigKeySpec] = &[
         alias: None,
         redact: false,
     },
+    ConfigKeySpec {
+        section: "ai",
+        key: "endpoint",
+        env_var: "ENOLA_AI_ENDPOINT",
+        default_value: "http://127.0.0.1:11434",
+        alias: None,
+        redact: false,
+    },
+    ConfigKeySpec {
+        section: "ai",
+        key: "model",
+        env_var: "ENOLA_AI_MODEL",
+        default_value: "llama3.1:8b",
+        alias: None,
+        redact: false,
+    },
+    ConfigKeySpec {
+        section: "ai",
+        key: "timeout_secs",
+        env_var: "ENOLA_AI_TIMEOUT_SECS",
+        default_value: "120",
+        alias: None,
+        redact: false,
+    },
 ];
 
 /// Devuelve `true` si una clave parece sensible por su nombre.
@@ -541,6 +565,7 @@ fn check_urls_syntactic(entries: &[ConfigEntry], findings: &mut Vec<ValidationFi
         "update.feed_url",
         "update.signature_url",
         "http.tor_socks_proxy",
+        "ai.endpoint",
     ];
     for key in &url_keys {
         let entry = match entries.iter().find(|e| &e.key == key) {
@@ -787,6 +812,26 @@ mod tests {
         assert!(keys.contains(&"update.signature_url"));
         assert!(keys.contains(&"update.minisign_pubkey"));
         assert!(keys.contains(&"http.tor_socks_proxy"));
+        assert!(keys.contains(&"ai.endpoint"));
+        assert!(keys.contains(&"ai.model"));
+        assert!(keys.contains(&"ai.timeout_secs"));
+    }
+
+    #[test]
+    fn validate_all_with_bad_ai_endpoint_has_url_error() {
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
+        clear_all_env();
+        std::env::set_var("ENOLA_AI_ENDPOINT", "not-a-valid-url");
+        let findings = validate_all(false);
+        std::env::remove_var("ENOLA_AI_ENDPOINT");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.severity == ValidationSeverity::Error
+                    && f.message.contains("ai.endpoint")),
+            "expected URL error for ai.endpoint, got: {:?}",
+            findings
+        );
     }
 
     #[test]

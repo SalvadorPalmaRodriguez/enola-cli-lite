@@ -8,6 +8,7 @@
 //   testing/   → Cargo test runner
 //   (flat)     → tor.rs
 
+pub mod ai; // Fase 9 — adapter HTTP contra Ollama (/api/chat, /api/tags, /api/pull)
 pub mod cms; // DRUPAL-001 — Catálogo de adapters CMS (WordPress, Drupal, …)
 pub mod git;
 pub mod hardware;

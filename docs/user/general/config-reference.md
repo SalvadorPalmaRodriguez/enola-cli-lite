@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.5 | **Actualizado:** 2026-10-18
+> **Versión:** 1.6 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -167,7 +167,7 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 > configurable. Y `try_run: true` simula cualquier mutante sin efectos,
 > con la misma política aplicada.
 >
-> 🚫 `enola_run_command` nunca despacha las familias `mcp`, `ssh`,
+> 🚫 `enola_run_command` nunca despacha las familias `mcp`, `ask`, `ssh`,
 > `uninstall`, `web`, `setup` ni las rutas `update apply`, `test run`,
 > `test benchmark` — con ninguna política ni allowlist.
 >
@@ -178,6 +178,30 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 > así que un servicio root debe fijar su argv en un lanzador root-owned
 > (unit de systemd o sudoers sin comodines): una regla
 > `enola-cli mcp *` no fija política alguna.
+
+---
+
+## Sección `[ai]`
+
+Configuración del asistente de IA local (`enola-cli ask`) conectado a Ollama.
+
+| Clave | Tipo | Default | Env var / Flag | Descripción |
+|-------|------|---------|----------------|-------------|
+| `endpoint` | String | `http://127.0.0.1:11434` | `ENOLA_AI_ENDPOINT` / `--endpoint` | URL base del servidor Ollama (local o `.onion` vía `socks5h://`) |
+| `model` | String | `llama3.1:8b` | `ENOLA_AI_MODEL` / `--model` | Modelo de Ollama usado en `enola-cli ask` |
+| `timeout_secs` | Integer | `120` | `ENOLA_AI_TIMEOUT_SECS` | Timeout por petición a Ollama en segundos |
+
+```toml
+[ai]
+# endpoint = "http://127.0.0.1:11434"
+# model = "llama3.1:8b"
+# timeout_secs = 120
+```
+
+> Si se pasa `--instance <name>` en `enola-cli ask`, el CLI resuelve el puerto
+> local del contenedor Ollama correspondiente (`enola-ai-<name>-ollama`). Si
+> `endpoint` es una dirección `.onion`, las peticiones se enrutan automáticamente
+> por Tor (`[http].tor_socks_proxy`).
 
 ---
 
@@ -221,6 +245,11 @@ allow_write = false
 # max_output_bytes = 65536
 # audit_log = "stderr"
 # request_timeout_secs = 60
+
+[ai]
+endpoint = "http://127.0.0.1:11434"
+model = "llama3.1:8b"
+timeout_secs = 120
 ```
 
 ---

@@ -234,12 +234,21 @@ fn build_flag_argv(leaf: &Value, args: &Value) -> Result<Vec<String>> {
 ///
 /// Una entrada de allowlist `doctor` cubre a la vez la tool builtin y la
 /// hoja despachada vía meta-tool — misma operación, colisión benigna.
-fn policy_name(family: &str, tokens: &[String]) -> String {
+pub(crate) fn policy_name(family: &str, tokens: &[String]) -> String {
     if tokens.is_empty() {
         family.to_string()
     } else {
         format!("{family}:{}", tokens.join(" "))
     }
+}
+
+/// Construye una vista previa del `argv` redactado para `enola_run_command`
+/// (usado por `ai_assistant` para mostrar el comando exacto en el prompt `[s/N]`).
+pub(crate) fn preview_redacted_argv(args: &Value) -> Result<Vec<String>> {
+    let tree = load_tree();
+    let (family, tokens, leaf, _kind) = RunCommandHandler::resolve(&tree, args)?;
+    let flag_argv = build_flag_argv(leaf, args.get("args").unwrap_or(&Value::Null))?;
+    Ok(redact_argv(&build_argv(family, &tokens, flag_argv)))
 }
 
 /// Construye el argv completo `["--format","json",family,sub...,--flag,val...]`.

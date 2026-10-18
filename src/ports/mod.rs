@@ -11,6 +11,7 @@ pub mod file;
 pub mod firewall; // Gestión de firewall UFW (UFW-002)
 pub mod hardware;
 pub mod http_probe; // MCP-006 — sonda HTTP(S)/.onion (verify_onion)
+pub mod llm; // Fase 9 — puerto LlmEngine (chat con tools, modelos Ollama)
 pub mod manifest; // UNINSTALL-MANIFEST-001 — manifest-based uninstall port
 pub mod mcp_transport; // MCP-002 — transporte de mensajes (recv/send) + mock
 pub mod pipeline;

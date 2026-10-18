@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands.md`
-> **Versión:** 3.5 | **Actualizado:** 2026-10-13
+> **Versión:** 3.6 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Índice de comandos**
 > **English:** [`docs/en/commands.md`](../../en/commands.md)
 > **Referencias:** commands.md
@@ -77,6 +77,7 @@ sudo enola-cli docs search <TÉRMINO>     # buscar en toda la documentación
 | Uninstall | `uninstall` | Desinstalación segura del CLI | [commands-simple.md](commands-simple.md#uninstall) |
 | Web | `web` | Dashboard web local (GUI) | [web/README.md](../web/README.md) |
 | MCP | `mcp` | Servidor MCP para agentes IA (JSON-RPC por stdio) | [mcp/commands-mcp.md](../mcp/commands-mcp.md) |
+| Ask | `ask` | Asistente de IA local sobre Ollama (con gate `[s/N]` y `--no-exec`) | [ai/commands-ask.md](../ai/commands-ask.md) |
 
 ---
 

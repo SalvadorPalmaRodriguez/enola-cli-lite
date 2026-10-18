@@ -3,8 +3,8 @@
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Documento: config.example.toml
-# Versión: 2.3 | Actualizado: 2026-10-18
-# Referencias: CONFIG-001..009, QUAL-001, QUAL-003
+# Versión: 2.4 | Actualizado: 2026-10-18
+# Referencias: CONFIG-001..009, QUAL-001, QUAL-003, FASE-9-ASK
 #
 # Copia este fichero a `~/.enola/config.toml` y ajústalo a tu entorno.
 # Permisos obligatorios:  chmod 0600 ~/.enola/config.toml
@@ -138,6 +138,22 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # max_output_bytes = 65536
 # audit_log = "stderr"
 # request_timeout_secs = 60
+
+
+# ── 7. IA local (`enola-cli ask` — Ollama) ─────────────────────────────────
+# Configuración del asistente local `enola-cli ask`.
+# Prioridad: flag CLI (--endpoint, --model, --instance) > env var >
+#            esta sección > defaults (http://127.0.0.1:11434, llama3.1:8b, 120).
+#
+# Si `endpoint` apunta a un `.onion`, se enruta automáticamente por Tor
+# vía `socks5h://` ([http].tor_socks_proxy).
+#
+# Env vars: ENOLA_AI_ENDPOINT, ENOLA_AI_MODEL, ENOLA_AI_TIMEOUT_SECS
+# Flags:    --endpoint --model --instance --no-exec --yes
+[ai]
+# endpoint = "http://127.0.0.1:11434"
+# model = "llama3.1:8b"
+# timeout_secs = 120
 
 
 # ══════════════════════════════════════════════════════════════════════════

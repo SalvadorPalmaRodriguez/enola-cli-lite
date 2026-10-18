@@ -53,6 +53,8 @@ const COMMAND_FAMILY_DOCS: &[(&[&str], &str)] = &[
         &["tor-auth", "tor-client-auth", "client-auth"],
         DOCS_TOR_CLIENT_AUTH,
     ),
+    (&["mcp"], DOCS_COMMANDS_MCP),
+    (&["ask", "ai", "ollama"], DOCS_COMMANDS_ASK),
 ];
 
 /// Nombres canónicos (primer alias de cada familia) para los mensajes de ayuda.
@@ -220,6 +222,8 @@ pub fn search(term: &str) -> CliResult<String> {
         ("Web Dashboard", DOCS_WEB),
         ("Comandos Docs", DOCS_COMMANDS_DOCS),
         ("Tor Client Auth", DOCS_TOR_CLIENT_AUTH),
+        ("Comandos MCP", DOCS_COMMANDS_MCP),
+        ("Comandos Ask (IA local)", DOCS_COMMANDS_ASK),
     ];
 
     for (doc_name, content) in &docs {

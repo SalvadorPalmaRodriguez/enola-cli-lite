@@ -3492,6 +3492,67 @@
       ],
       "name": "mcp",
       "subcommands": []
+    },
+    {
+      "description": "Connects to a local Ollama endpoint (`[ai].endpoint`, default `http://127.0.0.1:11434`) and reuses the MCP `ToolRegistry`. Read-only tools execute directly; mutating and destructive tools require interactive `[s/N]` confirmation on a TTY (or `--yes`), or `--no-exec` to simulate via `try_run` with zero side effects.",
+      "flags": [
+        {
+          "boolean": false,
+          "name": "prompt",
+          "positional": true,
+          "possible_values": [],
+          "required": true,
+          "value_name": "PROMPT"
+        },
+        {
+          "boolean": false,
+          "name": "model",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "MODEL"
+        },
+        {
+          "boolean": false,
+          "name": "endpoint",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "URL"
+        },
+        {
+          "boolean": false,
+          "name": "instance",
+          "positional": false,
+          "possible_values": [],
+          "required": false,
+          "value_name": "NAME"
+        },
+        {
+          "boolean": true,
+          "name": "no-exec",
+          "positional": false,
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "NO_EXEC"
+        },
+        {
+          "boolean": true,
+          "name": "yes",
+          "positional": false,
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "YES"
+        }
+      ],
+      "name": "ask",
+      "subcommands": []
     }
   ]
 }

@@ -137,6 +137,12 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - resources: 36 embedded user docs, URIs `enola://docs/<path>`
 - stdout carries ONLY JSON-RPC; logs/diagnostics go to stderr
 
+### ask — local AI assistant (Ollama)
+- `ask <prompt> [--model <m>] [--endpoint <url>] [--instance <name>] [--no-exec] [--yes]` — natural-language assistant backed by local Ollama (`/api/chat` with tools, `/api/tags`, `/api/pull`), sharing the MCP `ToolRegistry`
+- config: `[ai]` in `~/.enola/config.toml` (`endpoint`, `model`, `timeout_secs`) and env vars `ENOLA_AI_ENDPOINT`, `ENOLA_AI_MODEL`, `ENOLA_AI_TIMEOUT_SECS`; precedence flag > env > file > defaults (`http://127.0.0.1:11434`, `llama3.1:8b`, `120`)
+- gate: `ReadOnly` tools run directly; `Mutating`/`Destructive` tools require an interactive TTY `[s/N]` confirmation showing sanitized arguments (or `--yes` for scripts; fails closed without TTY), or `--no-exec` to simulate via `try_run` without side effects
+- MCP meta-keys (`confirm_token`, `try_run`) are stripped from schemas sent to the local LLM; `ask` is in `FORBIDDEN_FAMILIES` so `enola_run_command` never dispatches `ask` recursively
+
 ### Other
 - `license` — full license text
 - `quickref` — Docker ↔ Enola equivalence table
@@ -152,7 +158,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - Post-quantum measures: ML-DSA-65 release signatures, optional ML-KEM hybrid TLS stack (`setup --pqc-tls`), WireGuard preshared keys (`--psk`), SSH sntrup761x25519 KEX (`ssh-harden-pqc`), Tor auth key rotation.
 - Update security: advisory feed signed with minisign; binaries verified with SHA256 + minisign before applying; stable exit codes for scripting. At euid 0 (`sudo`), `[update]` is read only from root-owned `/etc/enola/config.toml` (`~/.enola/config.toml` is ignored).
 - Development-only env vars (never set in production, never via `sudo -E`; root processes evaluate them with a visible warning): `ENOLA_AUTO_SETUP=1` (non-TTY preflight may install deps via apt-get), `ENOLA_ALLOW_UNSIGNED_UPDATE=1` / `update apply --allow-unsigned` (skips minisign binary verification), `ENOLA_SKIP_ROOT_CHECK=1` (skips the root requirement), `ENOLA_MINISIGN_BIN` (alternative minisign path), `ENOLA_WEB_TOKEN` (pins the dashboard token, tests), `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` (update trust-anchor overrides; under euid 0 require `ENOLA_UPDATE_ENV_ANCHORS=1`). Full table: docs/user/general/config-reference.md, "Variables solo-desarrollo".
-- MCP server security: read-only by default; mutating tools require explicit `--allow-write` plus optional allowlist (`--allow-tools`/`ENOLA_MCP_ALLOWED_TOOLS`/`[mcp].allowed_tools`, tool names or `family:sub` paths); destructive tools demand `"force": true` AND a two-step `confirm_token` (single-use, bound to exact args, 300s TTL, not surviving restarts); mutating/destructive calls are audit-logged (requested/rejected/simulated/confirmation_requested/authorized/ok/error) with secret redaction. `enola_run_command` never dispatches the `mcp`, `ssh`, `uninstall`, `web`, `setup` families nor `update apply`, `test run`, `test benchmark`; dispatched subprocesses get a cleared env plus allowlist; at euid 0 the `[mcp]` section is read only from root-owned `/etc/enola/config.toml`.
+- MCP server security: read-only by default; mutating tools require explicit `--allow-write` plus optional allowlist (`--allow-tools`/`ENOLA_MCP_ALLOWED_TOOLS`/`[mcp].allowed_tools`, tool names or `family:sub` paths); destructive tools demand `"force": true` AND a two-step `confirm_token` (single-use, bound to exact args, 300s TTL, not surviving restarts); mutating/destructive calls are audit-logged (requested/rejected/simulated/confirmation_requested/authorized/ok/error) with secret redaction. `enola_run_command` never dispatches the `mcp`, `ask`, `ssh`, `uninstall`, `web`, `setup` families nor `update apply`, `test run`, `test benchmark`; dispatched subprocesses get a cleared env plus allowlist; at euid 0 the `[mcp]` section is read only from root-owned `/etc/enola/config.toml`.
 
 ## Links
 

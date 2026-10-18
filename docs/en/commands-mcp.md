@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-mcp.md`
-> **Version:** 1.3 | **Updated:** 2026-10-14
+> **Version:** 1.4 | **Updated:** 2026-10-18
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/mcp/commands-mcp.md`](../user/mcp/commands-mcp.md)
 > **References:** commands.md, config-reference.md
@@ -55,7 +55,7 @@ where the leaf declares it, and **two-step confirmation**): `wp_publish`,
 `enola_run_command` the paths in the impact table below.
 
 **Always vetoed** (`enola_run_command` never dispatches them under any
-policy): the `mcp`, `ssh`, `uninstall`, `web` and `setup` families, and
+policy): the `mcp`, `ask`, `ssh`, `uninstall`, `web` and `setup` families, and
 the `update apply`, `test run` and `test benchmark` paths. The `update`
 flags `--binary`/`--allow-unsigned` are not expressible either, nor is
 any flag value starting with `-`.
@@ -145,7 +145,7 @@ approved operation is exactly the one that was shown.
   (`maxLength`, `minimum`/`maximum` on ports).
 - **Destructive = two steps** (see above): `force` alone is not enough; a
   single-use `confirm_token` bound to the operation is required.
-- `enola_run_command` **never** dispatches the `mcp`, `ssh`, `uninstall`,
+- `enola_run_command` **never** dispatches the `mcp`, `ask`, `ssh`, `uninstall`,
   `web`, `setup` families nor the `update apply`, `test run`,
   `test benchmark` paths; the `--binary`/`--allow-unsigned` flags of
   `update` are not expressible, and any flag value starting with `-` is

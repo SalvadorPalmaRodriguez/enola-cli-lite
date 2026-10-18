@@ -37,11 +37,14 @@ be restricted with `--allow-tools`; destructive operations additionally
 require `force: true` and a single-use `confirm_token` bound to the exact
 arguments (300-second lifetime). `try_run: true` validates and simulates
 without side effects. `enola_run_command` uses typed argv and never dispatches
-the `mcp`, `ssh`, `uninstall`, `web` or `setup` families, nor the
+the `mcp`, `ask`, `ssh`, `uninstall`, `web` or `setup` families, nor the
 `update apply`, `test run` or `test benchmark` paths. When running with
 elevated privileges, fix argv, environment, policy source and audit-log
 location in a trusted launcher; do not grant a wildcard sudo rule such as
 `enola-cli mcp *`.
+
+Local AI assistant (`enola-cli ask <prompt> [--model <m>] [--endpoint <url>] [--instance <name>] [--no-exec] [--yes]`):
+connects to a local Ollama instance (`[ai]` in `~/.enola/config.toml` or env vars `ENOLA_AI_ENDPOINT`, `ENOLA_AI_MODEL`, `ENOLA_AI_TIMEOUT_SECS`; defaults `http://127.0.0.1:11434`, `llama3.1:8b`, `120s`) and reuses the `ToolRegistry`. Read-only tools execute directly; mutating and destructive tools require interactive `[s/N]` confirmation on TTY (or `--yes` for non-interactive use; fails closed without TTY) or `--no-exec` to simulate via `try_run` with zero side effects.
 
 Development-only escape hatches (never in production, never via `sudo -E`):
 `ENOLA_AUTO_SETUP=1` (non-TTY preflight auto-installs deps),

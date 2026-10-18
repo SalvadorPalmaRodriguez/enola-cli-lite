@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/mcp/commands-mcp.md`
-> **Versión:** 1.3 | **Actualizado:** 2026-10-14
+> **Versión:** 1.4 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md, config-reference.md
 
@@ -54,7 +54,7 @@ donde la hoja la declare, y **confirmación de dos pasos**): `wp_publish`,
 `enola_run_command` las rutas de la tabla de impacto de abajo.
 
 **Vetadas siempre** (`enola_run_command` no las despacha con ninguna
-política): las familias `mcp`, `ssh`, `uninstall`, `web` y `setup`, y las
+política): las familias `mcp`, `ask`, `ssh`, `uninstall`, `web` y `setup`, y las
 rutas `update apply`, `test run` y `test benchmark`. Tampoco son
 expresables las flags `--binary`/`--allow-unsigned` de `update`, ni
 ningún valor de flag que empiece por `-`.
@@ -143,7 +143,7 @@ la operación aprobada es exactamente la que se mostró.
   de rango (`maxLength`, `minimum`/`maximum` en puertos).
 - **Destructivas = dos pasos** (ver sección anterior): `force` solo no
   basta; se exige `confirm_token` monouso vinculado a la operación.
-- `enola_run_command` **nunca** despacha las familias `mcp`, `ssh`,
+- `enola_run_command` **nunca** despacha las familias `mcp`, `ask`, `ssh`,
   `uninstall`, `web`, `setup` ni las rutas `update apply`, `test run`,
   `test benchmark`; las flags `--binary`/`--allow-unsigned` de `update`
   no son expresables, y todo valor de flag que empieza por `-` se

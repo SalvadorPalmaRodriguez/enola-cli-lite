@@ -242,7 +242,7 @@ pub(crate) const DESTRUCTIVE_LEAF_FAMILIES: &[&str] = &["uninstall"];
 /// sobre del MCP (auditoría F-06/F-08): `web` abre un dashboard root con
 /// `/api/console/run` argv-libre, `setup` ejecuta apt-get como root,
 /// `uninstall` hace `bash` sobre scripts resueltos por cwd.
-pub(crate) const FORBIDDEN_FAMILIES: &[&str] = &["mcp", "ssh", "uninstall", "web", "setup"];
+pub(crate) const FORBIDDEN_FAMILIES: &[&str] = &["mcp", "ask", "ssh", "uninstall", "web", "setup"];
 
 /// Rutas completas (familia + tokens de subcomando) vetadas para
 /// `enola_run_command` con cualquier política — complemento de
@@ -520,6 +520,12 @@ mod tests {
     fn mcp_family_is_forbidden() {
         assert!(is_forbidden_family("mcp"));
         assert!(!is_forbidden_family("wp"));
+    }
+
+    #[test]
+    fn ask_family_is_forbidden() {
+        // R19: `enola_run_command` nunca puede despachar `ask` como subproceso.
+        assert!(is_forbidden_family("ask"));
     }
 
     #[test]

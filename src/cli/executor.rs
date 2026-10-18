@@ -111,6 +111,25 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             )
             .await
         }
+        Commands::Ask {
+            prompt,
+            model,
+            endpoint,
+            instance,
+            no_exec,
+            yes,
+        } => {
+            execute_ask(
+                prompt,
+                model,
+                endpoint,
+                instance,
+                no_exec,
+                yes,
+                cli.format.as_str(),
+            )
+            .await
+        }
     }
 }
 
@@ -177,7 +196,7 @@ async fn execute_mcp(
     let confirmations =
         std::sync::Arc::new(crate::application::mcp::confirmation::ConfirmationStore::new());
 
-    let registry = Arc::new(build_mcp_registry(
+    let registry = Arc::new(build_tool_registry(
         policy.clone(),
         audit.clone(),
         confirmations.clone(),
@@ -193,8 +212,133 @@ async fn execute_mcp(
     Ok(String::new())
 }
 
-/// Compone el ToolRegistry inyectando los adapters concretos en los handlers.
-fn build_mcp_registry(
+/// Fase 9 (9.5): ejecuta `enola-cli ask` contra un servidor Ollama local (o `.onion`),
+/// compartiendo el `ToolRegistry` con MCP y aplicando el gate interactivo `[s/N]` en TTY.
+async fn execute_ask(
+    prompt: String,
+    model: Option<String>,
+    endpoint: Option<String>,
+    instance: Option<String>,
+    no_exec: bool,
+    yes: bool,
+    format: &str,
+) -> CliResult<String> {
+    use crate::adapters::ai::ollama::OllamaAdapter;
+    use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::application::ai_assistant::{
+        format_unreachable_ollama_guidance, resolve_ai_config, resolve_instance_endpoint,
+        AiAssistant, AiFlagOverrides, AskOptions, TtyConfirmationGate,
+    };
+    use crate::application::mcp::audit::AuditLogger;
+    use crate::application::mcp::confirmation::ConfirmationStore;
+    use crate::application::mcp::policy::McpPolicy;
+    use crate::ports::container::ContainerPort;
+    use std::time::Duration;
+
+    if prompt.trim().is_empty() {
+        return Err(CliError::InvalidInput(
+            "El prompt no puede estar vacío. Ejemplo: enola-cli ask \"lista mis servicios tor\""
+                .to_string(),
+        ));
+    }
+
+    let explicit_endpoint = endpoint.is_some();
+    let config_section = crate::infrastructure::config_loader::load_section("ai");
+    let mut ai_cfg = resolve_ai_config(
+        &AiFlagOverrides {
+            endpoint,
+            model,
+            timeout_secs: None,
+        },
+        &config_section,
+    );
+
+    // Si se pidió `--instance <name>`, resolvemos el puerto local del contenedor Ollama.
+    let mut discovered_container_endpoint: Option<String> = None;
+    if let Ok(docker) = BollardDockerAdapter::new() {
+        if let Ok(containers) = docker.list_containers(false).await {
+            if instance.is_some() {
+                if let Some(ep) = resolve_instance_endpoint(&containers, instance.as_deref())
+                    .map_err(|e| CliError::InvalidInput(e.to_string()))?
+                {
+                    ai_cfg.endpoint = ep;
+                }
+            } else {
+                discovered_container_endpoint =
+                    resolve_instance_endpoint(&containers, None).ok().flatten();
+            }
+        } else if let Some(ref inst) = instance {
+            return Err(CliError::Generic(format!(
+                "No se pudo listar contenedores Docker para resolver '--instance {inst}'. \
+                 Verifica que Docker esté activo o usa '--endpoint <url>'."
+            )));
+        }
+    } else if let Some(ref inst) = instance {
+        return Err(CliError::Generic(format!(
+            "No se pudo conectar a Docker para resolver '--instance {inst}'. \
+             Verifica que Docker esté activo o usa '--endpoint <url>'."
+        )));
+    }
+
+    // En `ask`, el gate de escritura es interactivo (`TtyConfirmationGate` o `--no-exec`),
+    // por lo que la política interna de `enola_run_command` se habilita tras la aprobación humana.
+    let policy = Arc::new(McpPolicy {
+        allow_write: true,
+        ..Default::default()
+    });
+    let audit = Arc::new(AuditLogger::new(None));
+    let confirmations = Arc::new(ConfirmationStore::new());
+    let registry = Arc::new(build_tool_registry(policy, audit, confirmations.clone())?);
+
+    let engine = Arc::new(OllamaAdapter::new(
+        &ai_cfg.endpoint,
+        Duration::from_secs(ai_cfg.timeout_secs),
+    ));
+    let gate = Arc::new(TtyConfirmationGate::new(yes));
+    let assistant = AiAssistant::new(engine, registry, confirmations, gate);
+    let ask_opts = AskOptions {
+        model: ai_cfg.model.clone(),
+        no_exec,
+        ..Default::default()
+    };
+
+    let answer = match assistant.ask(&prompt, &ask_opts).await {
+        Ok(ans) => ans,
+        Err(e) => {
+            let msg = e.to_string();
+            if !explicit_endpoint
+                && instance.is_none()
+                && (msg.contains("No se pudo conectar con Ollama")
+                    || msg.contains("error sending request")
+                    || msg.contains("Connection refused"))
+            {
+                return Err(CliError::Generic(format_unreachable_ollama_guidance(
+                    &ai_cfg.endpoint,
+                    discovered_container_endpoint.as_deref(),
+                    &msg,
+                )));
+            }
+            return Err(CliError::Generic(msg));
+        }
+    };
+
+    if format.eq_ignore_ascii_case("json") {
+        let payload = serde_json::json!({
+            "answer": answer,
+            "model": ai_cfg.model,
+            "endpoint": ai_cfg.endpoint,
+            "no_exec": no_exec,
+        });
+        serde_json::to_string_pretty(&payload)
+            .map_err(|e| CliError::Generic(format!("failed to serialize ask JSON: {e}")))
+    } else {
+        Ok(answer)
+    }
+}
+
+/// Compone el ToolRegistry compartido entre `enola-cli mcp` y `enola-cli ask`
+/// inyectando los adapters concretos en los handlers.
+fn build_tool_registry(
     policy: Arc<crate::application::mcp::policy::McpPolicy>,
     audit: Arc<crate::application::mcp::audit::AuditLogger>,
     confirmations: Arc<crate::application::mcp::confirmation::ConfirmationStore>,
@@ -300,7 +444,8 @@ fn command_requires_system_dependencies(cmd: &Commands) -> bool {
         | Commands::Docs(_)
         | Commands::Verify { .. }
         | Commands::Update(_)
-        | Commands::Mcp { .. } => false,
+        | Commands::Mcp { .. }
+        | Commands::Ask { .. } => false,
 
         // El resto de familias usan Docker/Nginx/Tor/UFW/AppArmor/WireGuard
         _ => true,
@@ -3915,5 +4060,48 @@ mod tests {
                 .any(|p| p == &std::path::PathBuf::from("scripts/ops/uninstall.sh")),
             "repo-relative candidate still present: {candidates:?}"
         );
+    }
+
+    #[test]
+    fn ask_command_parses_all_flags_and_is_exempt_from_system_dependencies() {
+        use clap::Parser;
+        let cli = crate::cli::Cli::try_parse_from([
+            "enola",
+            "ask",
+            "lista mis servicios tor",
+            "--model",
+            "qwen2.5:7b",
+            "--endpoint",
+            "http://127.0.0.1:11435",
+            "--instance",
+            "dev",
+            "--no-exec",
+            "--yes",
+        ])
+        .expect("ask command must parse");
+
+        assert!(
+            !super::command_requires_system_dependencies(&cli.command),
+            "Commands::Ask must be exempt from system dependency preflight"
+        );
+
+        match cli.command {
+            crate::cli::Commands::Ask {
+                prompt,
+                model,
+                endpoint,
+                instance,
+                no_exec,
+                yes,
+            } => {
+                assert_eq!(prompt, "lista mis servicios tor");
+                assert_eq!(model.as_deref(), Some("qwen2.5:7b"));
+                assert_eq!(endpoint.as_deref(), Some("http://127.0.0.1:11435"));
+                assert_eq!(instance.as_deref(), Some("dev"));
+                assert!(no_exec);
+                assert!(yes);
+            }
+            other => panic!("expected Commands::Ask, got {other:?}"),
+        }
     }
 }

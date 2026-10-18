@@ -5,6 +5,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Local AI assistant `enola-cli ask` (Fase 9 — Ollama)** — new `enola-cli ask <prompt> [--model <m>] [--endpoint <url>] [--instance <name>] [--no-exec] [--yes]` command backed by local Ollama (`/api/chat` with tools, `/api/tags`, `/api/pull` over `infrastructure::http` with automatic `.onion` SOCKS5h routing). Shares the MCP `ToolRegistry`, strips MCP-only meta-properties (`confirm_token`, `try_run`) from schemas sent to local models (R11), executes `ReadOnly` tools directly, simulations via `--no-exec` (`try_run`), and enforces an interactive TTY `[s/N]` gate with secret-redacted arguments (`sanitize_args` / `redact_argv`) for `Mutating` and `Destructive` operations (issuing internal `confirm_token`s after human approval so destructive `enola_run_command` calls complete in a single LLM turn, R18). Added `[ai]` configuration section (`endpoint`, `model`, `timeout_secs` + `ENOLA_AI_*`) and added `"ask"` to `FORBIDDEN_FAMILIES` (R19).
+
 ## [0.9.0-alpha] — 2026-10-18
 
 ### Breaking
