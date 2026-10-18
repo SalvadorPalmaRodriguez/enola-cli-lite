@@ -19,6 +19,7 @@ pub mod pipeline;
 pub mod port_checker; // PORTS-002 (176) — validación libre de puertos OS+Docker
 pub mod port_config;
 pub mod process_runner; // MCP-004 — ejecución de enola-cli como subproceso (argv)
+pub mod rag; // Fase 12 — puertos RAG (vector store, fuentes, aprovisionamiento)
 pub mod service;
 pub mod test_runner;
 pub mod tor;

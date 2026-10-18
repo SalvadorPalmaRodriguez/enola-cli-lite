@@ -2584,6 +2584,108 @@ pub enum AiCommands {
     ///   sudo enola-cli ai model delete dev old-model --force
     #[command(subcommand)]
     Model(AiModelCommands),
+
+    /// Manage the RAG index (vector store + bound sources) of AI instances
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai rag status dev
+    ///   sudo enola-cli ai rag ingest dev /home/user/docs
+    ///   sudo enola-cli ai rag bind dev --source-type filesystem --path /home/user/docs
+    ///   sudo enola-cli ai rag sync dev
+    ///   sudo enola-cli ai rag config dev --preset code
+    #[command(subcommand)]
+    Rag(AiRagCommands),
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI RAG COMMANDS (Fase 12 — índice RAG sobre vector store + Ollama)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Subcomandos del índice RAG (`enola-cli ai rag`).
+#[derive(Subcommand, Debug)]
+pub enum AiRagCommands {
+    /// Show RAG status for an instance (bound sources, indexed docs)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai rag status dev
+    Status {
+        /// Instance name
+        instance: String,
+    },
+
+    /// Ingest a file or directory into the instance vector index
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai rag ingest dev /home/user/docs
+    ///   sudo enola-cli ai rag ingest dev ./notes.md
+    Ingest {
+        /// Instance name
+        instance: String,
+        /// Path to a file or directory to ingest
+        path: String,
+    },
+
+    /// Bind an external source (filesystem dir, local git repo, wordpress site)
+    /// to the instance index for later `sync`
+    ///
+    /// `bind` registers a LOCAL path/URL as a source: it is Destructive in
+    /// MCP (exposes a directory to the index) and requires `--force`.
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai rag bind dev --source-type filesystem --path /home/user/docs --force
+    ///   sudo enola-cli ai rag bind dev -s git -p ~/repos/miapp --force
+    ///   sudo enola-cli ai rag bind dev -s wordpress -p https://blog.example.com --force
+    Bind {
+        /// Instance name
+        instance: String,
+        /// Source type: git | filesystem | wordpress
+        #[arg(short, long)]
+        source_type: String,
+        /// Source path (filesystem/git) or base URL (wordpress)
+        #[arg(short, long)]
+        path: String,
+        /// Confirm binding a local path to the index (required)
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Sync all bound sources of an instance (re-ingest)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai rag sync dev
+    Sync {
+        /// Instance name
+        instance: String,
+    },
+
+    /// Show or update the RAG configuration of an instance
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai rag config dev --show
+    ///   sudo enola-cli ai rag config dev --preset faq
+    ///   sudo enola-cli ai rag config dev --chunk-size 2000 --chunk-overlap 150
+    Config {
+        /// Instance name
+        instance: String,
+        /// Chunk size in characters (500-8000)
+        #[arg(long)]
+        chunk_size: Option<usize>,
+        /// Chunk overlap in characters (< chunk_size/2)
+        #[arg(long)]
+        chunk_overlap: Option<usize>,
+        /// Remove code blocks before indexing
+        #[arg(long)]
+        remove_code: Option<bool>,
+        /// Preset: docs | code | faq | large
+        #[arg(long)]
+        preset: Option<String>,
+        /// Vector store backend: chroma | qdrant (applied on next ensure)
+        #[arg(long)]
+        vector_store: Option<String>,
+        /// Show current configuration without modifying
+        #[arg(long, short)]
+        show: bool,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════════

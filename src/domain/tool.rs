@@ -145,6 +145,8 @@ pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &[&str])] = &[
     // Fase 11.0 — lectura de la biblioteca de modelos (rutas L3)
     ("ai", &["model", "list"]),
     ("ai", &["model", "validate"]),
+    // Fase 12 — ai rag: consulta de estado es ReadOnly.
+    ("ai", &["rag", "status"]),
 ];
 
 /// Familias HOJA (sin subcomando) que son de LECTURA.
@@ -235,6 +237,8 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     ("ai", &["hide"]),
     // Fase 11.0 — borrado de modelos del registro/biblioteca (R13, exige --force)
     ("ai", &["model", "delete"]),
+    // Fase 12 — ai rag bind expone un directorio local al índice → Destructive.
+    ("ai", &["rag", "bind"]),
 ];
 
 /// Familias HOJA destructivas (sin subcomando).
@@ -646,6 +650,19 @@ mod tests {
         assert_eq!(classify("ai", &["model", "delete"]), ToolKind::Destructive);
         // El grupo intermedio sin hoja no es una ruta válida: cae a Mutating.
         assert_eq!(classify("ai", &["model"]), ToolKind::Mutating);
+    }
+
+    #[test]
+    fn ai_rag_level3_paths_are_classified() {
+        // Fase 12 — clasificación de `ai rag <sub>` (L3).
+        assert_eq!(classify("ai", &["rag", "status"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["rag", "bind"]), ToolKind::Destructive);
+        // Default-deny: el resto es Mutating.
+        assert_eq!(classify("ai", &["rag", "ingest"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["rag", "sync"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["rag", "config"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["rag", "unbind"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["rag"]), ToolKind::Mutating);
     }
 
     #[test]

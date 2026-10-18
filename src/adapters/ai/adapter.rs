@@ -994,6 +994,194 @@ impl crate::ports::ai::AiModelRegistryPort for EnolaAiAdapter {
     }
 }
 
+// ── Fase 12.3 — vector store por instancia (ChromaDB / Qdrant) ────────────
+//
+// El contenedor `enola-ai-<name>-<chromadb|qdrant>` se aprovisiona PEREZOSO
+// (la primera vez que `ai rag` lo necesita) sobre `ContainerPort` en la red
+// `enola_net_ai_<name>`, bind 127.0.0.1, puerto host de AI_VECTOR_PORT_RANGE
+// con `acquire_port_lock`, volumen persistente `<inst>/<backend>` →
+// `container_data_path()` y los mismos guardarraíles que el resto del stack.
+
+/// Límites calibrados del vector store (R20-lite: no necesita 8 GiB).
+const VECTOR_STORE_MEMORY_BYTES: i64 = 1024 * 1024 * 1024; // 1 GiB
+const VECTOR_STORE_PIDS_LIMIT: i64 = 512;
+
+#[async_trait::async_trait]
+impl crate::ports::rag::AiVectorStorePort for EnolaAiAdapter {
+    async fn ensure_vector_store(
+        &self,
+        instance: &str,
+        backend: crate::domain::rag::VectorStoreBackend,
+    ) -> Result<crate::ports::rag::VectorStoreInfo> {
+        validate_ai_instance_name(instance)?;
+        // La instancia debe existir (meta o contenedores).
+        let inst_dir = self.instance_dir(instance);
+        if !self.meta_file_path(instance).exists() && !inst_dir.exists() {
+            return Err(EnolaError::NotFound(format!(
+                "La instancia IA '{instance}' no existe (crea con `ai create`)"
+            )));
+        }
+        if let Some(info) = self.vector_store_endpoint(instance).await? {
+            if info.backend == backend {
+                return Ok(info);
+            }
+            return Err(EnolaError::ValidationError(format!(
+                "La instancia '{instance}' ya usa {:?}; para cambiar de backend borra el contenedor 'enola-ai-{instance}-{}'",
+                info.backend,
+                info.backend.container_suffix()
+            )));
+        }
+
+        let suffix = backend.container_suffix();
+        let container_name = format!("enola-ai-{instance}-{suffix}");
+        let data_dir = inst_dir.join(suffix);
+        std::fs::create_dir_all(&data_dir).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "No se pudo crear el volumen del vector store '{}': {e}",
+                data_dir.display()
+            ))
+        })?;
+
+        // Puerto libre dentro del rango dedicado con flock.
+        let range = crate::domain::rag::AI_VECTOR_PORT_RANGE;
+        let mut port: Option<u16> = None;
+        let mut locks: Vec<FileLock> = Vec::new();
+        {
+            let existing = self.container_manager.list_containers(true).await?;
+            'scan: for p in range.0..=range.1 {
+                if existing
+                    .iter()
+                    .any(|c| c.ports.iter().any(|s| s.contains(&format!(":{p}->"))))
+                {
+                    continue;
+                }
+                match acquire_port_lock(p) {
+                    Ok(lock) => {
+                        locks.push(lock);
+                        port = Some(p);
+                        break 'scan;
+                    }
+                    Err(_) => continue,
+                }
+            }
+        }
+        let host_port = port.ok_or_else(|| {
+            EnolaError::InfrastructureError(format!(
+                "No hay puerto libre para el vector store en {}-{}",
+                range.0, range.1
+            ))
+        })?;
+
+        let mut ports = HashMap::new();
+        ports.insert(host_port, backend.container_port());
+        let mut volumes = HashMap::new();
+        volumes.insert(
+            data_dir.to_string_lossy().to_string(),
+            backend.container_data_path().to_string(),
+        );
+        let mut user_sec_opts = Vec::new();
+        if let Some(profile) = apparmor_profile_opt(&container_name) {
+            user_sec_opts.push(profile);
+        }
+        let cfg = ContainerConfig {
+            name: container_name.clone(),
+            image: backend.docker_image().to_string(),
+            command: None,
+            env: HashMap::new(),
+            ports,
+            volumes,
+            network: Some(ai_network_name(instance)),
+            restart_policy: Some("unless-stopped".to_string()),
+            gpu_support: false,
+            auto_remove: false,
+            working_dir: None,
+            security_opt: build_default_security_opt(user_sec_opts),
+            memory_limit: Some(VECTOR_STORE_MEMORY_BYTES),
+            nano_cpus: None,
+            pids_limit: Some(VECTOR_STORE_PIDS_LIMIT),
+            secrets: HashMap::new(),
+            // El vector store escribe su base de datos en el volumen.
+            read_only_rootfs: false,
+            no_new_privileges: true,
+            cap_drop: vec!["ALL".to_string()],
+            cap_add: vec![
+                "CHOWN".to_string(),
+                "SETUID".to_string(),
+                "SETGID".to_string(),
+                "DAC_OVERRIDE".to_string(),
+            ],
+            image_digest: None,
+        };
+        self.container_manager.create_container(cfg).await?;
+        self.container_manager
+            .start_container(&container_name)
+            .await?;
+        drop(locks); // liberar el lock de puerto tras el arranque
+        Ok(crate::ports::rag::VectorStoreInfo {
+            backend,
+            host_port,
+            endpoint: format!("http://127.0.0.1:{host_port}"),
+        })
+    }
+
+    async fn vector_store_endpoint(
+        &self,
+        instance: &str,
+    ) -> Result<Option<crate::ports::rag::VectorStoreInfo>> {
+        validate_ai_instance_name(instance)?;
+        let containers = self.container_manager.list_containers(true).await?;
+        for backend in [
+            crate::domain::rag::VectorStoreBackend::Chroma,
+            crate::domain::rag::VectorStoreBackend::Qdrant,
+        ] {
+            let name = format!("enola-ai-{instance}-{}", backend.container_suffix());
+            if let Some(c) = containers.iter().find(|c| c.name == name) {
+                let host_port = c.ports.iter().find_map(|s| {
+                    // Formato "127.0.0.1:PORT->INTERNAL/tcp" o "PORT:INTERNAL"
+                    s.split("->")
+                        .next()
+                        .and_then(|left| left.rsplit(':').next()?.parse::<u16>().ok())
+                });
+                let running = c.status.to_lowercase().contains("up")
+                    || c.status.to_lowercase().contains("running");
+                if let (Some(p), true) = (host_port, running) {
+                    return Ok(Some(crate::ports::rag::VectorStoreInfo {
+                        backend,
+                        host_port: p,
+                        endpoint: format!("http://127.0.0.1:{p}"),
+                    }));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn build_vector_store(
+        &self,
+        info: &crate::ports::rag::VectorStoreInfo,
+        ollama_port: u16,
+        embedding_model: &str,
+    ) -> std::sync::Arc<dyn crate::ports::rag::RagVectorStorePort + Send + Sync> {
+        use crate::domain::rag::VectorStoreBackend;
+        match info.backend {
+            VectorStoreBackend::Chroma => {
+                std::sync::Arc::new(crate::adapters::ai::chroma::ChromaAdapter::new(
+                    info.host_port,
+                    ollama_port,
+                    embedding_model,
+                ))
+            }
+            VectorStoreBackend::Qdrant => {
+                std::sync::Arc::new(crate::adapters::ai::qdrant::QdrantAdapter::new(
+                    info.host_port,
+                    ollama_port,
+                    embedding_model,
+                ))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

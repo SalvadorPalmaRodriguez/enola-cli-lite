@@ -329,7 +329,8 @@
       "publish",
       "hide",
       "logs",
-      "model"
+      "model",
+      "rag"
     ],
     "apparmor": [
       "setup",

@@ -18,6 +18,7 @@ pub mod mcp; // MCP-001 — Tipos JSON-RPC 2.0 + MCP (servidor stdio)
 pub mod naming;
 pub mod plan; // Tarea 3 — `enola plan` dry-run domain types
 pub mod port_config;
+pub mod rag; // Fase 12 — Índice RAG (chunking, colecciones, fuentes)
 pub mod system;
 pub mod tests;
 pub mod tool; // MCP-004 — ToolSpec, ToolKind, clasificación read/write

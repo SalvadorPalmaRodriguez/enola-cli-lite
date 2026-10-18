@@ -402,6 +402,24 @@ fn build_tool_registry(
     crate::application::mcp::resources::register_search_tool(&mut registry)
         .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
+    // Fase 12.5 — docs_lookup (RAG semántico opcional). Si el adapter IA no
+    // puede construirse, la tool simplemente no se registra (best-effort).
+    if let Ok(ai_adapter) = build_ai_adapter() {
+        let base = ai_adapter.instance_dir("");
+        let rag_store: Arc<dyn crate::ports::rag::AiRagStorePort + Send + Sync> =
+            Arc::new(crate::adapters::ai::rag_store::FsRagStoreAdapter::new(base));
+        let provision: Arc<dyn crate::ports::rag::AiVectorStorePort + Send + Sync> =
+            ai_adapter.clone();
+        if let Err(e) = crate::application::mcp::resources::register_docs_lookup_tool(
+            &mut registry,
+            ai_adapter,
+            provision,
+            rag_store,
+        ) {
+            eprintln!("⚠️  docs_lookup no registrado: {e}");
+        }
+    }
+
     Ok(registry)
 }
 
@@ -4293,6 +4311,138 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
                 .map_err(CliError::from)
         }
         A::Model(model_cmd) => execute_ai_model(model_cmd, format).await,
+        A::Rag(rag_cmd) => execute_ai_rag(rag_cmd, format).await,
+    }
+}
+
+async fn execute_ai_rag(cmd: crate::cli::AiRagCommands, format: &str) -> CliResult<String> {
+    use crate::adapters::ai::rag_store::FsRagStoreAdapter;
+    use crate::application::ai_rag::ManageAiRag;
+    use crate::cli::AiRagCommands as R;
+    use crate::domain::rag::AiSourceType;
+    use std::sync::Arc;
+
+    let adapter = build_ai_adapter()?;
+    // instance_dir("") == base_dir (/srv/enola-ai) — join de "" no añade segmento.
+    let base = adapter.instance_dir("");
+    let svc = ManageAiRag::new(
+        adapter.clone(),
+        Arc::new(FsRagStoreAdapter::new(base)),
+        adapter,
+    );
+
+    match cmd {
+        R::Status { instance } => {
+            let rep = svc.status(&instance).await.map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&rep)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let mut out = format!("📊 RAG status — instance '{}'\n", rep.instance);
+            match &rep.vector_store {
+                Some(v) => out.push_str(&format!(
+                    "   Vector store: {:?} @ {}\n",
+                    v.backend, v.endpoint
+                )),
+                None => out.push_str("   Vector store: (not provisioned)\n"),
+            }
+            if let Some(n) = rep.documents_indexed {
+                out.push_str(&format!("   Indexed documents: {n}\n"));
+            }
+            out.push_str(&format!(
+                "   Config: chunk_size={} overlap={} remove_code={} embed={} preset={}\n",
+                rep.config.chunk_size,
+                rep.config.chunk_overlap,
+                rep.config.remove_code_blocks,
+                rep.config.embedding_model,
+                rep.config.preset
+            ));
+            out.push_str("   Bound sources:\n");
+            if rep.sources.is_empty() {
+                out.push_str("     (none)\n");
+            }
+            for s in &rep.sources {
+                out.push_str(&format!(
+                    "     • {:?} {} (last sync: {})\n",
+                    s.source_type,
+                    s.location,
+                    s.last_synced.as_deref().unwrap_or("never")
+                ));
+            }
+            if let Some(n) = &rep.note {
+                out.push_str(&format!("   ⚠️  {n}\n"));
+            }
+            Ok(out)
+        }
+        R::Ingest { instance, path } => {
+            let n = svc.ingest(&instance, &path).await.map_err(CliError::from)?;
+            Ok(format!(
+                "✅ Ingested {n} chunk(s) into instance '{instance}' index"
+            ))
+        }
+        R::Bind {
+            instance,
+            source_type,
+            path,
+            force,
+        } => {
+            let st = AiSourceType::from_str_ci(&source_type).map_err(CliError::from)?;
+            let src = svc
+                .bind(&instance, st, &path, force)
+                .await
+                .map_err(CliError::from)?;
+            Ok(format!(
+                "✅ Source bound to '{instance}': {:?} {} (id {})",
+                src.source_type, src.location, src.id
+            ))
+        }
+        R::Sync { instance } => {
+            let n = svc.sync(&instance).await.map_err(CliError::from)?;
+            Ok(format!("✅ Synced {n} chunk(s) for instance '{instance}'"))
+        }
+        R::Config {
+            instance,
+            chunk_size,
+            chunk_overlap,
+            remove_code,
+            preset,
+            vector_store,
+            show,
+        } => {
+            let cfg = svc
+                .config(
+                    &instance,
+                    chunk_size,
+                    chunk_overlap,
+                    remove_code,
+                    preset.as_deref(),
+                    vector_store.as_deref(),
+                    show,
+                )
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&cfg)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "📋 RAG config for '{instance}':\n   \
+                 • chunk_size:      {}\n   \
+                 • chunk_overlap:   {}\n   \
+                 • remove_code:     {}\n   \
+                 • extract_struct:  {}\n   \
+                 • embedding_model: {}\n   \
+                 • vector_store:    {:?}\n   \
+                 • preset:          {}",
+                cfg.chunk_size,
+                cfg.chunk_overlap,
+                cfg.remove_code_blocks,
+                cfg.extract_structure,
+                cfg.embedding_model,
+                cfg.vector_store,
+                cfg.preset
+            ))
+        }
     }
 }
 

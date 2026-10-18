@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ai/commands-ai.md`
-> **Versión:** 1.1 | **Actualizado:** 2026-10-18
+> **Versión:** 1.2 | **Actualizado:** 2026-10-18
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands-ask.md, ../general/commands.md, ../general/config-reference.md, ../mcp/commands-mcp.md
 
@@ -38,6 +38,15 @@ sudo enola-cli ai model add <NAME> <model|file.gguf> [--name <ALIAS>]
 sudo enola-cli ai model delete <NAME> <model|file.gguf> --force
 sudo enola-cli ai model validate <NAME> <file.gguf>
 sudo enola-cli ai model refresh <NAME>
+
+# Índice RAG (nivel 3)
+sudo enola-cli ai rag status <NAME>
+sudo enola-cli ai rag ingest <NAME> <PATH>
+sudo enola-cli ai rag bind <NAME> --source-type <git|filesystem|wordpress> --path <P> --force
+sudo enola-cli ai rag sync <NAME>
+sudo enola-cli ai rag config <NAME> [--chunk-size N] [--chunk-overlap N]
+                                [--remove-code] [--preset docs|code|faq|large]
+                                [--vector-store chroma|qdrant] [--show]
 ```
 
 | Subcomando | Clase MCP | Descripción |
@@ -58,6 +67,30 @@ sudo enola-cli ai model refresh <NAME>
 | `ai model delete <N> <M> --force` | `Destructive` | Elimina un `.gguf` de la biblioteca (sufijo `.gguf`) o un modelo del registro Ollama (`DELETE /api/delete`). Exige `--force`. |
 | `ai model validate <N> <F>` | `ReadOnly` | Parsea el header GGUF (magic + versión v2/v3 + contadores) y reporta familia/cuantización inferidas. |
 | `ai model refresh <N>` | `Mutating` | Re-escanea la biblioteca y el registro de la instancia. |
+| `ai rag status <N>` | `ReadOnly` | Estado del índice RAG: vector store, documentos indexados y fuentes ligadas. |
+| `ai rag ingest <N> <PATH>` | `Mutating` | Ingere un fichero o directorio en el índice vectorial de la instancia (canonicaliza la ruta, rechaza rutas del sistema, salta dotfiles y escapes por symlink). |
+| `ai rag bind <N> -s <T> -p <P> --force` | `Destructive` | Liga una fuente (`git`, `filesystem`, `wordpress`) al índice para `sync`. Exige `--force`; las rutas se canonicalizan y se rechazan prefijos del sistema (`/etc`, `/root`, `/proc`…). |
+| `ai rag sync <N>` | `Mutating` | Re-ingiere todas las fuentes ligadas (`git pull --ff-only` como usuario invocador para fuentes git; REST `/wp-json/wp/v2/posts` para wordpress). |
+| `ai rag config <N> [--show]` | `Mutating` | Muestra o edita `rag_config.json` (chunking, presets `docs|code|faq|large`, backend `chroma|qdrant`). |
+
+---
+
+## Índice RAG (vector store por instancia)
+
+Cada instancia puede tener un contenedor de vector store propio
+(`enola-ai-<name>-chromadb` o `enola-ai-<name>-qdrant`), aprovisionado de forma
+perezosa por `ContainerPort` en `enola_net_ai_<name>` con bind `127.0.0.1`,
+puerto del rango `12001–12500` reservado con `flock`, volumen persistente
+`/srv/enola-ai/<name>/<backend>/` y límites calibrados (1 GiB, 512 pids).
+
+Los embeddings se generan en el Ollama de la instancia (`/api/embed`, modelo
+`nomic-embed-text` por defecto); si Ollama no responde se usa un embedding
+determinista por hash para no bloquear la ingesta. El estado por instancia
+vive en `/srv/enola-ai/<name>/rag_config.json` y `rag_sources.json` (`0640`).
+
+La tool MCP `docs_lookup` ofrece búsqueda semántica sobre la colección
+`enola_docs` de una instancia con RAG aprovisionado (alternativa opcional a
+`docs_search`).
 
 ---
 

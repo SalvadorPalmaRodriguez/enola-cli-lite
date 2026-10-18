@@ -4004,6 +4004,177 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "description": "Manage the RAG index (vector store + bound sources) of AI instances",
+          "flags": [],
+          "name": "rag",
+          "subcommands": [
+            {
+              "description": "Show RAG status for an instance (bound sources, indexed docs)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INSTANCE"
+                }
+              ],
+              "name": "status",
+              "subcommands": []
+            },
+            {
+              "description": "Ingest a file or directory into the instance vector index",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INSTANCE"
+                },
+                {
+                  "boolean": false,
+                  "name": "path",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PATH"
+                }
+              ],
+              "name": "ingest",
+              "subcommands": []
+            },
+            {
+              "description": "Bind an external source (filesystem dir, local git repo, wordpress site) to the instance index for later `sync`",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INSTANCE"
+                },
+                {
+                  "boolean": false,
+                  "name": "source-type",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SOURCE_TYPE"
+                },
+                {
+                  "boolean": false,
+                  "name": "path",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PATH"
+                },
+                {
+                  "boolean": true,
+                  "name": "force",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "FORCE"
+                }
+              ],
+              "name": "bind",
+              "subcommands": []
+            },
+            {
+              "description": "Sync all bound sources of an instance (re-ingest)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INSTANCE"
+                }
+              ],
+              "name": "sync",
+              "subcommands": []
+            },
+            {
+              "description": "Show or update the RAG configuration of an instance",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INSTANCE"
+                },
+                {
+                  "boolean": false,
+                  "name": "chunk-size",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "CHUNK_SIZE"
+                },
+                {
+                  "boolean": false,
+                  "name": "chunk-overlap",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "CHUNK_OVERLAP"
+                },
+                {
+                  "boolean": false,
+                  "name": "remove-code",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "REMOVE_CODE"
+                },
+                {
+                  "boolean": false,
+                  "name": "preset",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "PRESET"
+                },
+                {
+                  "boolean": false,
+                  "name": "vector-store",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "VECTOR_STORE"
+                },
+                {
+                  "boolean": true,
+                  "name": "show",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "SHOW"
+                }
+              ],
+              "name": "config",
+              "subcommands": []
+            }
+          ]
         }
       ]
     }
