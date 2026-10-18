@@ -5,6 +5,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0-alpha] — 2026-10-18
+
 ### Breaking
 - **Web API destructive confirmation gate (SEC-005)** — destructive endpoints
   (`/api/tor/{name}/rotate`, `/api/tor/{name}/remove`, `/api/git/{name}/delete`,

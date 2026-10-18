@@ -331,7 +331,7 @@ pub enum Commands {
     /// la integridad SHA-256.
     ///
     /// Ejemplos:
-    ///   enola-cli verify enola-cli-v0.8.0-alpha-x86_64-linux.tar.gz
+    ///   enola-cli verify enola-cli-v0.9.0-alpha-x86_64-linux.tar.gz
     ///   enola-cli verify mybinary --pqsig mybinary.pqsig --json
     Verify {
         /// Ruta al archivo descargado a verificar (tarball o binario).
