@@ -21,7 +21,9 @@ use crate::application::wordpress_status_check::WordPressStatusCheck;
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::tool::{ToolKind, ToolSpec};
 use crate::ports::container::ContainerPort;
+use crate::ports::dependencies::DependencyPort;
 use crate::ports::file::FileManagerPort;
+use crate::ports::hardware::HardwareProbePort;
 use crate::ports::http_probe::HttpProbePort;
 use crate::ports::manifest::ManifestPort;
 use crate::ports::port_checker::PortCheckerPort;
@@ -69,6 +71,8 @@ pub(crate) fn register(
     probe: Arc<dyn HttpProbePort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
     file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+    deps: Arc<dyn DependencyPort + Send + Sync>,
+    hardware: Arc<dyn HardwareProbePort + Send + Sync>,
 ) -> Result<()> {
     let tor_handler: Arc<dyn ToolHandler> = Arc::new(TorListHandler { tor: tor.clone() });
     register_tool(
@@ -101,7 +105,13 @@ pub(crate) fn register(
         "Run system diagnostics and return the full report.",
         empty_schema(),
         ToolKind::ReadOnly,
-        Arc::new(DoctorHandler),
+        Arc::new(DoctorHandler {
+            ports: crate::application::system_doctor::DoctorPorts {
+                deps,
+                port_checker: port_checker.clone(),
+                hardware,
+            },
+        }),
     )?;
     register_tool(
         registry,
@@ -459,12 +469,14 @@ impl ToolHandler for ConfigShowHandler {
     }
 }
 
-struct DoctorHandler;
+struct DoctorHandler {
+    ports: crate::application::system_doctor::DoctorPorts,
+}
 
 #[async_trait::async_trait]
 impl ToolHandler for DoctorHandler {
     async fn call(&self, _args: Value) -> Result<Value> {
-        let report = crate::application::system_doctor::full_report().await;
+        let report = crate::application::system_doctor::full_report(&self.ports).await;
         Ok(json!({ "report": report }))
     }
 }
@@ -970,6 +982,8 @@ mod tests {
             Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
             Arc::new(crate::ports::manifest::MockManifestPort::new()),
             Arc::new(crate::ports::file::MockFileManagerPort::new()),
+            Arc::new(crate::ports::dependencies::MockDependencyPort::new()),
+            Arc::new(crate::ports::hardware::MockHardwareProbePort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();
@@ -1037,6 +1051,8 @@ mod tests {
             Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
             Arc::new(crate::ports::manifest::MockManifestPort::new()),
             Arc::new(crate::ports::file::MockFileManagerPort::new()),
+            Arc::new(crate::ports::dependencies::MockDependencyPort::new()),
+            Arc::new(crate::ports::hardware::MockHardwareProbePort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();
@@ -1212,6 +1228,8 @@ mod tests {
             Arc::new(crate::ports::http_probe::MockHttpProbePort::new()),
             Arc::new(crate::ports::manifest::MockManifestPort::new()),
             Arc::new(crate::ports::file::MockFileManagerPort::new()),
+            Arc::new(crate::ports::dependencies::MockDependencyPort::new()),
+            Arc::new(crate::ports::hardware::MockHardwareProbePort::new()),
         )
         .unwrap();
         let tools = registry.list_tools();

@@ -25,40 +25,62 @@ pub trait DependencyPort: Send + Sync {
     }
 }
 #[cfg(test)]
+pub struct MockDependencyPort {
+    pub all_installed: bool,
+}
+
+#[cfg(test)]
+impl Default for MockDependencyPort {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+impl MockDependencyPort {
+    pub fn new() -> Self {
+        Self {
+            all_installed: true,
+        }
+    }
+}
+
+#[cfg(test)]
+impl DependencyPort for MockDependencyPort {
+    fn detect_package_manager(&self) -> PackageManager {
+        PackageManager::Apt
+    }
+    fn check_binary(&self, _binary: &str) -> DepStatus {
+        use crate::domain::dependencies::DepCategory;
+        DepStatus {
+            dep: Dependency {
+                package: "mock",
+                binary: "mock",
+                description: "mock",
+                category: DepCategory::Core,
+                needed_by: "test",
+            },
+            installed: self.all_installed,
+            version: if self.all_installed {
+                Some("1.0".into())
+            } else {
+                None
+            },
+        }
+    }
+    fn install_package(&self, _pkg: &str, _pm: PackageManager) -> Result<(), DependencyError> {
+        Ok(())
+    }
+    fn update_package_index(&self, _pm: PackageManager) -> Result<(), DependencyError> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::dependencies::{DepCategory, ALL_DEPENDENCIES};
-    struct MockDep {
-        all_installed: bool,
-    }
-    impl DependencyPort for MockDep {
-        fn detect_package_manager(&self) -> PackageManager {
-            PackageManager::Apt
-        }
-        fn check_binary(&self, _binary: &str) -> DepStatus {
-            DepStatus {
-                dep: Dependency {
-                    package: "mock",
-                    binary: "mock",
-                    description: "mock",
-                    category: DepCategory::Core,
-                    needed_by: "test",
-                },
-                installed: self.all_installed,
-                version: if self.all_installed {
-                    Some("1.0".into())
-                } else {
-                    None
-                },
-            }
-        }
-        fn install_package(&self, _pkg: &str, _pm: PackageManager) -> Result<(), DependencyError> {
-            Ok(())
-        }
-        fn update_package_index(&self, _pm: PackageManager) -> Result<(), DependencyError> {
-            Ok(())
-        }
-    }
+    use crate::domain::dependencies::ALL_DEPENDENCIES;
+    type MockDep = MockDependencyPort;
     #[test]
     fn test_mock_check_all() {
         let mock = MockDep {

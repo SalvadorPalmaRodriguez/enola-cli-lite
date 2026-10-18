@@ -58,6 +58,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **MCP argv redaction and audit ordering (F-12, F-14 / N-11)** — `enola_run_command`
   redacts sensitive flag values in returned `argv`, and logs `requested` after
   argument validation (recording `invalid` on validation errors).
+- **MCP stdio `FD_CLOEXEC` and `config-show` root parity (F-NEW-3, F-NEW-4)** —
+  `StdoutGuard`/`StdioTransport` duplicate the protocol descriptor with
+  `F_DUPFD_CLOEXEC` so child processes never inherit the JSON-RPC pipe;
+  `config-show` / `doctor` apply the same `euid 0` rules for `[update]` as
+  `update_checker` (`load_section_root_owned` and `ENOLA_UPDATE_ENV_ANCHORS=1`).
+
+### Changed
+- **Hexagonal boundary cleanup (F-NEW-2)** — moved the web dashboard driving
+  adapter (`web_api`, `web_server`, `web_errors`) from `src/application/` to
+  `src/adapters/web/`, and injected `DoctorPorts` (`DependencyPort`,
+  `PortCheckerPort`, `HardwareProbePort`) into `application::system_doctor`,
+  leaving zero adapter/CLI imports in `src/application/` production code.
 
 ### Removed
 - Unreferenced scaffolding modules (`app_deployer`, `git/client` + `ports/git`,

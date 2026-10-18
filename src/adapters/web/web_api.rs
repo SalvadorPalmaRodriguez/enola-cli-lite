@@ -5,8 +5,8 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::application::web_errors::{ApiError, ApiResult};
-use crate::application::web_server::AppState;
+use crate::adapters::web::web_errors::{ApiError, ApiResult};
+use crate::adapters::web::web_server::AppState;
 use crate::cli::commands;
 
 /// Strip ANSI escape codes from a string (for web UI display).
@@ -205,7 +205,7 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/doctor/security", get(api_doctor_security))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            crate::application::web_server::auth_middleware,
+            crate::adapters::web::web_server::auth_middleware,
         ))
 }
 
@@ -679,7 +679,16 @@ async fn api_ports_list() -> ApiResult<Vec<commands::ports::PortEntry>> {
 // ── Doctor ─────────────────────────────────────────────────────────────────────
 
 async fn api_doctor() -> ApiResult<String> {
-    let report = crate::application::system_doctor::full_report().await;
+    use crate::adapters::hardware::probe::EnolaHardwareProbe;
+    use crate::adapters::infra::dependencies::SystemDependencyAdapter;
+    use crate::adapters::infra::port_checker::PortCheckerAdapter;
+    use crate::application::system_doctor::DoctorPorts;
+    let ports = DoctorPorts {
+        deps: std::sync::Arc::new(SystemDependencyAdapter::new()),
+        port_checker: std::sync::Arc::new(PortCheckerAdapter::new()),
+        hardware: std::sync::Arc::new(EnolaHardwareProbe::new()),
+    };
+    let report = crate::application::system_doctor::full_report(&ports).await;
     Ok(Json(strip_ansi(&report)))
 }
 

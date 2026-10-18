@@ -21,13 +21,19 @@ pub struct StdoutGuard {
 }
 
 #[cfg(unix)]
+fn dup_cloexec(fd: RawFd) -> std::io::Result<RawFd> {
+    let new_fd = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if new_fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(new_fd)
+}
+
+#[cfg(unix)]
 impl StdoutGuard {
-    /// Instala la guardia: `dup(1)` (fd de protocolo) + `dup2(2, 1)`.
+    /// Instala la guardia: `fcntl(1, F_DUPFD_CLOEXEC)` (fd de protocolo) + `dup2(2, 1)`.
     pub fn install() -> std::io::Result<Self> {
-        let protocol_fd = unsafe { libc::dup(libc::STDOUT_FILENO) };
-        if protocol_fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+        let protocol_fd = dup_cloexec(libc::STDOUT_FILENO)?;
         if unsafe { libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO) } < 0 {
             let e = std::io::Error::last_os_error();
             unsafe {
@@ -66,10 +72,7 @@ pub struct StdioTransport {
 impl StdioTransport {
     pub fn new() -> std::io::Result<Self> {
         let guard = StdoutGuard::install()?;
-        let write_fd = unsafe { libc::dup(guard.protocol_fd()) };
-        if write_fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+        let write_fd = dup_cloexec(guard.protocol_fd())?;
         let file = unsafe { std::fs::File::from_raw_fd(write_fd) };
         let writer = tokio::fs::File::from_std(file);
         Ok(Self {
@@ -124,6 +127,22 @@ mod tests {
         drop(guard);
         // stdout restaurado
         assert_eq!(fstat_id(libc::STDOUT_FILENO), before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn guard_sets_cloexec_on_protocol_fd() {
+        let _g = FD_LOCK.lock().unwrap();
+
+        let guard = StdoutGuard::install().unwrap();
+        let flags = unsafe { libc::fcntl(guard.protocol_fd(), libc::F_GETFD) };
+        assert!(flags >= 0, "fcntl(F_GETFD) failed");
+        assert_ne!(
+            flags & libc::FD_CLOEXEC,
+            0,
+            "protocol_fd must have FD_CLOEXEC set so child processes never inherit it"
+        );
+        drop(guard);
     }
 
     #[cfg(unix)]

@@ -154,16 +154,34 @@ fn looks_secret(key: &str) -> bool {
 
 /// Resuelve un valor aplicando la cadena env > file > default y devuelve
 /// también el origen efectivo.
-fn resolve_one(spec: &ConfigKeySpec) -> ConfigEntry {
+///
+/// SEC-003 / C-08 (F-NEW-3): para `section == "update"` bajo `euid == 0`,
+/// aplica la misma regla que `update_checker`: la variable de entorno exige
+/// `ENOLA_UPDATE_ENV_ANCHORS=1` y el archivo se lee exclusivamente de
+/// `/etc/enola/config.toml` root-owned (`load_section_root_owned`).
+fn resolve_one(spec: &ConfigKeySpec, euid: u32) -> ConfigEntry {
     // 1. Env var
     if let Ok(v) = std::env::var(spec.env_var) {
         if !v.is_empty() {
-            return finalize_entry(spec, v, ConfigSource::Env);
+            let env_allowed = if spec.section == "update" && euid == 0 {
+                std::env::var("ENOLA_UPDATE_ENV_ANCHORS")
+                    .map(|flag| flag.trim() == "1")
+                    .unwrap_or(false)
+            } else {
+                true
+            };
+            if env_allowed {
+                return finalize_entry(spec, v, ConfigSource::Env);
+            }
         }
     }
 
     // 2. Archivo config.toml (clave principal o alias)
-    let section = config_loader::load_section(spec.section);
+    let section = if spec.section == "update" && euid == 0 {
+        config_loader::load_section_root_owned(spec.section)
+    } else {
+        config_loader::load_section(spec.section)
+    };
     if let Some(v) = section.get(spec.key) {
         return finalize_entry(spec, v.clone(), ConfigSource::File);
     }
@@ -191,9 +209,27 @@ fn finalize_entry(spec: &ConfigKeySpec, value: String, source: ConfigSource) -> 
     }
 }
 
+fn current_euid() -> u32 {
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid() }
+    }
+    #[cfg(not(unix))]
+    {
+        u32::MAX
+    }
+}
+
 /// Resuelve TODA la configuración centralizada.
 pub fn resolve_all() -> Vec<ConfigEntry> {
-    KNOWN_KEYS.iter().map(resolve_one).collect()
+    resolve_all_with_euid(current_euid())
+}
+
+fn resolve_all_with_euid(euid: u32) -> Vec<ConfigEntry> {
+    KNOWN_KEYS
+        .iter()
+        .map(|spec| resolve_one(spec, euid))
+        .collect()
 }
 
 /// Formatea una lista de entradas como tabla ASCII alineada.
@@ -859,5 +895,71 @@ mod tests {
             "expected URL error, got: {:?}",
             findings
         );
+    }
+
+    #[test]
+    fn update_keys_under_euid0_ignore_user_config_and_unguarded_env() {
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
+        clear_all_env();
+
+        let prev_home = std::env::var("HOME").ok();
+        let prev_sudo = std::env::var("SUDO_USER").ok();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cfg_dir = tmp.path().join(".enola");
+        std::fs::create_dir_all(&cfg_dir).expect("mkdir .enola");
+        std::fs::write(
+            cfg_dir.join("config.toml"),
+            "[update]\nfeed_url = \"http://127.0.0.1:19999/evil.json\"\n",
+        )
+        .expect("write user config");
+        std::env::set_var("HOME", tmp.path());
+        std::env::remove_var("SUDO_USER");
+
+        // 1. Bajo euid != 0 lee ~/.enola/config.toml normalmente.
+        let non_root = resolve_all_with_euid(1000);
+        let feed_user = non_root
+            .iter()
+            .find(|e| e.key == "update.feed_url")
+            .unwrap();
+        assert_eq!(feed_user.value, "http://127.0.0.1:19999/evil.json");
+        assert_eq!(feed_user.source, ConfigSource::File);
+
+        // 2. Bajo euid == 0 ignora ~/.enola/config.toml (SEC-003) y ENOLA_UPDATE_* sin ENOLA_UPDATE_ENV_ANCHORS=1 (C-08).
+        std::env::set_var("ENOLA_UPDATE_FEED_URL", "http://127.0.0.1:18888/env.json");
+        std::env::remove_var("ENOLA_UPDATE_ENV_ANCHORS");
+        let root_unguarded = resolve_all_with_euid(0);
+        let feed_root = root_unguarded
+            .iter()
+            .find(|e| e.key == "update.feed_url")
+            .unwrap();
+        assert_ne!(
+            feed_root.value, "http://127.0.0.1:18888/env.json",
+            "env var sin ENOLA_UPDATE_ENV_ANCHORS=1 debe ignorarse bajo euid 0"
+        );
+        assert_ne!(
+            feed_root.value, "http://127.0.0.1:19999/evil.json",
+            "~/.enola/config.toml debe ignorarse bajo euid 0"
+        );
+
+        // 3. Con ENOLA_UPDATE_ENV_ANCHORS=1 sí se aplica bajo euid 0.
+        std::env::set_var("ENOLA_UPDATE_ENV_ANCHORS", "1");
+        let root_guarded = resolve_all_with_euid(0);
+        let feed_root_ok = root_guarded
+            .iter()
+            .find(|e| e.key == "update.feed_url")
+            .unwrap();
+        assert_eq!(feed_root_ok.value, "http://127.0.0.1:18888/env.json");
+        assert_eq!(feed_root_ok.source, ConfigSource::Env);
+
+        std::env::remove_var("ENOLA_UPDATE_ENV_ANCHORS");
+        std::env::remove_var("ENOLA_UPDATE_FEED_URL");
+        match prev_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
+        match prev_sudo {
+            Some(u) => std::env::set_var("SUDO_USER", u),
+            None => std::env::remove_var("SUDO_USER"),
+        }
     }
 }

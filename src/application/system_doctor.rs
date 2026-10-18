@@ -31,29 +31,37 @@
 //!
 //! ## Uso
 //!
-//! ```no_run
-//! # async fn demo() {
-//! // En executor.rs
-//! let out = enola_core::application::system_doctor::full_report().await;
+//! ```ignore
+//! let out = enola_core::application::system_doctor::full_report(&ports).await;
 //! print!("{}", out);
-//! # }
 //! ```
 //!
 //! Todas las secciones son **tolerantes a fallos**: si falta una herramienta
 //! o una llamada da error, se reporta en el propio output pero no se panica.
 
+use crate::ports::dependencies::DependencyPort;
+use crate::ports::hardware::HardwareProbePort;
+use crate::ports::port_checker::PortCheckerPort;
 use std::sync::Arc;
 
 /// Ancho del separador usado entre secciones.
 const SEP: &str = "═══════════════════════════════════════════════════════════════════";
 
+/// Puertos inyectables requeridos por `system_doctor::full_report` (§2/§12).
+#[derive(Clone)]
+pub struct DoctorPorts {
+    pub deps: Arc<dyn DependencyPort + Send + Sync>,
+    pub port_checker: Arc<dyn PortCheckerPort>,
+    pub hardware: Arc<dyn HardwareProbePort + Send + Sync>,
+}
+
 /// Genera el reporte completo concatenando todas las secciones.
-pub async fn full_report() -> String {
+pub async fn full_report(ports: &DoctorPorts) -> String {
     let mut out = String::new();
     out.push_str(&header("System Doctor"));
 
     // 1. Dependencias (reutiliza el existente).
-    out.push_str(&section_deps());
+    out.push_str(&section_deps(ports.deps.clone()));
 
     // 2. Configuración efectiva.
     out.push_str(&section_config());
@@ -65,10 +73,10 @@ pub async fn full_report() -> String {
     out.push_str(&section_runtime_services());
 
     // 5.5 Colisiones de puertos (PORTS-001)
-    out.push_str(&section_port_collisions());
+    out.push_str(&section_port_collisions(ports.port_checker.as_ref()));
 
     // 6. Hardware.
-    out.push_str(&section_hardware().await);
+    out.push_str(&section_hardware(ports.hardware.as_ref()).await);
 
     // 7. PQC TLS stack.
     out.push_str(&section_pqc_tls());
@@ -89,11 +97,9 @@ fn subsection(title: &str) -> String {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-fn section_deps() -> String {
-    use crate::adapters::infra::dependencies::SystemDependencyAdapter;
+fn section_deps(adapter: Arc<dyn DependencyPort + Send + Sync>) -> String {
     use crate::application::dependency_manager::DependencyManager;
 
-    let adapter = Arc::new(SystemDependencyAdapter::new());
     let mgr = DependencyManager::new(adapter);
     mgr.doctor()
 }
@@ -249,12 +255,8 @@ fn section_runtime_services() -> String {
 // ───────────────────────────────────────────────────────────────────────────
 // 5.5 Port collisions (PORTS-001)
 // ───────────────────────────────────────────────────────────────────────────
-fn section_port_collisions() -> String {
-    use crate::adapters::infra::port_checker::PortCheckerAdapter;
-    use crate::ports::port_checker::PortCheckerPort;
-
+fn section_port_collisions(checker: &dyn PortCheckerPort) -> String {
     let mut s = header("Port Collisions");
-    let checker = PortCheckerAdapter::new();
 
     // Puertos comunes que deben estar libres para Enola
     let common_ports = vec![
@@ -295,13 +297,9 @@ fn section_port_collisions() -> String {
 // ───────────────────────────────────────────────────────────────────────────
 // 6. Hardware
 // ───────────────────────────────────────────────────────────────────────────
-#[allow(dead_code)]
-async fn section_hardware() -> String {
-    use crate::adapters::hardware::probe::EnolaHardwareProbe;
-    use crate::ports::hardware::HardwareProbePort;
+async fn section_hardware(probe: &dyn HardwareProbePort) -> String {
     let mut s = header("Hardware");
 
-    let probe = EnolaHardwareProbe::new();
     let specs = match probe.probe().await {
         Ok(specs) => specs,
         Err(e) => {
@@ -987,14 +985,64 @@ mod tests {
 
     #[tokio::test]
     async fn hardware_section_reports_cpu() {
-        let s = section_hardware().await;
+        use crate::ports::hardware::{
+            BatteryState, GpuBrand, MockHardwareProbePort, SystemHardwareSpecs,
+        };
+        let mut mock_hw = MockHardwareProbePort::new();
+        mock_hw.expect_probe().returning(|| {
+            Ok(SystemHardwareSpecs {
+                cpu_cores: 8,
+                ram_total_mb: 16384,
+                ram_available_mb: 12000,
+                ram_used_mb: 4384,
+                gpu_brand: GpuBrand::None,
+                gpus: vec![],
+                battery_status: BatteryState::AcConnected,
+                platform: "linux".into(),
+            })
+        });
+        let s = section_hardware(&mock_hw).await;
         assert!(s.contains("CPU cores"));
         assert!(s.contains("RAM"));
     }
 
     #[tokio::test]
     async fn full_report_composes_all_sections() {
-        let r = full_report().await;
+        use crate::ports::dependencies::MockDependencyPort;
+        use crate::ports::hardware::{
+            BatteryState, GpuBrand, MockHardwareProbePort, SystemHardwareSpecs,
+        };
+        use crate::ports::port_checker::{MockPortCheckerPort, PortCheckResult};
+
+        let mut mock_ports = MockPortCheckerPort::new();
+        mock_ports.expect_check_port().returning(|p| {
+            Ok(PortCheckResult {
+                port: p,
+                free_os: true,
+                free_docker: true,
+            })
+        });
+
+        let mut mock_hw = MockHardwareProbePort::new();
+        mock_hw.expect_probe().returning(|| {
+            Ok(SystemHardwareSpecs {
+                cpu_cores: 8,
+                ram_total_mb: 16384,
+                ram_available_mb: 12000,
+                ram_used_mb: 4384,
+                gpu_brand: GpuBrand::None,
+                gpus: vec![],
+                battery_status: BatteryState::AcConnected,
+                platform: "linux".into(),
+            })
+        });
+
+        let ports = DoctorPorts {
+            deps: Arc::new(MockDependencyPort::new()),
+            port_checker: Arc::new(mock_ports),
+            hardware: Arc::new(mock_hw),
+        };
+        let r = full_report(&ports).await;
         // Checkeamos headers de cada sección.
         assert!(r.contains("System Dependencies") || r.contains("System Doctor"));
         assert!(r.contains("Configuration"));

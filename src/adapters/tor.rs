@@ -1532,8 +1532,23 @@ mod tests {
             .expect("spawn sleep");
         let pid = child.id();
 
+        let comm_path = format!("/proc/{}/comm", pid);
+        for _ in 0..100 {
+            if std::fs::read_to_string(&comm_path)
+                .map(|c| c.trim() == "sleep")
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
         let pidfd = super::open_pidfd(pid).expect("open_pidfd on live child");
         let killed = super::terminate_pid_checked(pid, "sleep").expect("terminate_pid_checked ok");
+        if !killed {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         assert!(killed, "sleep process should be terminated");
 
         let _ = child.wait().expect("wait reaps child");

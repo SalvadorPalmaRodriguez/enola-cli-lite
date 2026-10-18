@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::application::web_api;
+use crate::adapters::web::web_api;
 
 pub struct AppState {
     pub token: String,
@@ -134,14 +134,14 @@ fn is_root() -> bool {
 async fn index_html() -> impl IntoResponse {
     (
         [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        include_str!("../../assets/index.html"),
+        include_str!("../../../assets/index.html"),
     )
 }
 
 async fn style_css() -> impl IntoResponse {
     (
         [(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        include_str!("../../assets/style.css"),
+        include_str!("../../../assets/style.css"),
     )
 }
 
@@ -151,7 +151,7 @@ async fn app_js() -> impl IntoResponse {
             axum::http::header::CONTENT_TYPE,
             "application/javascript; charset=utf-8",
         )],
-        include_str!("../../assets/app.js"),
+        include_str!("../../../assets/app.js"),
     )
 }
 
@@ -161,7 +161,7 @@ async fn console_commands_json() -> impl IntoResponse {
             axum::http::header::CONTENT_TYPE,
             "application/json; charset=utf-8",
         )],
-        include_str!("../../assets/console_commands.json"),
+        include_str!("../../../assets/console_commands.json"),
     )
 }
 
@@ -184,7 +184,7 @@ pub async fn auth_middleware(
             // T12: backoff exponencial ante fuerza bruta sobre el token.
             let fails = state.auth_failures.fetch_add(1, Ordering::Relaxed);
             tokio::time::sleep(auth_backoff_delay(fails)).await;
-            let err = crate::application::web_errors::ApiError {
+            let err = crate::adapters::web::web_errors::ApiError {
                 error: "Unauthorized: invalid or missing token".to_string(),
                 code: 401,
             };

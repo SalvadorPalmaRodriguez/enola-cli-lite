@@ -46,9 +46,6 @@ pub mod update_wordpress;
 pub mod verify_onion; // MCP-006 — sonda de alcanzabilidad .onion (SOCKS5h)
 pub mod vpn_manager; // Tarea 162 — WireGuard VPN orchestration
 pub mod vpn_tor_manager; // VPN over Tor — socat bridge + hidden service orchestration
-pub mod web_api; // WEB-GUI: REST API handlers
-pub mod web_errors;
-pub mod web_server; // WEB-GUI: embedded web dashboard server
 pub mod wordpress_config_editor; // Added WordPressConfigEditor
 pub mod wordpress_connector;
-pub mod wordpress_status_check; // Added WordPressStatusCheck // DEP-001..003 — Setup/Doctor dependency management // WEB-GUI: error conversion to JSON HTTP responses
+pub mod wordpress_status_check; // Added WordPressStatusCheck

@@ -89,7 +89,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             json,
         } => execute_verify(file, pqsig, pubkey, json).await,
         Commands::Web { port } => {
-            crate::application::web_server::start_server(port)
+            crate::adapters::web::web_server::start_server(port)
                 .await
                 .map_err(|e| CliError::Generic(format!("web server error: {}", e)))?;
             Ok(String::new())
@@ -222,6 +222,8 @@ fn build_mcp_registry(
     let probe = Arc::new(crate::adapters::http_probe::ReqwestHttpProbe);
     let manifest = Arc::new(crate::adapters::infra::manifest::FileManifestAdapter::new());
     let file_manager = Arc::new(crate::adapters::infra::filesystem::EnolaFileAdapter);
+    let deps = Arc::new(crate::adapters::infra::dependencies::SystemDependencyAdapter::new());
+    let hardware = Arc::new(crate::adapters::hardware::probe::EnolaHardwareProbe::new());
 
     crate::application::mcp::builtin_tools::register(
         &mut registry,
@@ -233,6 +235,8 @@ fn build_mcp_registry(
         probe,
         manifest,
         file_manager,
+        deps,
+        hardware,
     )
     .map_err(|e| CliError::Generic(format!("failed to build MCP tool registry: {e}")))?;
 
@@ -3547,7 +3551,16 @@ async fn execute_doctor(security: bool) -> CliResult<String> {
             })
         }
     } else {
-        Ok(crate::application::system_doctor::full_report().await)
+        use crate::adapters::hardware::probe::EnolaHardwareProbe;
+        use crate::adapters::infra::dependencies::SystemDependencyAdapter;
+        use crate::adapters::infra::port_checker::PortCheckerAdapter;
+        use crate::application::system_doctor::DoctorPorts;
+        let ports = DoctorPorts {
+            deps: std::sync::Arc::new(SystemDependencyAdapter::new()),
+            port_checker: std::sync::Arc::new(PortCheckerAdapter::new()),
+            hardware: std::sync::Arc::new(EnolaHardwareProbe::new()),
+        };
+        Ok(crate::application::system_doctor::full_report(&ports).await)
     }
 }
 
