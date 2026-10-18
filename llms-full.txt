@@ -139,7 +139,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 
 ### ask — local AI assistant (Ollama)
 - `ask <prompt> [--model <m>] [--endpoint <url>] [--instance <name>] [--no-exec] [--yes]` — natural-language assistant backed by local Ollama (`/api/chat` with tools, `/api/tags`, `/api/pull`), sharing the MCP `ToolRegistry`
-- config: `[ai]` in `~/.enola/config.toml` (`endpoint`, `model`, `timeout_secs`) and env vars `ENOLA_AI_ENDPOINT`, `ENOLA_AI_MODEL`, `ENOLA_AI_TIMEOUT_SECS`; precedence flag > env > file > defaults (`http://127.0.0.1:11434`, `llama3.1:8b`, `120`)
+- config: `[ai]` in `~/.enola/config.toml` (`endpoint`, `model`, `timeout_secs`, `use_tor_for_downloads`) and env vars `ENOLA_AI_ENDPOINT`, `ENOLA_AI_MODEL`, `ENOLA_AI_TIMEOUT_SECS`, `ENOLA_AI_USE_TOR_DOWNLOADS`; precedence flag > env > file > defaults (`http://127.0.0.1:11434`, `llama3.1:8b`, `120`, `false`)
 - gate: `ReadOnly` tools run directly; `Mutating`/`Destructive` tools require an interactive TTY `[s/N]` confirmation showing sanitized arguments (or `--yes` for scripts; fails closed without TTY), or `--no-exec` to simulate via `try_run` without side effects
 - MCP meta-keys (`confirm_token`, `try_run`) are stripped from schemas sent to the local LLM; `ask` is in `FORBIDDEN_FAMILIES` so `enola_run_command` never dispatches `ask` recursively
 
@@ -147,6 +147,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `ai create --name <n> [--model <m>] [--api-port <p>] [--webui-port <p>] [--no-gpu] [--memory-gb <gb>] [--no-pull]` — deploys `enola-ai-<n>-ollama` and `enola-ai-<n>-webui` bound to `127.0.0.1` over `ContainerPort` (Bollard) with `flock` port locks, calibrated limits (`memory_limit >= 8 GiB`, `pids_limit >= 4096`), and NVIDIA GPU detection via `EnolaHardwareProbe`
 - `ai list` / `ai status <n>` / `ai start <n>` / `ai stop <n>` / `ai delete <n> --force` / `ai logs <n> [--lines N]` (also via `logs view ai-<n>`)
 - `ai publish <n> [--verify]` / `ai hide <n>` — exposes/removes Open WebUI as a `.onion` hidden service via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`)
+- `ai model list|download|import|add|delete|validate|refresh` — per-instance GGUF library at `/srv/enola-ai/<n>/ollama/models-gguf/`; download (HF `org/repo --file` or URL) streams with Range resume + SHA-256, registers via `/api/create` unless `--no-register`; `add` pulls `/api/pull` for registry refs or registers library `.gguf`; `delete` needs `--force` (Destructive); downloads default to clearnet, `--tor`/`use_tor_for_downloads` forces SOCKS5h and reports the route
 
 ### Other
 - `license` — full license text

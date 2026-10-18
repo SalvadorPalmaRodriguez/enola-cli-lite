@@ -26,6 +26,7 @@ use crate::infrastructure::security_opt::{apparmor_profile_opt, build_default_se
 use crate::ports::ai::AiAdapterPort;
 use crate::ports::container::{ContainerConfig, ContainerInfo, ContainerPort};
 use crate::ports::hardware::{GpuBrand, HardwareProbePort};
+use crate::ports::llm::LlmEngine;
 use crate::ports::manifest::ManifestPort;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
@@ -634,6 +635,362 @@ impl AiAdapterPort for EnolaAiAdapter {
             ollama_logs.trim_end(),
             webui_logs.trim_end()
         ))
+    }
+}
+
+// ── Fase 11.2/11.3 — biblioteca de modelos GGUF + registro Ollama ──────────
+//
+// La biblioteca vive en `<base>/<instance>/ollama/models-gguf/`, dentro del
+// volumen que Ollama monta en `/root/.ollama`: el contenedor ve los ficheros
+// como `/root/.ollama/models-gguf/<file>` (`domain::ai_model::container_gguf_path`).
+// `index.json` (modo 0640) guarda proveniencia (sha256, origen) por fichero.
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ModelIndexEntry {
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ModelIndex {
+    #[serde(default)]
+    files: HashMap<String, ModelIndexEntry>,
+}
+
+impl EnolaAiAdapter {
+    fn library_dir(&self, instance: &str) -> Result<PathBuf> {
+        crate::domain::ai_model::library_dir_for_instance(&self.base_dir, instance)
+    }
+
+    fn index_path(&self, instance: &str) -> Result<PathBuf> {
+        Ok(self.library_dir(instance)?.join("index.json"))
+    }
+
+    fn read_index(&self, instance: &str) -> ModelIndex {
+        let Ok(path) = self.index_path(instance) else {
+            return ModelIndex::default();
+        };
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default()
+    }
+
+    fn write_index(&self, instance: &str, index: &ModelIndex) -> Result<()> {
+        let path = self.index_path(instance)?;
+        let json = serde_json::to_string_pretty(index).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo serializar index.json: {e}"))
+        })?;
+        std::fs::write(&path, json).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo escribir index.json: {e}"))
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640));
+        }
+        Ok(())
+    }
+
+    fn index_entry_update(
+        &self,
+        instance: &str,
+        filename: &str,
+        sha256: Option<String>,
+        source: &str,
+    ) -> Result<()> {
+        let mut idx = self.read_index(instance);
+        idx.files.insert(
+            filename.to_string(),
+            ModelIndexEntry {
+                sha256,
+                source: Some(source.to_string()),
+            },
+        );
+        self.write_index(instance, &idx)
+    }
+
+    fn index_entry_remove(&self, instance: &str, filename: &str) -> Result<()> {
+        let mut idx = self.read_index(instance);
+        idx.files.remove(filename);
+        self.write_index(instance, &idx)
+    }
+
+    /// Endpoint HTTP del Ollama de la instancia (`http://127.0.0.1:<api_port>`).
+    async fn ollama_endpoint(&self, instance: &str) -> Result<String> {
+        let inst = self.get_instance(instance).await?;
+        let port = inst.api_port.ok_or_else(|| {
+            EnolaError::ValidationError(format!(
+                "La instancia IA '{instance}' no tiene puerto API activo (¿está en ejecución?)"
+            ))
+        })?;
+        Ok(format!("http://127.0.0.1:{port}"))
+    }
+
+    fn ollama_engine(&self, endpoint: &str) -> crate::adapters::ai::ollama::OllamaAdapter {
+        crate::adapters::ai::ollama::OllamaAdapter::new(
+            endpoint,
+            std::time::Duration::from_secs(600),
+        )
+    }
+
+    fn model_from_path(
+        &self,
+        _instance: &str,
+        path: &Path,
+        index: &ModelIndex,
+    ) -> Result<crate::domain::ai_model::AiModel> {
+        use crate::domain::ai_model::{
+            default_registry_name, parse_filename_heuristics, AiModel, AiModelStatus, ModelSource,
+        };
+        let filename = path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let head = std::fs::File::open(path)
+            .and_then(|mut f| {
+                use std::io::Read;
+                let mut buf = vec![0u8; crate::domain::ai_model::GGUF_MIN_HEADER_LEN];
+                let n = f.read(&mut buf)?;
+                buf.truncate(n);
+                Ok(buf)
+            })
+            .unwrap_or_default();
+        let status = match crate::domain::ai_model::parse_gguf_header(&head) {
+            Ok(_) => AiModelStatus::Ready,
+            Err(_) => AiModelStatus::Corrupt,
+        };
+        let (family, quantization) = parse_filename_heuristics(&filename);
+        let entry = index.files.get(&filename);
+        Ok(AiModel {
+            name: default_registry_name(&filename).unwrap_or_else(|_| filename.clone()),
+            filename,
+            size_bytes,
+            quantization,
+            family,
+            status,
+            source: match entry.and_then(|e| e.source.as_deref()) {
+                Some("imported") => ModelSource::Imported,
+                _ => ModelSource::Downloaded,
+            },
+            sha256: entry.and_then(|e| e.sha256.clone()),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::ai::AiModelLibraryPort for EnolaAiAdapter {
+    async fn resolve_library_target(&self, instance: &str, filename: &str) -> Result<PathBuf> {
+        let path =
+            crate::domain::ai_model::resolve_library_path(&self.base_dir, instance, filename)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                EnolaError::InfrastructureError(format!(
+                    "No se pudo crear la biblioteca de modelos '{}': {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+        Ok(path)
+    }
+
+    async fn list_library_models(
+        &self,
+        instance: &str,
+    ) -> Result<Vec<crate::domain::ai_model::AiModel>> {
+        let dir = self.library_dir(instance)?;
+        let index = self.read_index(instance);
+        let mut models = Vec::new();
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(models),
+            Err(e) => {
+                return Err(EnolaError::InfrastructureError(format!(
+                    "No se pudo leer la biblioteca '{}': {e}",
+                    dir.display()
+                )))
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.to_ascii_lowercase().ends_with(".gguf") {
+                continue;
+            }
+            models.push(self.model_from_path(instance, &path, &index)?);
+        }
+        models.sort_by(|a, b| a.filename.cmp(&b.filename));
+        Ok(models)
+    }
+
+    async fn read_gguf_metadata(
+        &self,
+        instance: &str,
+        filename: &str,
+    ) -> Result<crate::domain::ai_model::GgufMetadata> {
+        let path =
+            crate::domain::ai_model::resolve_library_path(&self.base_dir, instance, filename)?;
+        let mut file = std::fs::File::open(&path).map_err(|e| {
+            EnolaError::NotFound(format!(
+                "Fichero '{filename}' no encontrado en la biblioteca de '{instance}': {e}"
+            ))
+        })?;
+        let mut buf = vec![0u8; crate::domain::ai_model::GGUF_MIN_HEADER_LEN];
+        use std::io::Read;
+        let n = file.read(&mut buf).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo leer '{filename}': {e}"))
+        })?;
+        buf.truncate(n);
+        crate::domain::ai_model::parse_gguf_header(&buf)
+    }
+
+    async fn import_library_file(
+        &self,
+        instance: &str,
+        source: &Path,
+    ) -> Result<crate::domain::ai_model::AiModel> {
+        let filename = source
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .ok_or_else(|| {
+                EnolaError::ValidationError(format!(
+                    "La ruta '{}' no tiene nombre de fichero válido",
+                    source.display()
+                ))
+            })?;
+        crate::domain::ai_model::validate_gguf_filename(&filename)?;
+
+        // Validar el header ANTES de copiar (rechaza falsos .gguf).
+        let mut src = std::fs::File::open(source).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo abrir '{}': {e}", source.display()))
+        })?;
+        let mut head = vec![0u8; crate::domain::ai_model::GGUF_MIN_HEADER_LEN];
+        use std::io::Read;
+        let n = src.read(&mut head).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo leer '{}': {e}", source.display()))
+        })?;
+        head.truncate(n);
+        crate::domain::ai_model::parse_gguf_header(&head)?;
+
+        let dest = self.resolve_library_target(instance, &filename).await?;
+        // Copia con hash SHA-256 en streaming (los GGUF pueden ser GiB).
+        let mut dst = std::fs::File::create(&dest).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo crear '{}': {e}", dest.display()))
+        })?;
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        let mut buf = [0u8; 65536];
+        loop {
+            let n = src.read(&mut buf).map_err(|e| {
+                EnolaError::InfrastructureError(format!("Leyendo '{}': {e}", source.display()))
+            })?;
+            if n == 0 {
+                break;
+            }
+            use std::io::Write;
+            dst.write_all(&buf[..n]).map_err(|e| {
+                EnolaError::InfrastructureError(format!("Escribiendo '{}': {e}", dest.display()))
+            })?;
+            hasher.update(&buf[..n]);
+        }
+        drop(dst);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o640)).map_err(
+                |e| {
+                    EnolaError::InfrastructureError(format!(
+                        "Permisos 0640 en '{}': {e}",
+                        dest.display()
+                    ))
+                },
+            )?;
+        }
+        let sha256 = format!("{:x}", hasher.finalize());
+        self.index_entry_update(instance, &filename, Some(sha256), "imported")?;
+        let index = self.read_index(instance);
+        self.model_from_path(instance, &dest, &index)
+    }
+
+    async fn delete_library_file(&self, instance: &str, filename: &str) -> Result<()> {
+        let path =
+            crate::domain::ai_model::resolve_library_path(&self.base_dir, instance, filename)?;
+        std::fs::remove_file(&path).map_err(|e| {
+            if e.kind() == ErrorKind::NotFound {
+                EnolaError::NotFound(format!(
+                    "Fichero '{filename}' no encontrado en la biblioteca de '{instance}'"
+                ))
+            } else {
+                EnolaError::InfrastructureError(format!(
+                    "No se pudo eliminar '{}': {e}",
+                    path.display()
+                ))
+            }
+        })?;
+        let _ = self.index_entry_remove(instance, filename);
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::ai::AiModelRegistryPort for EnolaAiAdapter {
+    async fn list_registered_models(
+        &self,
+        instance: &str,
+    ) -> Result<Vec<crate::ports::llm::LlmModelInfo>> {
+        let endpoint = self.ollama_endpoint(instance).await?;
+        self.ollama_engine(&endpoint).list_models().await
+    }
+
+    async fn pull_registry_model(&self, instance: &str, model: &str) -> Result<()> {
+        crate::domain::ai_model::validate_ollama_model_name(model)?;
+        let endpoint = self.ollama_endpoint(instance).await?;
+        self.ollama_engine(&endpoint).pull_model(model).await
+    }
+
+    async fn register_library_model(
+        &self,
+        instance: &str,
+        filename: &str,
+        name: &str,
+    ) -> Result<()> {
+        crate::domain::ai_model::validate_ollama_model_name(name)?;
+        // El fichero debe existir en la biblioteca de la instancia.
+        let path =
+            crate::domain::ai_model::resolve_library_path(&self.base_dir, instance, filename)?;
+        if !path.exists() {
+            return Err(EnolaError::NotFound(format!(
+                "El fichero '{filename}' no está en la biblioteca de '{instance}' \
+                 (usa `ai model download` o `ai model import` primero)"
+            )));
+        }
+        // Validar header antes de registrar en Ollama.
+        let mut file = std::fs::File::open(&path).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo abrir '{filename}': {e}"))
+        })?;
+        let mut head = vec![0u8; crate::domain::ai_model::GGUF_MIN_HEADER_LEN];
+        use std::io::Read;
+        let n = file.read(&mut head).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo leer '{filename}': {e}"))
+        })?;
+        head.truncate(n);
+        crate::domain::ai_model::parse_gguf_header(&head)?;
+
+        let container_path = crate::domain::ai_model::container_gguf_path(filename)?;
+        let modelfile = format!("FROM {container_path}");
+        let endpoint = self.ollama_endpoint(instance).await?;
+        self.ollama_engine(&endpoint)
+            .create_model(name, &modelfile)
+            .await
+    }
+
+    async fn delete_registered_model(&self, instance: &str, model: &str) -> Result<()> {
+        crate::domain::ai_model::validate_ollama_model_name(model)?;
+        let endpoint = self.ollama_endpoint(instance).await?;
+        self.ollama_engine(&endpoint).delete_model(model).await
     }
 }
 

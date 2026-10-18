@@ -5,7 +5,10 @@
 // - Opera con tipos puros de `crate::domain::ai` (`AiInstance`, `AiStackConfig`).
 
 pub use crate::domain::ai::{AiInstance, AiInstanceInfo, AiInstanceStatus, AiStackConfig};
+pub use crate::domain::ai_model::{AiModel, AiModelStatus, GgufMetadata, ModelSource};
 use crate::domain::error::Result;
+use crate::ports::llm::LlmModelInfo;
+use std::path::{Path, PathBuf};
 
 /// Puerto de ciclo de vida para instancias de IA local (Ollama + Open WebUI).
 #[cfg_attr(test, mockall::automock)]
@@ -37,6 +40,91 @@ pub trait AiAdapterPort: Send + Sync {
 
 /// Alias de compatibilidad con `AiManagerPort`.
 pub use AiAdapterPort as AiManagerPort;
+
+// ── Fase 11 — biblioteca de modelos GGUF (`ai model`) ─────────────────────
+
+/// Petición de descarga de un fichero GGUF.
+#[derive(Debug, Clone)]
+pub struct ModelDownloadRequest {
+    /// URL http(s) del fichero `.gguf`.
+    pub url: String,
+    /// Ruta destino en el host (ya resuelta dentro de la biblioteca).
+    pub destination: PathBuf,
+    /// SHA-256 esperado (hex) para verificación post-descarga.
+    pub expected_sha256: Option<String>,
+    /// `true` para forzar la salida por el proxy Tor SOCKS5h (R22).
+    pub use_tor: bool,
+}
+
+/// Resultado de una descarga GGUF completada.
+#[derive(Debug, Clone)]
+pub struct ModelDownloadOutcome {
+    /// Ruta final del fichero.
+    pub destination: PathBuf,
+    /// Bytes escritos en disco.
+    pub bytes_written: u64,
+    /// SHA-256 real del fichero descargado (hex).
+    pub sha256: String,
+    /// `true` si la descarga reanudó un fichero parcial previo (Range 206).
+    pub resumed: bool,
+    /// `true` si el tráfico salió por el proxy Tor SOCKS5h.
+    pub via_tor: bool,
+}
+
+/// Puerto de descarga de modelos GGUF (streaming + reanudación + SHA-256).
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait ModelDownloadPort: Send + Sync {
+    /// Descarga `req.url` a `req.destination` con streaming, reanudación por
+    /// `Range` y verificación SHA-256 opcional. Si `req.use_tor` es `true` el
+    /// tráfico sale por el proxy SOCKS5h resuelto (`resolve_tor_socks_proxy`).
+    async fn download(&self, req: ModelDownloadRequest) -> Result<ModelDownloadOutcome>;
+}
+
+/// Puerto de la biblioteca de ficheros `.gguf` de una instancia
+/// (`<base>/<instance>/ollama/models-gguf/`).
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait AiModelLibraryPort: Send + Sync {
+    /// Resuelve (y crea si hace falta) la ruta destino segura de `filename`
+    /// en la biblioteca de la instancia. Rechaza path traversal.
+    async fn resolve_library_target(&self, instance: &str, filename: &str) -> Result<PathBuf>;
+
+    /// Lista los ficheros `.gguf` de la biblioteca con metadatos e índice.
+    async fn list_library_models(&self, instance: &str) -> Result<Vec<AiModel>>;
+
+    /// Lee y parsea el header GGUF de un fichero de la biblioteca.
+    async fn read_gguf_metadata(&self, instance: &str, filename: &str) -> Result<GgufMetadata>;
+
+    /// Importa un `.gguf` local a la biblioteca (valida header antes de copiar).
+    async fn import_library_file(&self, instance: &str, source: &Path) -> Result<AiModel>;
+
+    /// Borra un `.gguf` de la biblioteca.
+    async fn delete_library_file(&self, instance: &str, filename: &str) -> Result<()>;
+}
+
+/// Puerto del registro de modelos de una instancia Ollama (HTTP `/api/*`).
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait AiModelRegistryPort: Send + Sync {
+    /// Lista los modelos registrados en el Ollama de la instancia (`/api/tags`).
+    async fn list_registered_models(&self, instance: &str) -> Result<Vec<LlmModelInfo>>;
+
+    /// Descarga un modelo del registro Ollama (`/api/pull`, p.ej. `llama3.1:8b`).
+    async fn pull_registry_model(&self, instance: &str, model: &str) -> Result<()>;
+
+    /// Registra un `.gguf` de la biblioteca en Ollama vía `/api/create`
+    /// (Modelfile `FROM /root/.ollama/models-gguf/<filename>`).
+    async fn register_library_model(
+        &self,
+        instance: &str,
+        filename: &str,
+        name: &str,
+    ) -> Result<()>;
+
+    /// Elimina un modelo del registro Ollama (`DELETE /api/delete`).
+    async fn delete_registered_model(&self, instance: &str, model: &str) -> Result<()>;
+}
 
 #[cfg(test)]
 mod tests {

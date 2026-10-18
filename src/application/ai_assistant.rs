@@ -43,6 +43,9 @@ pub(crate) struct AiConfig {
     pub(crate) endpoint: String,
     pub(crate) model: String,
     pub(crate) timeout_secs: u64,
+    /// `true` si las descargas de modelos (`ai model download`) deben salir
+    /// por el proxy Tor SOCKS5h (R22). Default: `false` (clearnet).
+    pub(crate) use_tor_for_downloads: bool,
 }
 
 impl Default for AiConfig {
@@ -51,16 +54,19 @@ impl Default for AiConfig {
             endpoint: DEFAULT_AI_ENDPOINT.to_string(),
             model: DEFAULT_AI_MODEL.to_string(),
             timeout_secs: DEFAULT_AI_TIMEOUT_SECS,
+            use_tor_for_downloads: false,
         }
     }
 }
 
-/// Overrides procedentes de flags CLI (`--endpoint`, `--model`).
+/// Overrides procedentes de flags CLI (`--endpoint`, `--model`, `--tor`).
 #[derive(Debug, Default, Clone)]
 pub(crate) struct AiFlagOverrides {
     pub(crate) endpoint: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) timeout_secs: Option<u64>,
+    /// `--tor` de `ai model download` (solo `Some(true)` fuerza Tor).
+    pub(crate) use_tor_for_downloads: Option<bool>,
 }
 
 fn non_empty_trimmed(val: Option<&str>) -> Option<String> {
@@ -73,6 +79,15 @@ fn env_non_empty(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
         .and_then(|v| non_empty_trimmed(Some(&v)))
+}
+
+fn parse_bool(val: Option<&str>) -> Option<bool> {
+    val.map(str::trim)
+        .and_then(|s| match s.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
 }
 
 fn parse_positive_u64(val: Option<&str>) -> Option<u64> {
@@ -109,10 +124,23 @@ pub(crate) fn resolve_ai_config(
         .or_else(|| parse_positive_u64(config_section.get("timeout_secs").map(String::as_str)))
         .unwrap_or(DEFAULT_AI_TIMEOUT_SECS);
 
+    let use_tor_for_downloads = flags
+        .use_tor_for_downloads
+        .or_else(|| parse_bool(env_non_empty("ENOLA_AI_USE_TOR_DOWNLOADS").as_deref()))
+        .or_else(|| {
+            parse_bool(
+                config_section
+                    .get("use_tor_for_downloads")
+                    .map(String::as_str),
+            )
+        })
+        .unwrap_or(false);
+
     AiConfig {
         endpoint,
         model,
         timeout_secs,
+        use_tor_for_downloads,
     }
 }
 
@@ -1189,6 +1217,7 @@ mod tests {
             endpoint: Some("http://127.0.0.1:11477/".to_string()),
             model: None,
             timeout_secs: None,
+            use_tor_for_downloads: None,
         };
         let cfg = resolve_ai_config(&flags, &file);
         assert_eq!(cfg.endpoint, "http://127.0.0.1:11477"); // flag gana a env y file

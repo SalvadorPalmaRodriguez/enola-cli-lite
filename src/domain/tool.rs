@@ -142,6 +142,9 @@ pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &[&str])] = &[
     ("ai", &["list"]),
     ("ai", &["status"]),
     ("ai", &["logs"]),
+    // Fase 11.0 — lectura de la biblioteca de modelos (rutas L3)
+    ("ai", &["model", "list"]),
+    ("ai", &["model", "validate"]),
 ];
 
 /// Familias HOJA (sin subcomando) que son de LECTURA.
@@ -230,6 +233,8 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     ("ai", &["delete"]),
     ("ai", &["publish"]),
     ("ai", &["hide"]),
+    // Fase 11.0 — borrado de modelos del registro/biblioteca (R13, exige --force)
+    ("ai", &["model", "delete"]),
 ];
 
 /// Familias HOJA destructivas (sin subcomando).
@@ -629,21 +634,62 @@ mod tests {
     }
 
     #[test]
+    fn ai_model_level3_paths_are_classified() {
+        // Fase 11.0 (R13): rutas L3 `ai model <sub>` — lectura por allowlist
+        // explícita, borrado destructivo, el resto mutante por default-deny.
+        assert_eq!(classify("ai", &["model", "list"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["model", "validate"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["model", "download"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["model", "import"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["model", "add"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["model", "refresh"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["model", "delete"]), ToolKind::Destructive);
+        // El grupo intermedio sin hoja no es una ruta válida: cae a Mutating.
+        assert_eq!(classify("ai", &["model"]), ToolKind::Mutating);
+    }
+
+    #[test]
     fn every_tree_subcommand_is_classified() {
+        // Recorre el árbol recursivamente: familias → subcomandos L2 → L3…
+        // construyendo el path de tokens completo que clasifica `classify`.
         let tree = load_tree();
+        let mut visited_l3 = 0usize;
         for fam in tree["families"].as_array().unwrap() {
-            let subs = fam["subcommands"].as_array().unwrap();
-            for sub in subs {
-                let kind = classify(
-                    fam["name"].as_str().unwrap(),
-                    &[sub["name"].as_str().unwrap()],
+            let fam_name = fam["name"].as_str().unwrap();
+            let mut stack: Vec<(Vec<String>, &serde_json::Value)> = fam["subcommands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| (vec![s["name"].as_str().unwrap().to_string()], s))
+                .collect();
+            while let Some((path, node)) = stack.pop() {
+                let tokens: Vec<&str> = path.iter().map(String::as_str).collect();
+                let kind = classify(fam_name, &tokens);
+                assert!(
+                    matches!(
+                        kind,
+                        ToolKind::ReadOnly | ToolKind::Mutating | ToolKind::Destructive
+                    ),
+                    "{fam_name} {tokens:?} no clasificado"
                 );
-                assert!(matches!(
-                    kind,
-                    ToolKind::ReadOnly | ToolKind::Mutating | ToolKind::Destructive
-                ));
+                if path.len() >= 2 {
+                    visited_l3 += 1;
+                }
+                if let Some(children) = node["subcommands"].as_array() {
+                    for child in children {
+                        let mut child_path = path.clone();
+                        child_path.push(child["name"].as_str().unwrap().to_string());
+                        stack.push((child_path, child));
+                    }
+                }
             }
         }
+        // El árbol generado contiene rutas de nivel >= 2 (p.ej. `git user delete`,
+        // `ai model list`): el test debe recorrerlas realmente.
+        assert!(
+            visited_l3 > 0,
+            "la recursión debe visitar rutas de nivel 3 del árbol"
+        );
     }
 
     // ── validate_input (subconjunto JSON Schema) ──

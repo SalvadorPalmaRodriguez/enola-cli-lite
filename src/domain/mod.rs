@@ -2,6 +2,7 @@
 // Pure business logic and types. No external dependencies (if possible).
 
 pub mod ai; // Fase 10 — Tipos puros del stack IA local (Ollama + Open WebUI)
+pub mod ai_model; // Fase 11 — Biblioteca de modelos GGUF (ai model)
 pub mod app_config; // CONFIG-001 + CONFIG-002 — distribution & web URLs
 pub mod apparmor; // AA-001 (201) — AppArmor sandboxing domain types
 pub mod cms;

@@ -2574,4 +2574,158 @@ pub enum AiCommands {
         #[arg(short = 'n', long, default_value_t = 50)]
         lines: usize,
     },
+
+    /// Manage the GGUF model library and Ollama model registry of AI instances
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai model list
+    ///   sudo enola-cli ai model download dev org/repo-GGUF --file model-Q4_K_M.gguf
+    ///   sudo enola-cli ai model add dev llama3.1:8b
+    ///   sudo enola-cli ai model delete dev old-model --force
+    #[command(subcommand)]
+    Model(AiModelCommands),
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI MODEL COMMANDS (Fase 11 — biblioteca de modelos GGUF)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Subcomandos de la biblioteca de modelos (`enola-cli ai model`).
+#[derive(Subcommand, Debug)]
+pub enum AiModelCommands {
+    /// List GGUF files in instance libraries and models registered in Ollama
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai model list
+    ///   sudo enola-cli ai model list --instance dev
+    List {
+        /// Restrict the listing to a single AI instance
+        #[arg(long, value_name = "NAME")]
+        instance: Option<String>,
+    },
+
+    /// Download a GGUF model from HuggingFace into an instance library and register it
+    ///
+    /// <SOURCE> is either a HuggingFace repo id (`org/repo`, requires --file)
+    /// or a direct http(s) URL to a .gguf file. Downloads run over clearnet
+    /// unless --tor (or [ai].use_tor_for_downloads) forces the Tor SOCKS5h
+    /// proxy; the egress route is always reported.
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai model download dev org/repo-GGUF --file model-Q4_K_M.gguf
+    ///   sudo enola-cli ai model download dev --source https://host/model.gguf --sha256 HEX
+    Download {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// HuggingFace repo id (`org/repo`) or direct http(s) URL to a .gguf file
+        #[arg(value_name = "SOURCE")]
+        source: String,
+
+        /// Exact .gguf file inside the repo (required when SOURCE is a repo id)
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
+
+        /// Expected SHA-256 (hex) of the downloaded file
+        #[arg(long, value_name = "HEX")]
+        sha256: Option<String>,
+
+        /// Registry name/alias for the model in Ollama (default: filename minus .gguf)
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+
+        /// Route the download through the Tor SOCKS5h proxy ([http].tor_socks_proxy)
+        #[arg(long, default_value_t = false)]
+        tor: bool,
+
+        /// Do not register the model in the Ollama instance after download
+        #[arg(long, default_value_t = false)]
+        no_register: bool,
+    },
+
+    /// Import a local GGUF file into an instance library (validated before copy)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai model import dev /path/to/model.gguf --name my-model
+    Import {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// Path to the local .gguf file
+        #[arg(value_name = "PATH")]
+        path: String,
+
+        /// Registry name/alias for the model in Ollama (default: filename minus .gguf)
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+
+        /// Do not register the model in the Ollama instance after import
+        #[arg(long, default_value_t = false)]
+        no_register: bool,
+    },
+
+    /// Add a model to an instance: pull a registry reference (llama3.1:8b)
+    /// or register a .gguf file already present in the instance library
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai model add dev llama3.1:8b
+    ///   sudo enola-cli ai model add dev model.gguf --name custom:q4
+    Add {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// Ollama registry reference or .gguf filename in the instance library
+        #[arg(value_name = "MODEL")]
+        model: String,
+
+        /// Registry alias when registering a library .gguf file
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+    },
+
+    /// Delete a registered model or a .gguf file from an instance library
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai model delete dev llama3.1:8b --force
+    ///   sudo enola-cli ai model delete dev model.gguf --force
+    Delete {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// Registered model name or .gguf filename in the instance library
+        #[arg(value_name = "MODEL")]
+        model: String,
+
+        /// Confirm destructive deletion of the model or file
+        #[arg(short, long, default_value_t = false)]
+        force: bool,
+    },
+
+    /// Validate the GGUF header/structure of a file in an instance library
+    ///
+    /// Example:
+    ///   sudo enola-cli ai model validate dev model.gguf
+    Validate {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// .gguf filename inside the instance library
+        #[arg(value_name = "FILE")]
+        file: String,
+    },
+
+    /// Re-scan the instance library and registry, refreshing model metadata
+    ///
+    /// Example:
+    ///   sudo enola-cli ai model refresh dev
+    Refresh {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+    },
 }

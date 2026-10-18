@@ -250,6 +250,7 @@ async fn execute_ask(
             endpoint,
             model,
             timeout_secs: None,
+            use_tor_for_downloads: None,
         },
         &config_section,
     );
@@ -4291,6 +4292,238 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
                 .await
                 .map_err(CliError::from)
         }
+        A::Model(model_cmd) => execute_ai_model(model_cmd, format).await,
+    }
+}
+
+async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> CliResult<String> {
+    use crate::adapters::ai::gguf_download::ReqwestModelDownloader;
+    use crate::application::ai_assistant::{resolve_ai_config, AiFlagOverrides};
+    use crate::application::ai_models::ManageAiModels;
+    use crate::cli::AiModelCommands as M;
+    use std::sync::Arc;
+
+    let adapter = build_ai_adapter()?;
+    let svc = ManageAiModels::new(
+        adapter.clone(),
+        adapter.clone(),
+        adapter,
+        Some(Arc::new(ReqwestModelDownloader::new())),
+    );
+
+    match cmd {
+        M::List { instance } => {
+            let reports = svc
+                .list(instance.as_deref())
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&reports)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            if reports.is_empty() {
+                return Ok("No AI instances found.".to_string());
+            }
+            let mut out = String::new();
+            for rep in &reports {
+                out.push_str(&format!("🧠 Instance '{}'\n", rep.instance));
+                if let Some(note) = &rep.note {
+                    out.push_str(&format!("   ⚠️  {note}\n"));
+                }
+                out.push_str("   Library (.gguf):\n");
+                if rep.library.is_empty() {
+                    out.push_str("     (empty)\n");
+                }
+                for m in &rep.library {
+                    out.push_str(&format!(
+                        "     • {}  [{}]  {} bytes  family={} quant={} src={:?} sha256={}\n",
+                        m.filename,
+                        match m.status {
+                            crate::domain::ai_model::AiModelStatus::Ready => "ready",
+                            crate::domain::ai_model::AiModelStatus::Corrupt => "corrupt",
+                        },
+                        m.size_bytes,
+                        m.family,
+                        m.quantization,
+                        m.source,
+                        m.sha256.as_deref().unwrap_or("-"),
+                    ));
+                }
+                out.push_str("   Registered in Ollama:\n");
+                if rep.registered.is_empty() {
+                    out.push_str("     (none)\n");
+                }
+                for m in &rep.registered {
+                    out.push_str(&format!(
+                        "     • {}  ({})\n",
+                        m.name,
+                        m.size_bytes
+                            .map(|s| format!("{s} bytes"))
+                            .unwrap_or_else(|| "-".to_string())
+                    ));
+                }
+            }
+            Ok(out)
+        }
+        M::Download {
+            instance,
+            source,
+            file,
+            sha256,
+            name,
+            tor,
+            no_register,
+        } => {
+            // R22: flag --tor > env ENOLA_AI_USE_TOR_DOWNLOADS > [ai].use_tor_for_downloads.
+            let section = crate::infrastructure::config_loader::load_section("ai");
+            let cfg = resolve_ai_config(
+                &AiFlagOverrides {
+                    use_tor_for_downloads: tor.then_some(true),
+                    ..Default::default()
+                },
+                &section,
+            );
+            eprintln!(
+                "ℹ️  Descarga por {}: {}",
+                if cfg.use_tor_for_downloads {
+                    "Tor SOCKS5h ([http].tor_socks_proxy)"
+                } else {
+                    "clearnet (usa --tor para salir por Tor)"
+                },
+                source
+            );
+            let rep = svc
+                .download(
+                    &instance,
+                    &source,
+                    file.as_deref(),
+                    sha256.as_deref(),
+                    name.as_deref(),
+                    cfg.use_tor_for_downloads,
+                    !no_register,
+                )
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&rep)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "✅ Model downloaded to instance '{}' library\n   \
+                 • File:      {}\n   \
+                 • Bytes:     {}\n   \
+                 • SHA-256:   {}\n   \
+                 • Resumed:   {}\n   \
+                 • Route:     {}\n   \
+                 • Registered: {}",
+                rep.instance,
+                rep.filename,
+                rep.bytes_written,
+                rep.sha256,
+                rep.resumed,
+                if rep.via_tor {
+                    "Tor SOCKS5h"
+                } else {
+                    "clearnet"
+                },
+                rep.registered_as.as_deref().unwrap_or("(not registered)"),
+            ))
+        }
+        M::Import {
+            instance,
+            path,
+            name,
+            no_register,
+        } => {
+            let rep = svc
+                .import(
+                    &instance,
+                    std::path::Path::new(&path),
+                    name.as_deref(),
+                    !no_register,
+                )
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&rep)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "✅ Model imported into instance '{}' library\n   \
+                 • File:      {}\n   \
+                 • Bytes:     {}\n   \
+                 • SHA-256:   {}\n   \
+                 • Registered: {}",
+                rep.instance,
+                rep.filename,
+                rep.bytes_written,
+                rep.sha256,
+                rep.registered_as.as_deref().unwrap_or("(not registered)"),
+            ))
+        }
+        M::Add {
+            instance,
+            model,
+            name,
+        } => {
+            let msg = svc
+                .add(&instance, &model, name.as_deref())
+                .await
+                .map_err(CliError::from)?;
+            Ok(format!("✅ {msg}"))
+        }
+        M::Delete {
+            instance,
+            model,
+            force,
+        } => {
+            let msg = svc
+                .delete(&instance, &model, force)
+                .await
+                .map_err(CliError::from)?;
+            Ok(format!("✅ {msg}"))
+        }
+        M::Validate { instance, file } => {
+            let m = svc
+                .validate(&instance, &file)
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&m)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "✅ GGUF file '{}' in instance '{}'\n   \
+                 • status:       {}\n   \
+                 • size:         {} bytes\n   \
+                 • family:       {}\n   \
+                 • quantization: {}\n   \
+                 • sha256:       {}",
+                m.filename,
+                m.name,
+                match m.status {
+                    crate::domain::ai_model::AiModelStatus::Ready => "ready (header GGUF válido)",
+                    crate::domain::ai_model::AiModelStatus::Corrupt => "corrupt (header inválido)",
+                },
+                m.size_bytes,
+                m.family,
+                m.quantization,
+                m.sha256.as_deref().unwrap_or("-"),
+            ))
+        }
+        M::Refresh { instance } => {
+            let rep = svc.refresh(&instance).await.map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&rep)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "✅ Instance '{}' refreshed: {} file(s) in library, {} model(s) registered in Ollama",
+                rep.instance,
+                rep.library.len(),
+                rep.registered.len()
+            ))
+        }
     }
 }
 
@@ -4408,5 +4641,125 @@ mod tests {
                 "failed to parse {args:?}"
             );
         }
+    }
+
+    #[test]
+    fn ai_model_level3_subcommands_parse_all_variants() {
+        use crate::cli::{AiCommands, AiModelCommands as M, Commands};
+        use clap::Parser;
+
+        // list sin y con --instance
+        let cli = crate::cli::Cli::try_parse_from(["enola", "ai", "model", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Ai(AiCommands::Model(M::List { instance: None }))
+        ));
+        let cli =
+            crate::cli::Cli::try_parse_from(["enola", "ai", "model", "list", "--instance", "dev"])
+                .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Ai(AiCommands::Model(M::List { instance: Some(ref n) })) if n == "dev"
+        ));
+
+        // download con repo+file, --tor, --sha256, --name
+        let cli = crate::cli::Cli::try_parse_from([
+            "enola",
+            "ai",
+            "model",
+            "download",
+            "dev",
+            "org/repo",
+            "--file",
+            "m.gguf",
+            "--sha256",
+            "ab12",
+            "--name",
+            "custom:q4",
+            "--tor",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Ai(AiCommands::Model(M::Download {
+                instance,
+                source,
+                file,
+                sha256,
+                name,
+                tor,
+                no_register,
+            })) => {
+                assert_eq!(instance, "dev");
+                assert_eq!(source, "org/repo");
+                assert_eq!(file.as_deref(), Some("m.gguf"));
+                assert_eq!(sha256.as_deref(), Some("ab12"));
+                assert_eq!(name.as_deref(), Some("custom:q4"));
+                assert!(tor && !no_register);
+            }
+            other => panic!("expected ai model download, got {other:?}"),
+        }
+
+        // download con URL directa + --no-register
+        let cli = crate::cli::Cli::try_parse_from([
+            "enola",
+            "ai",
+            "model",
+            "download",
+            "dev",
+            "https://h.example/m.gguf",
+            "--no-register",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Ai(AiCommands::Model(M::Download {
+                no_register: true,
+                ..
+            }))
+        ));
+
+        // import / add / delete --force / validate / refresh
+        for args in [
+            vec![
+                "enola",
+                "ai",
+                "model",
+                "import",
+                "dev",
+                "/tmp/m.gguf",
+                "--name",
+                "x",
+            ],
+            vec![
+                "enola",
+                "ai",
+                "model",
+                "import",
+                "dev",
+                "/tmp/m.gguf",
+                "--no-register",
+            ],
+            vec!["enola", "ai", "model", "add", "dev", "llama3.1:8b"],
+            vec![
+                "enola", "ai", "model", "add", "dev", "m.gguf", "--name", "alias",
+            ],
+            vec!["enola", "ai", "model", "delete", "dev", "m.gguf", "--force"],
+            vec!["enola", "ai", "model", "validate", "dev", "m.gguf"],
+            vec!["enola", "ai", "model", "refresh", "dev"],
+        ] {
+            assert!(
+                crate::cli::Cli::try_parse_from(args.clone()).is_ok(),
+                "failed to parse {args:?}"
+            );
+        }
+
+        // delete sin --force parsea pero force=false (rechazo en ejecución)
+        let cli =
+            crate::cli::Cli::try_parse_from(["enola", "ai", "model", "delete", "dev", "m.gguf"])
+                .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Ai(AiCommands::Model(M::Delete { force: false, .. }))
+        ));
     }
 }

@@ -381,6 +381,80 @@ impl LlmEngine for OllamaAdapter {
 
         Ok(())
     }
+
+    #[tracing::instrument(skip(self, modelfile), fields(endpoint = %self.endpoint, model = %name))]
+    async fn create_model(&self, name: &str, modelfile: &str) -> Result<()> {
+        let client = self.build_client()?;
+        let url = format!("{}/api/create", self.endpoint);
+        let payload = json!({
+            "name": name,
+            "modelfile": modelfile,
+            "stream": false,
+        });
+
+        let resp = client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| self.map_reqwest_error("/api/create", &e))?;
+
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| self.map_reqwest_error("/api/create body", &e))?;
+
+        if !status.is_success() {
+            let detail = extract_ollama_error(&body).unwrap_or_else(|| body.trim().to_string());
+            return Err(EnolaError::InfrastructureError(format!(
+                "Ollama /api/create devolvió HTTP {}: {}",
+                status.as_u16(),
+                detail
+            )));
+        }
+        if let Some(err) = extract_ollama_error(&body) {
+            return Err(EnolaError::InfrastructureError(format!(
+                "Ollama /api/create error: {err}"
+            )));
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), fields(endpoint = %self.endpoint, model = %name))]
+    async fn delete_model(&self, name: &str) -> Result<()> {
+        let client = self.build_client()?;
+        let url = format!("{}/api/delete", self.endpoint);
+        let payload = json!({ "name": name });
+
+        let resp = client
+            .delete(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| self.map_reqwest_error("/api/delete", &e))?;
+
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| self.map_reqwest_error("/api/delete body", &e))?;
+
+        if !status.is_success() {
+            let detail = extract_ollama_error(&body).unwrap_or_else(|| body.trim().to_string());
+            return Err(EnolaError::InfrastructureError(format!(
+                "Ollama /api/delete devolvió HTTP {}: {}",
+                status.as_u16(),
+                detail
+            )));
+        }
+        if let Some(err) = extract_ollama_error(&body) {
+            return Err(EnolaError::InfrastructureError(format!(
+                "Ollama /api/delete error: {err}"
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -46,6 +46,9 @@ location in a trusted launcher; do not grant a wildcard sudo rule such as
 Local AI assistant (`enola-cli ask <prompt> [--model <m>] [--endpoint <url>] [--instance <name>] [--no-exec] [--yes]`):
 connects to a local Ollama instance (`[ai]` in `~/.enola/config.toml` or env vars `ENOLA_AI_ENDPOINT`, `ENOLA_AI_MODEL`, `ENOLA_AI_TIMEOUT_SECS`; defaults `http://127.0.0.1:11434`, `llama3.1:8b`, `120s`) and reuses the `ToolRegistry`. Read-only tools execute directly; mutating and destructive tools require interactive `[s/N]` confirmation on TTY (or `--yes` for non-interactive use; fails closed without TTY) or `--no-exec` to simulate via `try_run` with zero side effects.
 
+GGUF model library (`enola-cli ai model list|download|import|add|delete|validate|refresh`):
+per-instance library at `/srv/enola-ai/<name>/ollama/models-gguf/` (visible inside Ollama as `/root/.ollama/models-gguf/`). `download` fetches `.gguf` from HuggingFace (`org/repo` + `--file`) or a direct URL with streaming, `Range` resume and SHA-256 check, then registers via `/api/create` unless `--no-register`; clearnet by default, `--tor`/`ENOLA_AI_USE_TOR_DOWNLOADS`/`[ai].use_tor_for_downloads` forces the SOCKS5h proxy and the egress route is reported. `add` pulls registry refs (`/api/pull`) or registers library files; `delete` requires `--force` (Destructive in MCP); `list`/`validate` are ReadOnly.
+
 Local AI instances (`enola-cli ai create|list|status|start|stop|delete|publish|hide|logs`):
 manages isolated Ollama (`enola-ai-<name>-ollama`) and Open WebUI (`enola-ai-<name>-webui`) containers over `ContainerPort` (Bollard), bound exclusively to `127.0.0.1` with calibrated resource limits (`memory_limit >= 8 GiB`, `pids_limit >= 4096`), `flock` port reservation, NVIDIA GPU passthrough via `EnolaHardwareProbe`, and `.onion` publication via Nginx + Tor.
 

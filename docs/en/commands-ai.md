@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.0 | **Updated:** 2026-10-18
+> **Version:** 1.1 | **Updated:** 2026-10-18
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -29,6 +29,16 @@ sudo enola-cli ai delete <NAME> --force
 sudo enola-cli ai publish <NAME> [--verify]
 sudo enola-cli ai hide <NAME>
 sudo enola-cli ai logs <NAME> [--lines <N>]
+
+# Model library (level 3)
+sudo enola-cli ai model list [--instance <NAME>]
+sudo enola-cli ai model download <NAME> <org/repo|URL> [--file <F.gguf>]
+                                 [--sha256 <HEX>] [--name <ALIAS>] [--tor] [--no-register]
+sudo enola-cli ai model import <NAME> <PATH.gguf> [--name <ALIAS>] [--no-register]
+sudo enola-cli ai model add <NAME> <model|file.gguf> [--name <ALIAS>]
+sudo enola-cli ai model delete <NAME> <model|file.gguf> --force
+sudo enola-cli ai model validate <NAME> <file.gguf>
+sudo enola-cli ai model refresh <NAME>
 ```
 
 | Subcommand | MCP Class | Description |
@@ -42,6 +52,28 @@ sudo enola-cli ai logs <NAME> [--lines <N>]
 | `ai publish <NAME> [--verify]` | `Destructive` | Publishes Open WebUI as a Tor `.onion` hidden service via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`). |
 | `ai hide <NAME>` | `Destructive` | Removes the `.onion` hidden service and Nginx config while keeping local containers intact. |
 | `ai logs <NAME> [--lines N]` | `ReadOnly` | Displays the last `N` log lines from Ollama and Open WebUI (also available via `enola-cli logs view ai-<NAME>`). |
+| `ai model list [--instance N]` | `ReadOnly` | Lists `.gguf` files in each instance library and models registered in its Ollama (`/api/tags`). |
+| `ai model download <N> <SRC>` | `Mutating` | Downloads a `.gguf` from HuggingFace (`org/repo` + `--file`) or a direct URL, with streaming, `Range` resume and SHA-256 verification; registers it via `/api/create` unless `--no-register`. Defaults to **clearnet**; `--tor` or `[ai].use_tor_for_downloads` routes via SOCKS5h and the egress route is always reported. |
+| `ai model import <N> <PATH>` | `Mutating` | Copies a local `.gguf` into `/srv/enola-ai/<N>/ollama/models-gguf/` after header validation, with `0640` permissions, and registers it unless `--no-register`. |
+| `ai model add <N> <MODEL>` | `Mutating` | If `MODEL` ends in `.gguf` it registers the library file (`/api/create` + `FROM` Modelfile); otherwise it pulls it from the Ollama registry (`/api/pull`, e.g. `llama3.1:8b` or `hf.co/org/repo:tag`). |
+| `ai model delete <N> <M> --force` | `Destructive` | Removes a `.gguf` from the library (`.gguf` suffix) or a model from the Ollama registry (`DELETE /api/delete`). Requires `--force`. |
+| `ai model validate <N> <F>` | `ReadOnly` | Parses the GGUF header (magic + v2/v3 version + counters) and reports inferred family/quantization. |
+| `ai model refresh <N>` | `Mutating` | Re-scans the instance library and registry. |
+
+---
+
+## GGUF model library
+
+Each instance keeps its library at `/srv/enola-ai/<name>/ollama/models-gguf/`
+(inside the Ollama container's `/root/.ollama` volume, so files appear as
+`/root/.ollama/models-gguf/<file>`). File names are validated against path
+traversal and models are registered in Ollama with a `FROM` Modelfile, so
+`ask --instance <name>` can use them directly.
+
+**Network privacy (R22):** downloads use **clearnet** by default. Use `--tor`
+(or `[ai].use_tor_for_downloads = true` / `ENOLA_AI_USE_TOR_DOWNLOADS`) to force
+the `socks5h://` proxy from `[http].tor_socks_proxy`; the CLI always reports
+the egress route.
 
 ---
 

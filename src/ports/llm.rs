@@ -175,6 +175,13 @@ pub trait LlmEngine: Send + Sync {
 
     /// Descarga/actualiza un modelo en el motor (`/api/pull`).
     async fn pull_model(&self, model: &str) -> Result<()>;
+
+    /// Crea/registra un modelo en el motor a partir de un Modelfile
+    /// (`/api/create`, `stream: false`).
+    async fn create_model(&self, name: &str, modelfile: &str) -> Result<()>;
+
+    /// Elimina un modelo del motor (`DELETE /api/delete`).
+    async fn delete_model(&self, name: &str) -> Result<()>;
 }
 
 #[cfg(test)]

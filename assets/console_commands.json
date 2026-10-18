@@ -328,7 +328,8 @@
       "delete",
       "publish",
       "hide",
-      "logs"
+      "logs",
+      "model"
     ],
     "apparmor": [
       "setup",

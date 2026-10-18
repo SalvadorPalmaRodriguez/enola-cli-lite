@@ -190,12 +190,14 @@ Configuración del asistente de IA local (`enola-cli ask`) conectado a Ollama.
 | `endpoint` | String | `http://127.0.0.1:11434` | `ENOLA_AI_ENDPOINT` / `--endpoint` | URL base del servidor Ollama (local o `.onion` vía `socks5h://`) |
 | `model` | String | `llama3.1:8b` | `ENOLA_AI_MODEL` / `--model` | Modelo de Ollama usado en `enola-cli ask` |
 | `timeout_secs` | Integer | `120` | `ENOLA_AI_TIMEOUT_SECS` | Timeout por petición a Ollama en segundos |
+| `use_tor_for_downloads` | Boolean | `false` | `ENOLA_AI_USE_TOR_DOWNLOADS` / `--tor` | Si es `true`, `ai model download` sale por el proxy Tor SOCKS5h en lugar de clearnet |
 
 ```toml
 [ai]
 # endpoint = "http://127.0.0.1:11434"
 # model = "llama3.1:8b"
 # timeout_secs = 120
+# use_tor_for_downloads = false
 ```
 
 > Si se pasa `--instance <name>` en `enola-cli ask`, el CLI resuelve el puerto

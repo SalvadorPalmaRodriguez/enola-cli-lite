@@ -109,7 +109,7 @@ pub fn is_onion_url(url: &str) -> bool {
 ///   3. Default `socks5h://127.0.0.1:9050`.
 ///
 /// Los valores vacíos en env o file se ignoran y caen al siguiente nivel.
-fn resolve_tor_socks_proxy() -> String {
+pub(crate) fn resolve_tor_socks_proxy() -> String {
     // 1. Env var (flag + entorno tradicional)
     if let Ok(v) = std::env::var("ENOLA_TOR_SOCKS_PROXY") {
         let trimmed = v.trim();
@@ -191,6 +191,35 @@ pub fn build_download_client(target_url: &str) -> Result<reqwest::Client> {
             .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
             .build()
     })
+}
+
+/// Construye un `reqwest::Client` de descarga que FUERZA la salida por el
+/// proxy Tor SOCKS5h independientemente del destino (R22 — `ai model download
+/// --tor` / `[ai].use_tor_for_downloads`).
+///
+/// A diferencia de `build_download_client` (que solo enruta `.onion`), aquí el
+/// proxy se aplica también a URLs clearnet. El proxy resuelto debe ser
+/// `socks5h://` para que Tor resuelva el DNS y no se filtre fuera del circuito.
+pub fn build_download_client_via_tor(target_url: &str) -> Result<reqwest::Client> {
+    let _ = target_url; // la decisión de proxy es forzada, no depende del host
+    let proxy_url = resolve_tor_socks_proxy();
+    ensure_socks5h_for_onion(&proxy_url)?;
+    let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
+        EnolaError::InfrastructureError(format!(
+            "{} ({}): {}",
+            obfstr!("Invalid Tor SOCKS proxy URL"),
+            proxy_url,
+            e
+        ))
+    })?;
+    reqwest::Client::builder()
+        .timeout(resolve_download_timeout())
+        .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
+        .proxy(proxy)
+        .build()
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!("{}: {}", obfstr!("HTTP client error"), e))
+        })
 }
 
 /// Variante síncrona equivalente — útil dentro de hilos con runtime propio.

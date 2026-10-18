@@ -3768,6 +3768,242 @@
           ],
           "name": "logs",
           "subcommands": []
+        },
+        {
+          "description": "Manage the GGUF model library and Ollama model registry of AI instances",
+          "flags": [],
+          "name": "model",
+          "subcommands": [
+            {
+              "description": "List GGUF files in instance libraries and models registered in Ollama",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "NAME"
+                }
+              ],
+              "name": "list",
+              "subcommands": []
+            },
+            {
+              "description": "Download a GGUF model from HuggingFace into an instance library and register it",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "source",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "SOURCE"
+                },
+                {
+                  "boolean": false,
+                  "name": "file",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "FILE"
+                },
+                {
+                  "boolean": false,
+                  "name": "sha256",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "HEX"
+                },
+                {
+                  "boolean": false,
+                  "name": "name",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": true,
+                  "name": "tor",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "TOR"
+                },
+                {
+                  "boolean": true,
+                  "name": "no-register",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "NO_REGISTER"
+                }
+              ],
+              "name": "download",
+              "subcommands": []
+            },
+            {
+              "description": "Import a local GGUF file into an instance library (validated before copy)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "path",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "PATH"
+                },
+                {
+                  "boolean": false,
+                  "name": "name",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": true,
+                  "name": "no-register",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "NO_REGISTER"
+                }
+              ],
+              "name": "import",
+              "subcommands": []
+            },
+            {
+              "description": "Add a model to an instance: pull a registry reference (llama3.1:8b) or register a .gguf file already present in the instance library",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "model",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "MODEL"
+                },
+                {
+                  "boolean": false,
+                  "name": "name",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "NAME"
+                }
+              ],
+              "name": "add",
+              "subcommands": []
+            },
+            {
+              "description": "Delete a registered model or a .gguf file from an instance library",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "model",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "MODEL"
+                },
+                {
+                  "boolean": true,
+                  "name": "force",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "FORCE"
+                }
+              ],
+              "name": "delete",
+              "subcommands": []
+            },
+            {
+              "description": "Validate the GGUF header/structure of a file in an instance library",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "file",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "FILE"
+                }
+              ],
+              "name": "validate",
+              "subcommands": []
+            },
+            {
+              "description": "Re-scan the instance library and registry, refreshing model metadata",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                }
+              ],
+              "name": "refresh",
+              "subcommands": []
+            }
+          ]
         }
       ]
     }

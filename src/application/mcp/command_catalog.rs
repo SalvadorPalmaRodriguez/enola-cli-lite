@@ -34,15 +34,33 @@ pub(crate) fn list_commands(family: Option<&str>, query: Option<&str>) -> Value 
         let q = q.to_lowercase();
         let mut matches: Vec<Value> = Vec::new();
         for fam in &families {
-            for sub in fam["subcommands"].as_array().cloned().unwrap_or_default() {
+            // Recorrido recursivo por niveles (L2, L3…): el path
+            // `parent child` (p.ej. "model list") es directamente usable
+            // como `subcommand` de `enola_run_command` (Fase 11.0, R13).
+            let mut stack: Vec<(String, Value)> = fam["subcommands"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| (String::new(), s))
+                .collect();
+            while let Some((prefix, sub)) = stack.pop() {
                 let name = sub["name"].as_str().unwrap_or("");
                 let desc = sub["description"].as_str().unwrap_or("");
+                let path = if prefix.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{prefix} {name}")
+                };
                 if name.to_lowercase().contains(&q) || desc.to_lowercase().contains(&q) {
                     matches.push(json!({
                         "family": fam["name"],
-                        "subcommand": name,
+                        "subcommand": path,
                         "description": desc,
                     }));
+                }
+                for child in sub["subcommands"].as_array().cloned().unwrap_or_default() {
+                    stack.push((path.clone(), child));
                 }
             }
         }
@@ -121,6 +139,21 @@ mod tests {
         // El término coincide por nombre Y por descripción: al menos los que
         // se llaman exactamente "publish" deben estar.
         assert!(matches.iter().any(|m| m["subcommand"] == "publish"));
+    }
+
+    #[test]
+    fn list_by_text_finds_level3_subcommands() {
+        // Fase 11.0: la búsqueda por texto debe recorrer los subcomandos
+        // anidados (L3). `ai model list` se expone como path "model list",
+        // directamente usable en `enola_run_command.subcommand`.
+        let out = list_commands(None, Some("model"));
+        let matches = out["matches"].as_array().unwrap();
+        assert!(
+            matches
+                .iter()
+                .any(|m| m["family"] == "ai" && m["subcommand"] == "model list"),
+            "L3 path 'ai model list' must appear in text search: {matches:?}"
+        );
     }
 
     #[test]
