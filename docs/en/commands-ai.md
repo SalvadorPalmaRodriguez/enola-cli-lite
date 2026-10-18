@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.3 | **Updated:** 2026-10-18
+> **Version:** 1.4 | **Updated:** 2026-10-18
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -62,6 +62,14 @@ enola-cli ai provider test <PROVIDER> [--accept-risks] [--tor]
 
 # ask against an external provider (BYOK — data leaves your machine)
 enola-cli ask "question" --provider openai [--model <M>] [--accept-risks] [--tor]
+
+# Fine-tuning LoRA (level 3)
+enola-cli ai finetune prepare <FILE.jsonl> [--format <F>] [--out <DIR>] [--val-ratio <N>]
+enola-cli ai finetune validate <FILE.jsonl> [--base-model <M>]
+sudo enola-cli ai finetune start <NAME> --dataset <FILE.jsonl> [--base-model <M>]
+                                [--low-memory] [--no-register] --force
+sudo enola-cli ai finetune status <NAME>
+enola-cli ai finetune wizard
 ```
 
 | Subcommand | MCP Class | Description |
@@ -94,6 +102,26 @@ enola-cli ask "question" --provider openai [--model <M>] [--accept-risks] [--tor
 | `ai provider remove <P> --force` | `Destructive` | Deletes the provider's entry from `~/.enola/providers.env`. Requires `--force`. |
 | `ai provider test <P>` | `Mutating` | Minimal ping to the provider: sends data off-machine → requires consent (`--accept-risks` or TTY `[s/N]` prompt; fails closed without TTY). |
 | `ask --provider <P>` | — | Single-shot chat via the external provider **without the tool registry** (cloud cannot run enola commands). Same privacy gate. |
+| `ai finetune prepare <F>` | `Mutating` | Validates a JSONL dataset (`alpaca\|chatml\|sharegpt\|text`, auto-detected), converts to canonical ChatML and writes `train.jsonl`/`val.jsonl` with deterministic split (`--val-ratio`). |
+| `ai finetune validate <F>` | `Mutating` | Pre-flight: schema + size + VRAM (`HardwareProbePort`) + base model — before spending compute hours. |
+| `ai finetune start <N> --dataset <F> --force` | `Destructive` | Launches the `enola-ai-<n>-finetune-<job>` container (`enola-finetune:latest`, 16 GiB, GPU if present, read-only rootfs, no ports/network) with the embedded LoRA script. Dataset must be ChatML. Requires `--force`. |
+| `ai finetune status <N>` | `ReadOnly` | Lists registered jobs for the instance (`finetune/jobs.json`). |
+| `ai finetune wizard` | `Mutating` | Interactive TTY wizard (forbidden for `enola_run_command`). |
+
+---
+
+## Fine-tuning (`ai finetune`)
+
+The pipeline converts JSONL datasets to canonical ChatML (`prepare`), validates
+the job before spending compute (`validate` — schema, size, VRAM via
+`HardwareProbePort`, base model) and launches training in an isolated container
+(`start` — `enola-ai-<n>-finetune-<job>` via `ContainerPort`, no ports/network,
+GPU if available, `--low-memory` mode for <10 GB VRAM).
+
+The LoRA script (`train_lora.py` with transformers+peft) is **embedded** in the
+binary (`include_str!`) and deployed to the private dir
+`/srv/enola-ai/<n>/finetune/<job>/scripts/` — never to predictable `/tmp` paths
+(SEC-001/N-01). Jobs are registered in `finetune/jobs.json` (`0640`).
 
 ---
 

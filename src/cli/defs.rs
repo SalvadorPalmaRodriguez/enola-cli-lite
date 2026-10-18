@@ -2645,6 +2645,16 @@ pub enum AiCommands {
     ///   enola-cli ask "hola" --provider openai --accept-risks
     #[command(subcommand)]
     Provider(AiProviderCommands),
+
+    /// Fine-tuning pipelines (datasets JSONL → LoRA → GGUF → biblioteca)
+    ///
+    /// Examples:
+    ///   enola-cli ai finetune prepare data.jsonl --format alpaca
+    ///   enola-cli ai finetune validate data.jsonl
+    ///   sudo enola-cli ai finetune start dev --dataset /path/chatml.jsonl --base-model llama3.1:8b
+    ///   sudo enola-cli ai finetune status dev
+    #[command(subcommand)]
+    Finetune(AiFinetuneCommands),
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2972,4 +2982,102 @@ pub enum AiProviderCommands {
         #[arg(long)]
         tor: bool,
     },
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI FINETUNE COMMANDS (Fase 14 — datasets + entrenamiento LoRA)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Fine-tuning pipelines. `start` lanza horas de cómputo GPU (Destructive);
+/// `wizard` es interactivo TTY (vetado para `enola_run_command`).
+#[derive(Subcommand, Debug)]
+pub enum AiFinetuneCommands {
+    /// Validate + convert a JSONL dataset to canonical ChatML, with
+    /// deterministic train/validation split
+    ///
+    /// Examples:
+    ///   enola-cli ai finetune prepare data.jsonl
+    ///   enola-cli ai finetune prepare data.jsonl --format alpaca --val-ratio 10
+    Prepare {
+        /// Input JSONL dataset (alpaca|chatml|sharegpt|text — auto-detected)
+        #[arg(value_name = "FILE.jsonl")]
+        dataset: String,
+
+        /// Force the format instead of auto-detecting
+        #[arg(short = 'f', long, value_name = "alpaca|chatml|sharegpt|text")]
+        format: Option<String>,
+
+        /// Output directory (default: alongside the dataset)
+        #[arg(short = 'o', long)]
+        out: Option<String>,
+
+        /// Validation split percentage (1-50, default 10)
+        #[arg(long, default_value_t = 10)]
+        val_ratio: usize,
+    },
+
+    /// Pre-flight validation of a fine-tuning job: dataset schema, size,
+    /// GPU VRAM availability and base-model compatibility — BEFORE spending
+    /// compute hours
+    ///
+    /// Example:
+    ///   enola-cli ai finetune validate data.jsonl --base-model llama3.1:8b
+    Validate {
+        /// Input JSONL dataset
+        #[arg(value_name = "FILE.jsonl")]
+        dataset: String,
+
+        /// Base model to fine-tune from (for compatibility/VRAM check)
+        #[arg(long, value_name = "MODEL")]
+        base_model: Option<String>,
+    },
+
+    /// Start a fine-tuning training job in a GPU container (Destructive —
+    /// hours of compute; requires --force)
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai finetune start dev --dataset /path/chatml.jsonl
+    ///   sudo enola-cli ai finetune start dev --dataset d.jsonl --base-model llama3.1:8b --low-memory
+    Start {
+        /// AI instance name (target Ollama for the result model)
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// Prepared ChatML JSONL dataset (see `ai finetune prepare`)
+        #[arg(long, value_name = "FILE.jsonl")]
+        dataset: String,
+
+        /// Base model to fine-tune from (default: instance model)
+        #[arg(long, value_name = "MODEL")]
+        base_model: Option<String>,
+
+        /// Low-memory mode (< 10 GB VRAM): reduces batch size and context
+        #[arg(long)]
+        low_memory: bool,
+
+        /// Register the resulting model in the instance library on success
+        #[arg(long)]
+        no_register: bool,
+
+        /// Required confirmation (hours of GPU compute)
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Show fine-tuning jobs for an instance (running and finished)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai finetune status dev
+    Status {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+    },
+
+    /// Interactive wizard guiding through dataset selection, model choice
+    /// and training parameters (TTY only)
+    ///
+    /// Example:
+    ///   enola-cli ai finetune wizard
+    Wizard,
 }

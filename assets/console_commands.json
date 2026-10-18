@@ -340,7 +340,8 @@
       "model",
       "rag",
       "benchmark",
-      "provider"
+      "provider",
+      "finetune"
     ],
     "apparmor": [
       "setup",

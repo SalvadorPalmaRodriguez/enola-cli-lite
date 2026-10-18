@@ -10,6 +10,7 @@ pub mod container;
 pub mod dependencies; // DEP-001..003 — System dependency port
 pub mod external_ai; // Fase 13 — providers IA externos BYOK (OpenAI-compat + Anthropic)
 pub mod file;
+pub mod finetune;
 pub mod firewall; // Gestión de firewall UFW (UFW-002)
 pub mod hardware;
 pub mod http_probe; // MCP-006 — sonda HTTP(S)/.onion (verify_onion)
@@ -26,4 +27,4 @@ pub mod test_runner;
 pub mod tor;
 pub mod vpn; // Tarea 162 — WireGuard VPN port trait
 pub mod vpn_bridge; // VPN over Tor — socat UDP→TCP bridge port
-pub mod web; // DRUPAL-001 — CmsAdapter + CmsLifecycle traits
+pub mod web; // DRUPAL-001 — CmsAdapter + CmsLifecycle traits // Fase 14 — jobs de fine-tuning (`ai finetune`)

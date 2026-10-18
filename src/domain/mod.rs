@@ -3,6 +3,7 @@
 
 pub mod ai; // Fase 10 — Tipos puros del stack IA local (Ollama + Open WebUI)
 pub mod ai_benchmark; // Fase 13 — métricas de benchmark local (`ai benchmark`)
+pub mod ai_finetune; // Fase 14 — datasets JSONL y fine-tuning (`ai finetune`)
 pub mod ai_model; // Fase 11 — Biblioteca de modelos GGUF (ai model)
 pub mod ai_providers; // Fase 13 — providers IA externos BYOK (`ai provider`)
 pub mod app_config; // CONFIG-001 + CONFIG-002 — distribution & web URLs

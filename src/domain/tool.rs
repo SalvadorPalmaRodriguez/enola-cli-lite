@@ -151,6 +151,8 @@ pub(crate) const READ_ONLY_SUBCOMMANDS: &[(&str, &[&str])] = &[
     // (jamás la API key, que solo aparece como "(set)"/"(not set)").
     ("ai", &["provider", "list"]),
     ("ai", &["provider", "status"]),
+    // Fase 14.5 — consulta de jobs de fine-tuning: solo lectura.
+    ("ai", &["finetune", "status"]),
 ];
 
 /// Familias HOJA (sin subcomando) que son de LECTURA.
@@ -245,6 +247,9 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     ("ai", &["rag", "bind"]),
     // Fase 13.2 — borra credenciales del disco (`~/.enola/providers.env`).
     ("ai", &["provider", "remove"]),
+    // Fase 14.5 — `ai finetune start` lanza un pipeline de horas de cómputo
+    // (GPU, contenedores de entrenamiento) → Destructive (confirm_token).
+    ("ai", &["finetune", "start"]),
 ];
 
 /// Familias HOJA destructivas (sin subcomando).
@@ -281,6 +286,9 @@ pub(crate) const FORBIDDEN_PATHS: &[(&str, &[&str])] = &[
     ("update", &["apply"]),
     ("test", &["run"]),
     ("test", &["benchmark"]),
+    // Fase 14.5 — `ai finetune wizard` es un asistente interactivo TTY:
+    // vetado para `enola_run_command` (bloquearía al agente).
+    ("ai", &["finetune", "wizard"]),
 ];
 
 /// `true` si la familia está prohibida para `enola_run_command`.
@@ -686,6 +694,26 @@ mod tests {
             ToolKind::Destructive
         );
         assert_eq!(classify("ai", &["provider"]), ToolKind::Mutating);
+    }
+
+    #[test]
+    fn ai_finetune_level3_paths_are_classified() {
+        // Fase 14 — `ai finetune` (datasets + entrenamiento).
+        assert_eq!(classify("ai", &["finetune", "status"]), ToolKind::ReadOnly);
+        assert_eq!(classify("ai", &["finetune", "prepare"]), ToolKind::Mutating);
+        assert_eq!(
+            classify("ai", &["finetune", "validate"]),
+            ToolKind::Mutating
+        );
+        assert_eq!(
+            classify("ai", &["finetune", "start"]),
+            ToolKind::Destructive
+        );
+        assert_eq!(classify("ai", &["finetune", "wizard"]), ToolKind::Mutating);
+        assert_eq!(classify("ai", &["finetune"]), ToolKind::Mutating);
+        // wizard está vetado para enola_run_command (TTY interactivo).
+        assert!(is_forbidden_path("ai", &["finetune", "wizard"]));
+        assert!(!is_forbidden_path("ai", &["finetune", "start"]));
     }
 
     #[test]

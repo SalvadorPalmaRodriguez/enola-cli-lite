@@ -4388,6 +4388,160 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "description": "Fine-tuning pipelines (datasets JSONL → LoRA → GGUF → biblioteca)",
+          "flags": [],
+          "name": "finetune",
+          "subcommands": [
+            {
+              "description": "Validate + convert a JSONL dataset to canonical ChatML, with deterministic train/validation split",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "dataset",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "FILE.jsonl"
+                },
+                {
+                  "boolean": false,
+                  "name": "format",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "alpaca|chatml|sharegpt|text"
+                },
+                {
+                  "boolean": false,
+                  "name": "out",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "OUT"
+                },
+                {
+                  "boolean": false,
+                  "name": "val-ratio",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "VAL_RATIO"
+                }
+              ],
+              "name": "prepare",
+              "subcommands": []
+            },
+            {
+              "description": "Pre-flight validation of a fine-tuning job: dataset schema, size, GPU VRAM availability and base-model compatibility — BEFORE spending compute hours",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "dataset",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "FILE.jsonl"
+                },
+                {
+                  "boolean": false,
+                  "name": "base-model",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "MODEL"
+                }
+              ],
+              "name": "validate",
+              "subcommands": []
+            },
+            {
+              "description": "Start a fine-tuning training job in a GPU container (Destructive — hours of compute; requires --force)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "dataset",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "FILE.jsonl"
+                },
+                {
+                  "boolean": false,
+                  "name": "base-model",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "MODEL"
+                },
+                {
+                  "boolean": true,
+                  "name": "low-memory",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "LOW_MEMORY"
+                },
+                {
+                  "boolean": true,
+                  "name": "no-register",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "NO_REGISTER"
+                },
+                {
+                  "boolean": true,
+                  "name": "force",
+                  "positional": false,
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "required": false,
+                  "value_name": "FORCE"
+                }
+              ],
+              "name": "start",
+              "subcommands": []
+            },
+            {
+              "description": "Show fine-tuning jobs for an instance (running and finished)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                }
+              ],
+              "name": "status",
+              "subcommands": []
+            },
+            {
+              "description": "Interactive wizard guiding through dataset selection, model choice and training parameters (TTY only)",
+              "flags": [],
+              "name": "wizard",
+              "subcommands": []
+            }
+          ]
         }
       ]
     }

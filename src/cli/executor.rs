@@ -4329,6 +4329,7 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
         A::Model(model_cmd) => execute_ai_model(model_cmd, format).await,
         A::Rag(rag_cmd) => execute_ai_rag(rag_cmd, format).await,
         A::Provider(provider_cmd) => execute_ai_provider(provider_cmd, format).await,
+        A::Finetune(ft_cmd) => execute_ai_finetune(ft_cmd, format).await,
         A::Benchmark {
             name,
             model,
@@ -4609,6 +4610,196 @@ async fn execute_ai_provider(
                 ))
             }
         }
+    }
+}
+
+// ── Fase 14 — `ai finetune` (datasets + entrenamiento LoRA) ──────────────
+
+async fn execute_ai_finetune(
+    cmd: crate::cli::AiFinetuneCommands,
+    format: &str,
+) -> CliResult<String> {
+    use crate::adapters::ai::finetune_store::FsFinetuneJobsStore;
+    use crate::adapters::hardware::probe::EnolaHardwareProbe;
+    use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::application::ai_finetune::ManageFinetune;
+    use crate::cli::AiFinetuneCommands as F;
+    use crate::domain::ai_finetune::DatasetFormat;
+    use std::sync::Arc;
+
+    match cmd {
+        F::Prepare {
+            dataset,
+            format: fmt,
+            out,
+            val_ratio,
+        } => {
+            let svc = ManageFinetune::new(
+                build_ai_adapter()?,
+                Arc::new(EnolaHardwareProbe::new()),
+                Arc::new(
+                    BollardDockerAdapter::new()
+                        .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
+                ),
+                Arc::new(FsFinetuneJobsStore::new(
+                    build_ai_adapter()?.instance_dir(""),
+                )),
+                build_ai_adapter()?.instance_dir(""),
+            );
+            let fmt_parsed = fmt
+                .as_deref()
+                .map(DatasetFormat::from_str_ci)
+                .transpose()
+                .map_err(CliError::from)?;
+            let rep = svc
+                .prepare(&dataset, fmt_parsed, out.as_deref(), val_ratio)
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&rep)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let mut out = format!(
+                "📦 Dataset preparado ({:?})\n   registros válidos: {} → train {} + val {}\n",
+                rep.format, rep.valid_records, rep.train_records, rep.val_records
+            );
+            out.push_str(&format!(
+                "   train: {}\n   val:   {}\n",
+                rep.train_path, rep.val_path
+            ));
+            if !rep.errors.is_empty() {
+                out.push_str(&format!("   ⚠️  {} líneas con error:\n", rep.errors.len()));
+                for e in rep.errors.iter().take(5) {
+                    out.push_str(&format!("     • {e}\n"));
+                }
+            }
+            Ok(out)
+        }
+        F::Validate {
+            dataset,
+            base_model,
+        } => {
+            let svc = ManageFinetune::new(
+                build_ai_adapter()?,
+                Arc::new(EnolaHardwareProbe::new()),
+                Arc::new(
+                    BollardDockerAdapter::new()
+                        .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
+                ),
+                Arc::new(FsFinetuneJobsStore::new(
+                    build_ai_adapter()?.instance_dir(""),
+                )),
+                build_ai_adapter()?.instance_dir(""),
+            );
+            let rep = svc
+                .validate(&dataset, base_model.as_deref())
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&rep)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let mut out = format!(
+                "🔍 Validación del dataset ({} registros válidos)\n",
+                rep.valid_records
+            );
+            for c in &rep.checks {
+                out.push_str(&format!(
+                    "   {} {}: {}\n",
+                    if c.ok { "✅" } else { "❌" },
+                    c.name,
+                    c.detail
+                ));
+            }
+            for w in &rep.warnings {
+                out.push_str(&format!("   ⚠️  {w}\n"));
+            }
+            Ok(out)
+        }
+        F::Start {
+            instance,
+            dataset,
+            base_model,
+            low_memory,
+            no_register,
+            force,
+        } => {
+            let adapter = build_ai_adapter()?;
+            let base = adapter.instance_dir("");
+            let svc = ManageFinetune::new(
+                adapter,
+                Arc::new(EnolaHardwareProbe::new()),
+                Arc::new(
+                    BollardDockerAdapter::new()
+                        .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
+                ),
+                Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                base,
+            );
+            let job = svc
+                .start(
+                    &instance,
+                    &dataset,
+                    base_model.as_deref(),
+                    low_memory,
+                    no_register,
+                    force,
+                )
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&job)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            Ok(format!(
+                "🚀 Job de fine-tuning lanzado (id {})\n   contenedor: {}\n   modelo base: {}\n   dataset: {}\n   low-memory: {}\n\n   Sigue con `ai logs <{}>` o `ai finetune status {}`",
+                job.id, job.container, job.base_model, job.dataset, job.low_memory, instance, instance
+            ))
+        }
+        F::Status { instance } => {
+            let svc = ManageFinetune::new(
+                build_ai_adapter()?,
+                Arc::new(EnolaHardwareProbe::new()),
+                Arc::new(
+                    BollardDockerAdapter::new()
+                        .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
+                ),
+                Arc::new(FsFinetuneJobsStore::new(
+                    build_ai_adapter()?.instance_dir(""),
+                )),
+                build_ai_adapter()?.instance_dir(""),
+            );
+            let jobs = svc.status(&instance).await.map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&jobs)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let mut out = format!("📋 Jobs de fine-tuning en '{instance}':\n");
+            if jobs.is_empty() {
+                out.push_str("   (ninguno)\n");
+            }
+            for j in &jobs {
+                out.push_str(&format!(
+                    "   • {} [{:?}] {} — {} (base {}, {})\n",
+                    j.id,
+                    j.status,
+                    j.container,
+                    j.dataset,
+                    j.base_model,
+                    if j.low_memory { "low-mem" } else { "normal" }
+                ));
+                if let Some(err) = &j.error {
+                    out.push_str(&format!("       error: {err}\n"));
+                }
+                if let Some(m) = &j.result_model {
+                    out.push_str(&format!("       modelo: {m}\n"));
+                }
+            }
+            Ok(out)
+        }
+        F::Wizard => Err(CliError::Generic(
+            "`ai finetune wizard` es interactivo (TTY) — no soportado en este contexto".to_string(),
+        )),
     }
 }
 

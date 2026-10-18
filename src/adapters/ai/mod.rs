@@ -4,6 +4,7 @@ pub mod anthropic;
 pub mod chroma;
 pub mod embed;
 pub mod external_router;
+pub mod finetune_store;
 pub mod gguf_download;
 pub mod ollama;
 pub mod openai_compat;
