@@ -33,6 +33,9 @@ pub struct RagStatusReport {
 }
 
 /// Extensiones soportadas en la ingesta (texto, código, config, web, docs).
+/// Timeout de espera de readiness del vector store tras su aprovisionado.
+const VECTOR_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "txt", "md", "markdown", "rst", "rtf", "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c",
     "cpp", "h", "hpp", "rb", "php", "swift", "kt", "scala", "lua", "pl", "pm", "json", "toml",
@@ -85,6 +88,22 @@ impl ManageAiRag {
         let store = self
             .provision
             .build_vector_store(&info, ollama_port, &config.embedding_model);
+        // El contenedor del vector store tarda unos segundos en levantar su
+        // API (migraciones internas de Chroma/Qdrant): esperar readiness
+        // antes de devolver el store (evita la race del primer GET).
+        let deadline = std::time::Instant::now() + VECTOR_READY_TIMEOUT;
+        while !store.is_available().await {
+            if std::time::Instant::now() >= deadline {
+                return Err(EnolaError::InfrastructureError(format!(
+                    "El vector store '{:?}' de '{instance}' no respondió en {}s \
+                     (contenedor 'enola-ai-{instance}-{}' arrancando o caído)",
+                    info.backend,
+                    VECTOR_READY_TIMEOUT.as_secs(),
+                    info.backend.container_suffix()
+                )));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
         Ok((store, config))
     }
 
@@ -576,6 +595,7 @@ mod tests {
             });
         prov.expect_build_vector_store().returning(move |_, _, _| {
             let mut vs = MockRagVectorStorePort::new();
+            vs.expect_is_available().returning(|| true);
             vs.expect_ensure_collection().returning(|_| Ok(()));
             vs.expect_add_documents().returning(|_, _| Ok(()));
             Arc::new(vs)

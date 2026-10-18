@@ -157,6 +157,23 @@ impl HideAiInstance {
 pub struct CreateAiInstance {
     ai_adapter: Arc<dyn AiAdapterPort + Send + Sync>,
     llm_engine: Option<Arc<dyn LlmEngine + Send + Sync>>,
+    /// Timeout de espera de readiness de la API Ollama antes del pull inicial.
+    ready_timeout: std::time::Duration,
+}
+
+/// Espera a que la API de Ollama responda (`/api/tags`) hasta `timeout`.
+async fn wait_for_ollama_api(engine: &dyn LlmEngine, timeout: std::time::Duration) {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if engine.list_models().await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    tracing::warn!(
+        timeout_secs = timeout.as_secs(),
+        "La API de Ollama no respondió a tiempo; el pull inicial puede fallar"
+    );
 }
 
 impl CreateAiInstance {
@@ -164,7 +181,14 @@ impl CreateAiInstance {
         Self {
             ai_adapter,
             llm_engine: None,
+            ready_timeout: std::time::Duration::from_secs(60),
         }
+    }
+
+    /// Override del timeout de readiness (tests).
+    pub fn with_ready_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.ready_timeout = timeout;
+        self
     }
 
     pub fn with_llm_engine(mut self, engine: Arc<dyn LlmEngine + Send + Sync>) -> Self {
@@ -178,6 +202,10 @@ impl CreateAiInstance {
         let inst = self.ai_adapter.create_instance(config).await?;
         if pull_model {
             if let Some(engine) = &self.llm_engine {
+                // El contenedor Ollama recién arrancado tarda unos segundos en
+                // bindear su API — esperar readiness antes del pull inicial
+                // (evita la race "error sending request" de la E2E real).
+                wait_for_ollama_api(engine.as_ref(), self.ready_timeout).await;
                 if let Err(err) = engine.pull_model(&model_name).await {
                     tracing::warn!(
                         instance = %inst.name,
@@ -356,6 +384,8 @@ mod tests {
         });
 
         let mut llm = MockLlmEngine::new();
+        // El wait-for-readiness consulta /api/tags antes del pull.
+        llm.expect_list_models().returning(|| Ok(Vec::new()));
         llm.expect_pull_model()
             .withf(|m| m == "llama3.1:8b")
             .times(1)

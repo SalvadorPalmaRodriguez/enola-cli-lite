@@ -242,6 +242,7 @@ async fn execute_ask(
     use crate::application::mcp::audit::AuditLogger;
     use crate::application::mcp::confirmation::ConfirmationStore;
     use crate::application::mcp::policy::McpPolicy;
+    use crate::ports::ai::AiAdapterPort;
     use crate::ports::container::ContainerPort;
     use std::time::Duration;
 
@@ -261,6 +262,16 @@ async fn execute_ask(
 
     let explicit_endpoint = endpoint.is_some();
     let config_section = crate::infrastructure::config_loader::load_section("ai");
+    // El flag --model tiene máxima prioridad; env/config también deben
+    // prevalecer sobre el modelo de la instancia (resolución posterior).
+    let model_flag_or_cfg = model.is_some()
+        || std::env::var("ENOLA_AI_MODEL")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+        || config_section
+            .get("model")
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
     let mut ai_cfg = resolve_ai_config(
         &AiFlagOverrides {
             endpoint,
@@ -280,6 +291,21 @@ async fn execute_ask(
                     .map_err(|e| CliError::InvalidInput(e.to_string()))?
                 {
                     ai_cfg.endpoint = ep;
+                    // Si ni --model ni env ni config fijan el modelo, heredar el
+                    // que la instancia declara (`ai status`/`ai list`) — evita el
+                    // 404 "model 'llama3.1:8b' not found" visto en la E2E real.
+                    if !model_flag_or_cfg {
+                        if let Ok(adapter) = build_ai_adapter() {
+                            if let Ok(inst) = adapter
+                                .get_instance(instance.as_deref().unwrap_or(""))
+                                .await
+                            {
+                                if !inst.model.trim().is_empty() {
+                                    ai_cfg.model = inst.model;
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 discovered_container_endpoint =
