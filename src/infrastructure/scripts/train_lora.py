@@ -4,10 +4,16 @@
 # Se despliega por el CLI en <instance>/finetune/scripts/ y se ejecuta
 # DENTRO del contenedor de entrenamiento sobre `ContainerPort`. Entrada:
 #   python3 /opt/finetune/train_lora.py --train /data/train.jsonl \
-#       --val /data/val.jsonl --out /out [--base-model ID] [--low-memory]
+#       --val /data/val.jsonl --out /out \
+#       --gguf /model.gguf --tokenizer /tokenizer [--low-memory]
 #
-# Requiere `transformers`, `peft`, `datasets`, `torch` en la imagen del
-# contenedor. Si falta una dependencia, falla con mensaje accionable.
+# El contenedor corre SIN red: el GGUF y el tokenizer se montan como
+# volúmenes desde el host. El modelo se carga nativo desde el GGUF
+# (`gguf_file`) y el tokenizer desde el directorio montado.
+#
+# Requiere `transformers` (>= 4.46, con soporte `gguf_file`), `peft`,
+# `datasets`, `torch` en la imagen del contenedor. Si falta una dependencia,
+# falla con mensaje accionable.
 
 import argparse
 import json
@@ -49,11 +55,19 @@ def main() -> int:
     ap.add_argument("--train", required=True)
     ap.add_argument("--val", default=None)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--base-model", default="llama3.1:8b")
+    ap.add_argument("--gguf", required=True, help="Ruta del GGUF base montado")
+    ap.add_argument("--tokenizer", required=True, help="Directorio del tokenizer HF montado")
     ap.add_argument("--low-memory", action="store_true")
     ap.add_argument("--epochs", type=int, default=1)
     ap.add_argument("--max-len", type=int, default=2048)
     args = ap.parse_args()
+
+    if not os.path.isfile(args.gguf):
+        fail(f"GGUF base no encontrado en '{args.gguf}'")
+    if not os.path.isdir(args.tokenizer) or not os.path.isfile(
+        os.path.join(args.tokenizer, "tokenizer_config.json")
+    ):
+        fail(f"tokenizer HF no encontrado en '{args.tokenizer}' (falta tokenizer_config.json)")
 
     os.makedirs(args.out, exist_ok=True)
     # El rootfs es read-only: TMPDIR apunta a un subdirectorio del volumen /out.
@@ -66,7 +80,7 @@ def main() -> int:
     val_rows = load_jsonl(args.val) if args.val and os.path.exists(args.val) else []
     print(
         f"[train_lora] train={len(train_rows)} val={len(val_rows)} "
-        f"base={args.base_model} low_memory={args.low_memory}",
+        f"gguf={args.gguf} tokenizer={args.tokenizer} low_memory={args.low_memory}",
         flush=True,
     )
 
@@ -86,7 +100,7 @@ def main() -> int:
             f"transformers+peft+datasets+torch"
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
     def row_to_example(rec):
         enc = tokenizer(to_text(rec), truncation=True, max_length=args.max_len)
@@ -103,7 +117,13 @@ def main() -> int:
     )
 
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    model = AutoModelForCausalLM.from_pretrained(args.base_model, dtype=dtype)
+    # El GGUF trae su propia arquitectura/config en el header: transformers lo
+    # descuantiza a fp32 y reconstruye el modelo sin red (offline).
+    model = AutoModelForCausalLM.from_pretrained(
+        args.gguf,
+        gguf_file=args.gguf,
+        dtype=dtype,
+    )
     lora = LoraConfig(
         r=8 if args.low_memory else 16,
         lora_alpha=16,

@@ -42,6 +42,10 @@ mod tests {
         assert!(TRAIN_LORA_PY.contains("def main()"));
         assert!(TRAIN_LORA_PY.contains("argparse"));
         assert!(TRAIN_LORA_PY.contains("LoraConfig"));
+        // S5: carga el modelo desde el GGUF montado y el tokenizer del dir.
+        assert!(TRAIN_LORA_PY.contains("gguf_file=args.gguf"));
+        assert!(TRAIN_LORA_PY.contains("--tokenizer"));
+        assert!(TRAIN_LORA_PY.contains("AutoTokenizer.from_pretrained(args.tokenizer)"));
     }
 
     #[test]

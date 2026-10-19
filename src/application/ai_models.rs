@@ -14,7 +14,8 @@
 use crate::domain::ai_model::{self, AiModel};
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::ai::{
-    AiAdapterPort, AiModelLibraryPort, AiModelRegistryPort, ModelDownloadPort, ModelDownloadRequest,
+    AiAdapterPort, AiModelLibraryPort, AiModelRegistryPort, ModelDownloadPort,
+    ModelDownloadRequest, TokenizerDownloadPort, TokenizerDownloadRequest,
 };
 use crate::ports::llm::LlmModelInfo;
 use serde::Serialize;
@@ -51,6 +52,10 @@ pub struct ModelInstallReport {
     pub via_tor: bool,
     /// Nombre con el que quedó registrado en Ollama (si se registró).
     pub registered_as: Option<String>,
+    /// Directorio (host) donde se guardó el tokenizer HF (si se descargó).
+    pub tokenizer_dir: Option<String>,
+    /// Aviso si el tokenizer no pudo descargarse (el GGUF siguió OK).
+    pub tokenizer_warning: Option<String>,
 }
 
 /// Orquestador de `ai model <sub>`: instancias + biblioteca + registro + descarga.
@@ -59,6 +64,7 @@ pub struct ManageAiModels {
     library: Arc<dyn AiModelLibraryPort + Send + Sync>,
     registry: Arc<dyn AiModelRegistryPort + Send + Sync>,
     downloader: Option<Arc<dyn ModelDownloadPort + Send + Sync>>,
+    tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
 }
 
 impl ManageAiModels {
@@ -68,12 +74,14 @@ impl ManageAiModels {
         library: Arc<dyn AiModelLibraryPort + Send + Sync>,
         registry: Arc<dyn AiModelRegistryPort + Send + Sync>,
         downloader: Option<Arc<dyn ModelDownloadPort + Send + Sync>>,
+        tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
     ) -> Self {
         Self {
             instances,
             library,
             registry,
             downloader,
+            tokenizer,
         }
     }
 
@@ -163,6 +171,21 @@ impl ManageAiModels {
             .read_gguf_metadata(instance, &resolved.filename)
             .await?;
 
+        // S2: persistir proveniencia (sha256 + origen + hf_repo) en index.json.
+        self.library
+            .record_download_provenance(
+                instance,
+                &resolved.filename,
+                &outcome.sha256,
+                resolved.hf_repo.clone(),
+            )
+            .await?;
+
+        // S3: tokenizer HF host-side (best-effort: si falla se avisa, no aborta).
+        let (tokenizer_dir, tokenizer_warning) = self
+            .download_tokenizer_best_effort(instance, resolved.hf_repo.as_deref(), use_tor)
+            .await;
+
         let registered_as = if register {
             let reg_name = match name {
                 Some(n) => {
@@ -187,7 +210,56 @@ impl ManageAiModels {
             resumed: outcome.resumed,
             via_tor: outcome.via_tor,
             registered_as,
+            tokenizer_dir,
+            tokenizer_warning,
         })
+    }
+
+    /// Descarga (best-effort) el tokenizer HF del repo y devuelve
+    /// `(directorio_guardado, aviso)`. Nunca falla: un problema del tokenizer
+    /// se convierte en aviso para no tumbar una descarga de GGUF ya completada.
+    async fn download_tokenizer_best_effort(
+        &self,
+        instance: &str,
+        repo: Option<&str>,
+        use_tor: bool,
+    ) -> (Option<String>, Option<String>) {
+        let Some(repo) = repo else {
+            return (None, None);
+        };
+        let dest = match self.library.resolve_tokenizer_dir(instance, repo).await {
+            Ok(d) => d,
+            Err(e) => {
+                return (
+                    None,
+                    Some(format!(
+                        "no se pudo resolver el directorio del tokenizer: {e}"
+                    )),
+                )
+            }
+        };
+        let Some(downloader) = self.tokenizer.as_ref() else {
+            return (
+                None,
+                Some("descarga de tokenizer no disponible en este entorno".to_string()),
+            );
+        };
+        match downloader
+            .download_tokenizer(TokenizerDownloadRequest {
+                repo: repo.to_string(),
+                destination: dest,
+                use_tor,
+            })
+            .await
+        {
+            Ok(outcome) => (Some(outcome.destination.display().to_string()), None),
+            Err(e) => (
+                None,
+                Some(format!(
+                    "tokenizer HF no descargado de '{repo}' (usa --tokenizer al afinar): {e}"
+                )),
+            ),
+        }
     }
 
     /// `ai model import <instance> <path> [--name] [--no-register]`.
@@ -225,6 +297,8 @@ impl ManageAiModels {
             resumed: false,
             via_tor: false,
             registered_as,
+            tokenizer_dir: None,
+            tokenizer_warning: None,
         })
     }
 
@@ -335,7 +409,7 @@ mod tests {
     use crate::domain::ai::AiInstanceStatus;
     use crate::ports::ai::{
         MockAiAdapterPort, MockAiModelLibraryPort, MockAiModelRegistryPort, MockModelDownloadPort,
-        ModelDownloadOutcome,
+        MockTokenizerDownloadPort, ModelDownloadOutcome, TokenizerDownloadOutcome,
     };
     use std::path::PathBuf;
 
@@ -359,11 +433,22 @@ mod tests {
         registry: MockAiModelRegistryPort,
         downloader: MockModelDownloadPort,
     ) -> ManageAiModels {
+        svc_with_tok(instances, library, registry, downloader, None)
+    }
+
+    fn svc_with_tok(
+        instances: MockAiAdapterPort,
+        library: MockAiModelLibraryPort,
+        registry: MockAiModelRegistryPort,
+        downloader: MockModelDownloadPort,
+        tokenizer: Option<MockTokenizerDownloadPort>,
+    ) -> ManageAiModels {
         ManageAiModels::new(
             Arc::new(instances),
             Arc::new(library),
             Arc::new(registry),
             Some(Arc::new(downloader)),
+            tokenizer.map(|t| Arc::new(t) as Arc<dyn TokenizerDownloadPort + Send + Sync>),
         )
     }
 
@@ -385,8 +470,27 @@ mod tests {
                 version: 3,
                 tensor_count: 1,
                 metadata_kv_count: 0,
+                architecture: None,
+                file_type: None,
             })
         });
+        lib.expect_record_download_provenance()
+            .withf(|i, f, sha, repo| {
+                i == "dev" && f == "m.gguf" && sha == "ab12" && repo.as_deref() == Some("org/repo")
+            })
+            .times(1)
+            .returning(|_, _, _, _| Ok(()));
+        // hf_repo presente → se resuelve el directorio del tokenizer; al no
+        // haber descargador de tokenizer, el flujo avisa (best-effort).
+        lib.expect_resolve_tokenizer_dir()
+            .withf(|i, r| i == "dev" && r == "org/repo")
+            .times(1)
+            .returning(|_, r| {
+                Ok(PathBuf::from(format!(
+                    "/srv/enola-ai/dev/ollama/models-gguf/tokenizer/{}",
+                    r.replace('/', "__")
+                )))
+            });
 
         let mut reg = MockAiModelRegistryPort::new();
         reg.expect_register_library_model()
@@ -428,6 +532,9 @@ mod tests {
         assert_eq!(out.filename, "m.gguf");
         assert_eq!(out.registered_as.as_deref(), Some("custom:q4"));
         assert!(!out.via_tor);
+        // Sin descargador de tokenizer inyectado, se avisa pero no falla.
+        assert_eq!(out.tokenizer_dir, None);
+        assert!(out.tokenizer_warning.is_some());
     }
 
     #[tokio::test]
@@ -442,8 +549,14 @@ mod tests {
                 version: 3,
                 tensor_count: 1,
                 metadata_kv_count: 0,
+                architecture: None,
+                file_type: None,
             })
         });
+        lib.expect_record_download_provenance()
+            .withf(|i, f, _sha, repo| i == "dev" && f == "m.gguf" && repo.is_none())
+            .times(1)
+            .returning(|_, _, _, _| Ok(()));
         let mut reg = MockAiModelRegistryPort::new();
         reg.expect_register_library_model().times(0);
         let mut dl = MockModelDownloadPort::new();
@@ -474,6 +587,117 @@ mod tests {
             .unwrap();
         assert!(out.via_tor);
         assert!(out.registered_as.is_none());
+        // URL directa → sin hf_repo → sin tokenizer ni aviso.
+        assert_eq!(out.tokenizer_dir, None);
+        assert_eq!(out.tokenizer_warning, None);
+    }
+
+    #[tokio::test]
+    async fn download_with_hf_repo_fetches_tokenizer() {
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|n| Ok(inst(n)));
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_resolve_library_target()
+            .returning(|_, f| Ok(PathBuf::from(f)));
+        lib.expect_read_gguf_metadata().returning(|_, _| {
+            Ok(ai_model::GgufMetadata {
+                version: 3,
+                tensor_count: 1,
+                metadata_kv_count: 0,
+                architecture: None,
+                file_type: None,
+            })
+        });
+        lib.expect_record_download_provenance()
+            .returning(|_, _, _, _| Ok(()));
+        lib.expect_resolve_tokenizer_dir()
+            .withf(|i, r| i == "dev" && r == "org/repo")
+            .times(1)
+            .returning(|_, r| {
+                Ok(PathBuf::from(format!(
+                    "/srv/enola-ai/dev/ollama/models-gguf/tokenizer/{}",
+                    r.replace('/', "__")
+                )))
+            });
+        let mut reg = MockAiModelRegistryPort::new();
+        reg.expect_register_library_model().times(0);
+        let mut dl = MockModelDownloadPort::new();
+        dl.expect_download().times(1).returning(|r| {
+            Ok(ModelDownloadOutcome {
+                destination: r.destination,
+                bytes_written: 1,
+                sha256: "x".into(),
+                resumed: false,
+                via_tor: false,
+            })
+        });
+        let mut tok = MockTokenizerDownloadPort::new();
+        tok.expect_download_tokenizer()
+            .withf(|req| req.repo == "org/repo" && !req.use_tor)
+            .times(1)
+            .returning(|req| {
+                Ok(TokenizerDownloadOutcome {
+                    destination: req.destination,
+                    files_downloaded: 2,
+                })
+            });
+
+        let s = svc_with_tok(insts, lib, reg, dl, Some(tok));
+        let out = s
+            .download("dev", "org/repo", Some("m.gguf"), None, None, false, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            out.tokenizer_dir.as_deref(),
+            Some("/srv/enola-ai/dev/ollama/models-gguf/tokenizer/org__repo")
+        );
+        assert_eq!(out.tokenizer_warning, None);
+    }
+
+    #[tokio::test]
+    async fn download_tokenizer_failure_is_warning() {
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|n| Ok(inst(n)));
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_resolve_library_target()
+            .returning(|_, f| Ok(PathBuf::from(f)));
+        lib.expect_read_gguf_metadata().returning(|_, _| {
+            Ok(ai_model::GgufMetadata {
+                version: 3,
+                tensor_count: 1,
+                metadata_kv_count: 0,
+                architecture: None,
+                file_type: None,
+            })
+        });
+        lib.expect_record_download_provenance()
+            .returning(|_, _, _, _| Ok(()));
+        lib.expect_resolve_tokenizer_dir()
+            .returning(|_, r| Ok(PathBuf::from(r)));
+        let mut reg = MockAiModelRegistryPort::new();
+        reg.expect_register_library_model().times(0);
+        let mut dl = MockModelDownloadPort::new();
+        dl.expect_download().times(1).returning(|r| {
+            Ok(ModelDownloadOutcome {
+                destination: r.destination,
+                bytes_written: 1,
+                sha256: "x".into(),
+                resumed: false,
+                via_tor: false,
+            })
+        });
+        let mut tok = MockTokenizerDownloadPort::new();
+        tok.expect_download_tokenizer()
+            .times(1)
+            .returning(|_| Err(EnolaError::NotFound("no tokenizer".into())));
+
+        let s = svc_with_tok(insts, lib, reg, dl, Some(tok));
+        let out = s
+            .download("dev", "org/repo", Some("m.gguf"), None, None, false, false)
+            .await
+            .unwrap();
+        assert_eq!(out.tokenizer_dir, None);
+        assert!(out.tokenizer_warning.unwrap().contains("tokenizer"));
     }
 
     #[tokio::test]
@@ -574,6 +798,8 @@ mod tests {
                     version: 3,
                     tensor_count: 7,
                     metadata_kv_count: 2,
+                    architecture: None,
+                    file_type: None,
                 })
             });
         lib.expect_list_library_models().returning(|_| {

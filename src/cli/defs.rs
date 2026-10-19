@@ -3051,6 +3051,11 @@ pub enum AiFinetuneCommands {
         #[arg(long, value_name = "MODEL")]
         base_model: Option<String>,
 
+        /// HuggingFace repo (`org/repo`) whose tokenizer to use. Downloaded on
+        /// the host on demand if missing (default: the base model's own repo)
+        #[arg(long, value_name = "ORG/REPO")]
+        tokenizer: Option<String>,
+
         /// Low-memory mode (< 10 GB VRAM): reduces batch size and context
         #[arg(long)]
         low_memory: bool,

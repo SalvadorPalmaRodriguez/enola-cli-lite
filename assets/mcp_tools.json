@@ -4484,6 +4484,14 @@
                   "value_name": "MODEL"
                 },
                 {
+                  "boolean": false,
+                  "name": "tokenizer",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "ORG/REPO"
+                },
+                {
                   "boolean": true,
                   "name": "low-memory",
                   "positional": false,

@@ -101,6 +101,22 @@ pub trait AiModelLibraryPort: Send + Sync {
 
     /// Borra un `.gguf` de la biblioteca.
     async fn delete_library_file(&self, instance: &str, filename: &str) -> Result<()>;
+
+    /// Registra la proveniencia de una descarga en `index.json` (source,
+    /// sha256 y repositorio HF `org/repo` de origen).
+    async fn record_download_provenance(
+        &self,
+        instance: &str,
+        filename: &str,
+        sha256: &str,
+        hf_repo: Option<String>,
+    ) -> Result<()>;
+
+    /// Resuelve el directorio destino del tokenizer HF de un repositorio
+    /// (`org/repo`) dentro de la biblioteca de la instancia
+    /// (`<library>/tokenizer/<org__repo>/`). No lo crea: lo crea el
+    /// descargador.
+    async fn resolve_tokenizer_dir(&self, instance: &str, repo: &str) -> Result<PathBuf>;
 }
 
 /// Puerto del registro de modelos de una instancia Ollama (HTTP `/api/*`).
@@ -124,6 +140,40 @@ pub trait AiModelRegistryPort: Send + Sync {
 
     /// Elimina un modelo del registro Ollama (`DELETE /api/delete`).
     async fn delete_registered_model(&self, instance: &str, model: &str) -> Result<()>;
+}
+
+// ── Fase 14 — descarga del tokenizer HF (host-side, previa al entrenamiento) ──
+
+/// Petición de descarga del tokenizer HF de un repositorio.
+#[derive(Debug, Clone)]
+pub struct TokenizerDownloadRequest {
+    /// Repositorio HuggingFace (`org/repo`).
+    pub repo: String,
+    /// Directorio destino (host) donde guardar los ficheros del tokenizer.
+    pub destination: PathBuf,
+    /// `true` para forzar la salida por el proxy Tor SOCKS5h.
+    pub use_tor: bool,
+}
+
+/// Resultado de una descarga de tokenizer HF.
+#[derive(Debug, Clone)]
+pub struct TokenizerDownloadOutcome {
+    /// Directorio destino donde se guardaron los ficheros.
+    pub destination: PathBuf,
+    /// Número de ficheros descargados.
+    pub files_downloaded: usize,
+}
+
+/// Puerto de descarga del tokenizer HF de un repositorio (en el host, para
+/// que el contenedor de entrenamiento sin red pueda montarlo).
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait TokenizerDownloadPort: Send + Sync {
+    /// Descarga los ficheros del tokenizer de `req.repo` a `req.destination`.
+    async fn download_tokenizer(
+        &self,
+        req: TokenizerDownloadRequest,
+    ) -> Result<TokenizerDownloadOutcome>;
 }
 
 #[cfg(test)]
@@ -171,5 +221,27 @@ mod tests {
 
         assert!(mock.delete_instance("dev", false).await.is_err());
         assert!(mock.delete_instance("dev", true).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn mock_tokenizer_download_port_contract() {
+        let mut mock = MockTokenizerDownloadPort::new();
+        mock.expect_download_tokenizer()
+            .withf(|req| req.repo == "org/repo" && !req.use_tor)
+            .returning(|req| {
+                Ok(TokenizerDownloadOutcome {
+                    destination: req.destination,
+                    files_downloaded: 2,
+                })
+            });
+        let out = mock
+            .download_tokenizer(TokenizerDownloadRequest {
+                repo: "org/repo".into(),
+                destination: std::path::PathBuf::from("/tmp/tok"),
+                use_tor: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(out.files_downloaded, 2);
     }
 }

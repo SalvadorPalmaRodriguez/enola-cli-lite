@@ -779,7 +779,7 @@ impl EnolaAiAdapter {
                 Ok(buf)
             })
             .unwrap_or_default();
-        let status = match crate::domain::ai_model::parse_gguf_header(&head) {
+        let status = match crate::domain::ai_model::validate_gguf_header(&head) {
             Ok(_) => AiModelStatus::Ready,
             Err(_) => AiModelStatus::Corrupt,
         };
@@ -859,7 +859,9 @@ impl crate::ports::ai::AiModelLibraryPort for EnolaAiAdapter {
                 "Fichero '{filename}' no encontrado en la biblioteca de '{instance}': {e}"
             ))
         })?;
-        let mut buf = vec![0u8; crate::domain::ai_model::GGUF_MIN_HEADER_LEN];
+        // Leer el header completo (metadata incluida) para extraer
+        // `general.architecture` y `general.file_type`.
+        let mut buf = vec![0u8; crate::domain::ai_model::GGUF_HEADER_READ_LEN];
         use std::io::Read;
         let n = file.read(&mut buf).map_err(|e| {
             EnolaError::InfrastructureError(format!("No se pudo leer '{filename}': {e}"))
@@ -894,7 +896,16 @@ impl crate::ports::ai::AiModelLibraryPort for EnolaAiAdapter {
             EnolaError::InfrastructureError(format!("No se pudo leer '{}': {e}", source.display()))
         })?;
         head.truncate(n);
-        crate::domain::ai_model::parse_gguf_header(&head)?;
+        crate::domain::ai_model::validate_gguf_header(&head)?;
+        // El `read` anterior avanzó el cursor: rebobinar para copiar el fichero
+        // COMPLETO (header incluido), no desde el byte 24.
+        use std::io::Seek;
+        src.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "No se pudo rebobinar '{}': {e}",
+                source.display()
+            ))
+        })?;
 
         let dest = self.resolve_library_target(instance, &filename).await?;
         // Copia con hash SHA-256 en streaming (los GGUF pueden ser GiB).
@@ -954,6 +965,27 @@ impl crate::ports::ai::AiModelLibraryPort for EnolaAiAdapter {
         let _ = self.index_entry_remove(instance, filename);
         Ok(())
     }
+
+    async fn record_download_provenance(
+        &self,
+        instance: &str,
+        filename: &str,
+        sha256: &str,
+        hf_repo: Option<String>,
+    ) -> Result<()> {
+        crate::domain::ai_model::validate_gguf_filename(filename)?;
+        self.index_entry_update(
+            instance,
+            filename,
+            Some(sha256.to_string()),
+            "downloaded",
+            hf_repo,
+        )
+    }
+
+    async fn resolve_tokenizer_dir(&self, instance: &str, repo: &str) -> Result<PathBuf> {
+        crate::domain::ai_model::tokenizer_dir_for_repo(&self.base_dir, instance, repo)
+    }
 }
 
 #[async_trait::async_trait]
@@ -998,7 +1030,7 @@ impl crate::ports::ai::AiModelRegistryPort for EnolaAiAdapter {
             EnolaError::InfrastructureError(format!("No se pudo leer '{filename}': {e}"))
         })?;
         head.truncate(n);
-        crate::domain::ai_model::parse_gguf_header(&head)?;
+        crate::domain::ai_model::validate_gguf_header(&head)?;
 
         let container_path = crate::domain::ai_model::container_gguf_path(filename)?;
         let modelfile = format!("FROM {container_path}");
@@ -1207,6 +1239,7 @@ impl crate::ports::rag::AiVectorStorePort for EnolaAiAdapter {
 mod tests {
     use super::*;
     use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::ports::ai::AiModelLibraryPort;
     use crate::ports::container::MockContainerPort;
     use crate::ports::hardware::{
         BatteryState, GpuInfo, MockHardwareProbePort, SystemHardwareSpecs,
@@ -1579,5 +1612,44 @@ mod tests {
         assert!(adapter.delete_instance("dev", false).await.is_err());
         // delete con --force elimina ambos contenedores y la red
         adapter.delete_instance("dev", true).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn import_library_file_preserves_full_file_bytes() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        // GGUF mínimo válido: magic + version(3) + tensor_count(0) + kv(0) + payload.
+        let mut src_bytes = Vec::new();
+        src_bytes.extend_from_slice(b"GGUF");
+        src_bytes.extend_from_slice(&3u32.to_le_bytes());
+        src_bytes.extend_from_slice(&0u64.to_le_bytes());
+        src_bytes.extend_from_slice(&0u64.to_le_bytes());
+        src_bytes.extend_from_slice(b"PAYLOAD-AFTER-HEADER");
+
+        let src = tmp.path().join("model.gguf");
+        std::fs::write(&src, &src_bytes).unwrap();
+
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(MockContainerPort::new()),
+            Arc::new(MockHardwareProbePort::new()),
+            mock_manifest(),
+            tmp.path().join("ai_data"),
+        );
+
+        let model = adapter.import_library_file("dev", &src).await.unwrap();
+        assert_eq!(model.filename, "model.gguf");
+
+        let dest = crate::domain::ai_model::resolve_library_path(
+            &tmp.path().join("ai_data"),
+            "dev",
+            "model.gguf",
+        )
+        .unwrap();
+        let dest_bytes = std::fs::read(&dest).unwrap();
+        assert_eq!(
+            dest_bytes, src_bytes,
+            "el fichero importado debe ser byte-idéntico al origen (header incluido)"
+        );
     }
 }

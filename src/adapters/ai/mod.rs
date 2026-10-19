@@ -11,3 +11,4 @@ pub mod openai_compat;
 pub mod providers_store;
 pub mod qdrant;
 pub mod rag_store;
+pub mod tokenizer_download;

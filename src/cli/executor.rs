@@ -4646,6 +4646,7 @@ async fn execute_ai_finetune(
     format: &str,
 ) -> CliResult<String> {
     use crate::adapters::ai::finetune_store::FsFinetuneJobsStore;
+    use crate::adapters::ai::tokenizer_download::ReqwestTokenizerDownloader;
     use crate::adapters::hardware::probe::EnolaHardwareProbe;
     use crate::adapters::infra::docker::BollardDockerAdapter;
     use crate::application::ai_finetune::ManageFinetune;
@@ -4660,17 +4661,19 @@ async fn execute_ai_finetune(
             out,
             val_ratio,
         } => {
+            let adapter = build_ai_adapter()?;
+            let base = adapter.instance_dir("");
             let svc = ManageFinetune::new(
-                build_ai_adapter()?,
+                adapter.clone(),
                 Arc::new(EnolaHardwareProbe::new()),
                 Arc::new(
                     BollardDockerAdapter::new()
                         .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
                 ),
-                Arc::new(FsFinetuneJobsStore::new(
-                    build_ai_adapter()?.instance_dir(""),
-                )),
-                build_ai_adapter()?.instance_dir(""),
+                Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                adapter.clone(),
+                None,
+                base,
             );
             let fmt_parsed = fmt
                 .as_deref()
@@ -4705,17 +4708,19 @@ async fn execute_ai_finetune(
             dataset,
             base_model,
         } => {
+            let adapter = build_ai_adapter()?;
+            let base = adapter.instance_dir("");
             let svc = ManageFinetune::new(
-                build_ai_adapter()?,
+                adapter.clone(),
                 Arc::new(EnolaHardwareProbe::new()),
                 Arc::new(
                     BollardDockerAdapter::new()
                         .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
                 ),
-                Arc::new(FsFinetuneJobsStore::new(
-                    build_ai_adapter()?.instance_dir(""),
-                )),
-                build_ai_adapter()?.instance_dir(""),
+                Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                adapter.clone(),
+                None,
+                base,
             );
             let rep = svc
                 .validate(&dataset, base_model.as_deref())
@@ -4746,6 +4751,7 @@ async fn execute_ai_finetune(
             instance,
             dataset,
             base_model,
+            tokenizer,
             low_memory,
             no_register,
             force,
@@ -4753,13 +4759,15 @@ async fn execute_ai_finetune(
             let adapter = build_ai_adapter()?;
             let base = adapter.instance_dir("");
             let svc = ManageFinetune::new(
-                adapter,
+                adapter.clone(),
                 Arc::new(EnolaHardwareProbe::new()),
                 Arc::new(
                     BollardDockerAdapter::new()
                         .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
                 ),
                 Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                adapter.clone(),
+                Some(Arc::new(ReqwestTokenizerDownloader::new())),
                 base,
             );
             let job = svc
@@ -4767,6 +4775,7 @@ async fn execute_ai_finetune(
                     &instance,
                     &dataset,
                     base_model.as_deref(),
+                    tokenizer.as_deref(),
                     low_memory,
                     no_register,
                     force,
@@ -4783,17 +4792,19 @@ async fn execute_ai_finetune(
             ))
         }
         F::Status { instance } => {
+            let adapter = build_ai_adapter()?;
+            let base = adapter.instance_dir("");
             let svc = ManageFinetune::new(
-                build_ai_adapter()?,
+                adapter.clone(),
                 Arc::new(EnolaHardwareProbe::new()),
                 Arc::new(
                     BollardDockerAdapter::new()
                         .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
                 ),
-                Arc::new(FsFinetuneJobsStore::new(
-                    build_ai_adapter()?.instance_dir(""),
-                )),
-                build_ai_adapter()?.instance_dir(""),
+                Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                adapter.clone(),
+                None,
+                base,
             );
             let jobs = svc.status(&instance).await.map_err(CliError::from)?;
             if format == "json" {
@@ -4962,6 +4973,7 @@ async fn execute_ai_rag(cmd: crate::cli::AiRagCommands, format: &str) -> CliResu
 
 async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> CliResult<String> {
     use crate::adapters::ai::gguf_download::ReqwestModelDownloader;
+    use crate::adapters::ai::tokenizer_download::ReqwestTokenizerDownloader;
     use crate::application::ai_assistant::{resolve_ai_config, AiFlagOverrides};
     use crate::application::ai_models::ManageAiModels;
     use crate::cli::AiModelCommands as M;
@@ -4973,6 +4985,7 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
         adapter.clone(),
         adapter,
         Some(Arc::new(ReqwestModelDownloader::new())),
+        Some(Arc::new(ReqwestTokenizerDownloader::new())),
     );
 
     match cmd {
@@ -5072,7 +5085,7 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
                 return serde_json::to_string_pretty(&rep)
                     .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
             }
-            Ok(format!(
+            let mut out = format!(
                 "✅ Model downloaded to instance '{}' library\n   \
                  • File:      {}\n   \
                  • Bytes:     {}\n   \
@@ -5091,7 +5104,14 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
                     "clearnet"
                 },
                 rep.registered_as.as_deref().unwrap_or("(not registered)"),
-            ))
+            );
+            if let Some(dir) = &rep.tokenizer_dir {
+                out.push_str(&format!("\n   • Tokenizer: {dir}"));
+            }
+            if let Some(warn) = &rep.tokenizer_warning {
+                out.push_str(&format!("\n   ⚠️  {warn}"));
+            }
+            Ok(out)
         }
         M::Import {
             instance,

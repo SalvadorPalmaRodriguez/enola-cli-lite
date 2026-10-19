@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.6 | **Updated:** 2026-10-19
+> **Version:** 1.8 | **Updated:** 2026-10-19
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -67,7 +67,7 @@ enola-cli ask "question" --provider openai [--model <M>] [--accept-risks] [--tor
 enola-cli ai finetune prepare <FILE.jsonl> [--format <F>] [--out <DIR>] [--val-ratio <N>]
 enola-cli ai finetune validate <FILE.jsonl> [--base-model <M>]
 sudo enola-cli ai finetune start <NAME> --dataset <FILE.jsonl> [--base-model <M>]
-                                [--low-memory] [--no-register] --force
+                                [--tokenizer <ORG/REPO>] [--low-memory] [--no-register] --force
 sudo enola-cli ai finetune status <NAME>
 enola-cli ai finetune wizard
 ```
@@ -122,6 +122,19 @@ The LoRA script (`train_lora.py` with transformers+peft) is **embedded** in the
 binary (`include_str!`) and deployed to the private dir
 `/srv/enola-ai/<n>/finetune/<job>/scripts/` — never to predictable `/tmp` paths
 (SEC-001/N-01). Jobs are registered in `finetune/jobs.json` (`0640`).
+
+**Base model and tokenizer (GGUF):** `start` resolves the base model against
+the instance GGUF library (`ai model`). By default it uses the instance model
+(`inst.model`) matched by the index `name` field; `--base-model` accepts that
+`name` or a `.gguf` file from the library. If the model is not in the library,
+`start` fails with a clear error ("importa primero un GGUF de ese modelo").
+Before launching, the GGUF header is pre-validated (`general.architecture` +
+`general.file_type`): an unsupported architecture or quantization aborts listing
+the supported quantizations. The GGUF and tokenizer are mounted as volumes
+(`/model.gguf` and `/tokenizer`) and the script loads the model natively from
+the GGUF (`gguf_file`) and the tokenizer from the mounted directory.
+`--tokenizer <org/repo>` overrides the model's tokenizer repo; if it is not
+downloaded yet, it is fetched on the host on demand.
 
 > **⚠️ Real training requirements:** `ai finetune start` needs the
 > `enola-finetune:latest` image (~8 GB: PyTorch CUDA + transformers + peft +
@@ -189,6 +202,15 @@ traversal and models are registered in Ollama with a `FROM` Modelfile, so
 (or `[ai].use_tor_for_downloads = true` / `ENOLA_AI_USE_TOR_DOWNLOADS`) to force
 the `socks5h://` proxy from `[http].tor_socks_proxy`; the CLI always reports
 the egress route.
+
+**HF tokenizer (offline fine-tuning):** when downloading from a HuggingFace
+repository (`org/repo`), `ai model download` records the source repository
+(`hf_repo`) in `index.json` and also downloads the tokenizer files on the host
+to `/srv/enola-ai/<name>/ollama/models-gguf/tokenizer/<org__repo>/`. That way
+`ai finetune start` can mount them as a volume without the (networkless)
+training container downloading anything. If the tokenizer download fails, the
+command warns but the GGUF download still counts as successful; you can supply
+another tokenizer with `ai finetune start --tokenizer <org/repo>`.
 
 ---
 

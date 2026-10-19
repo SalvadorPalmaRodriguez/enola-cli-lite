@@ -9,8 +9,11 @@ use crate::domain::ai_finetune::{
     finetune_warnings, records_to_jsonl, split_dataset, validate_dataset, DatasetFormat,
     FinetuneJob, FinetuneJobStatus,
 };
+use crate::domain::ai_model;
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::ai::AiAdapterPort;
+use crate::ports::ai::{
+    AiAdapterPort, AiModelLibraryPort, TokenizerDownloadPort, TokenizerDownloadRequest,
+};
 use crate::ports::container::{ContainerConfig, ContainerPort};
 use crate::ports::finetune::AiFinetuneJobsPort;
 use crate::ports::hardware::HardwareProbePort;
@@ -78,17 +81,24 @@ pub struct ManageFinetune {
     hardware: Arc<dyn HardwareProbePort + Send + Sync>,
     containers: Arc<dyn ContainerPort + Send + Sync>,
     jobs: Arc<dyn AiFinetuneJobsPort + Send + Sync>,
+    /// Biblioteca de modelos GGUF: resuelve el modelo base y el tokenizer.
+    library: Arc<dyn AiModelLibraryPort + Send + Sync>,
+    /// Descarga bajo demanda del tokenizer HF (`--tokenizer`), host-side.
+    tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
     /// Directorio base de instancias (`/srv/enola-ai`) — datasets y scripts.
     base_dir: PathBuf,
 }
 
 impl ManageFinetune {
     /// Construye el caso de uso con los puertos inyectados.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instances: Arc<dyn AiAdapterPort + Send + Sync>,
         hardware: Arc<dyn HardwareProbePort + Send + Sync>,
         containers: Arc<dyn ContainerPort + Send + Sync>,
         jobs: Arc<dyn AiFinetuneJobsPort + Send + Sync>,
+        library: Arc<dyn AiModelLibraryPort + Send + Sync>,
+        tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
         base_dir: PathBuf,
     ) -> Self {
         Self {
@@ -96,6 +106,8 @@ impl ManageFinetune {
             hardware,
             containers,
             jobs,
+            library,
+            tokenizer,
             base_dir,
         }
     }
@@ -255,6 +267,7 @@ impl ManageFinetune {
         instance: &str,
         dataset: &str,
         base_model: Option<&str>,
+        tokenizer: Option<&str>,
         low_memory: bool,
         no_register: bool,
         force: bool,
@@ -266,13 +279,9 @@ impl ManageFinetune {
         }
         validate_ai_instance_name(instance)?;
         let inst = self.instances.get_instance(instance).await?;
-        let base_model = base_model
-            .map(str::trim)
-            .filter(|m| !m.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| inst.model.clone());
 
-        // El dataset debe estar en formato ChatML preparado.
+        // El dataset debe estar en formato ChatML preparado (fail-fast barato:
+        // antes de resolver el modelo o descargar tokenizer).
         let content = read_limited(dataset)?;
         let (stats, _records) = validate_dataset(&content)?;
         if stats.format != DatasetFormat::ChatML {
@@ -281,6 +290,75 @@ impl ManageFinetune {
                 stats.format
             )));
         }
+
+        // S4: resolver el modelo base contra la biblioteca de GGUF de la
+        // instancia. `--base-model` acepta `name` o `.gguf`; por defecto se
+        // usa `inst.model` emparejado por `name`.
+        let models = self.library.list_library_models(instance).await?;
+        let resolved = ai_model::resolve_base_model(&models, base_model, &inst.model)?;
+
+        // Pre-validación con el HEADER GGUF real: arquitectura y cuantización
+        // deben ser cargables por `transformers` (gguf_file). El contenedor no
+        // tiene red, así que esto evita lanzar un job que fallará al cargar.
+        let gguf_meta = self
+            .library
+            .read_gguf_metadata(instance, &resolved.filename)
+            .await?;
+        if !ai_model::gguf_load_supported(gguf_meta.architecture.as_deref(), gguf_meta.file_type) {
+            return Err(EnolaError::ValidationError(format!(
+                "El GGUF '{}' no se puede cargar para fine-tuning: arquitectura '{}' o cuantización '{}' no soportada — cuantizaciones soportadas: {}",
+                resolved.filename,
+                gguf_meta.architecture.as_deref().unwrap_or("(desconocida)"),
+                gguf_meta
+                    .file_type
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "(desconocida)".to_string()),
+                ai_model::GGUF_SUPPORTED_QUANT_HINT,
+            )));
+        }
+
+        // Tokenizer HF (S6): `--tokenizer <org/repo>` sobreescribe el repo del
+        // modelo base. Debe estar descargado en el host para montarlo en el
+        // contenedor sin red; si falta, se descarga bajo demanda (host-side).
+        let repo = match tokenizer.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(repo) => Some(ai_model::validate_hf_repo(repo)?),
+            None => resolved.hf_repo.clone(),
+        };
+        let tokenizer_dir = match repo {
+            Some(repo) => {
+                let dir = self.library.resolve_tokenizer_dir(instance, &repo).await?;
+                if !dir.join("tokenizer_config.json").is_file() {
+                    let downloader = self.tokenizer.as_ref().ok_or_else(|| {
+                        EnolaError::ValidationError(format!(
+                            "El tokenizer de '{repo}' no está descargado y la descarga no está disponible — descárgalo con `ai model download {instance} {repo}`"
+                        ))
+                    })?;
+                    downloader
+                        .download_tokenizer(TokenizerDownloadRequest {
+                            repo: repo.clone(),
+                            destination: dir.clone(),
+                            use_tor: false,
+                        })
+                        .await
+                        .map_err(|e| {
+                            EnolaError::ValidationError(format!(
+                                "No se pudo descargar el tokenizer de '{repo}': {e}"
+                            ))
+                        })?;
+                }
+                dir
+            }
+            None => {
+                return Err(EnolaError::ValidationError(format!(
+                    "El modelo '{}' no tiene repositorio HuggingFace asociado (sin tokenizer) — indica uno con --tokenizer <org/repo>",
+                    resolved.name
+                )));
+            }
+        };
+        // Ruta host del GGUF para montarlo como volumen (single-file bind).
+        let gguf_host =
+            ai_model::resolve_library_path(&self.base_dir, instance, &resolved.filename)?;
+        let base_model = resolved.name.clone();
 
         let job_id = format!(
             "ft{}",
@@ -326,8 +404,10 @@ impl ManageFinetune {
             "/data/train.jsonl".to_string(),
             "--out".to_string(),
             "/out".to_string(),
-            "--base-model".to_string(),
-            base_model.clone(),
+            "--gguf".to_string(),
+            "/model.gguf".to_string(),
+            "--tokenizer".to_string(),
+            "/tokenizer".to_string(),
         ];
         if low_memory {
             args.push("--low-memory".to_string());
@@ -339,6 +419,15 @@ impl ManageFinetune {
             "/opt/finetune".to_string(),
         );
         volumes.insert(out_dir.to_string_lossy().to_string(), "/out".to_string());
+        // GGUF (single-file bind) + tokenizer (directorio) montados read-only de facto.
+        volumes.insert(
+            gguf_host.to_string_lossy().to_string(),
+            "/model.gguf".to_string(),
+        );
+        volumes.insert(
+            tokenizer_dir.to_string_lossy().to_string(),
+            "/tokenizer".to_string(),
+        );
 
         let mut gpu = false;
         if let Ok(specs) = self.hardware.probe().await {
@@ -424,7 +513,11 @@ fn read_limited(path: &str) -> Result<String> {
 mod tests {
     use super::*;
     use crate::domain::ai::{AiInstance, AiInstanceStatus};
-    use crate::ports::ai::MockAiAdapterPort;
+    use crate::domain::ai_model::{AiModel, AiModelStatus, GgufMetadata, ModelSource};
+    use crate::ports::ai::{
+        MockAiAdapterPort, MockAiModelLibraryPort, MockTokenizerDownloadPort,
+        TokenizerDownloadOutcome,
+    };
     use crate::ports::container::MockContainerPort;
     use crate::ports::finetune::MockAiFinetuneJobsPort;
     use crate::ports::hardware::{GpuInfo, MockHardwareProbePort, SystemHardwareSpecs};
@@ -441,6 +534,48 @@ mod tests {
             gpu_enabled: true,
             onion_address: None,
         }
+    }
+
+    fn lib_model(name: &str, filename: &str, repo: Option<&str>) -> AiModel {
+        AiModel {
+            name: name.to_string(),
+            filename: filename.to_string(),
+            size_bytes: 0,
+            quantization: "Q4_K_M".into(),
+            family: "Llama 3".into(),
+            status: AiModelStatus::Ready,
+            source: ModelSource::Downloaded,
+            sha256: None,
+            hf_repo: repo.map(str::to_string),
+        }
+    }
+
+    /// Mock de biblioteca con un GGUF `llama3.1:8b` → `m.gguf` (repo `org/repo`)
+    /// y header GGUF soportado (llama + Q4_K = file_type 12).
+    fn library_with_base_model(base: &Path) -> MockAiModelLibraryPort {
+        let base = base.to_path_buf();
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_list_library_models()
+            .returning(|_| Ok(vec![lib_model("llama3.1:8b", "m.gguf", Some("org/repo"))]));
+        lib.expect_read_gguf_metadata()
+            .withf(|i, f| i == "dev" && f == "m.gguf")
+            .returning(|_, _| {
+                Ok(GgufMetadata {
+                    version: 3,
+                    tensor_count: 1,
+                    metadata_kv_count: 2,
+                    architecture: Some("llama".into()),
+                    file_type: Some(12),
+                })
+            });
+        lib.expect_resolve_tokenizer_dir()
+            .withf(|i, r| i == "dev" && r == "org/repo")
+            .returning(move |_, r| {
+                Ok(base
+                    .join("dev/ollama/models-gguf/tokenizer")
+                    .join(r.replace('/', "__")))
+            });
+        lib
     }
 
     fn specs_gpu() -> SystemHardwareSpecs {
@@ -483,6 +618,8 @@ mod tests {
             Arc::new(MockHardwareProbePort::new()),
             Arc::new(MockContainerPort::new()),
             Arc::new(MockAiFinetuneJobsPort::new()),
+            Arc::new(MockAiModelLibraryPort::new()),
+            None,
             dir.path().to_path_buf(),
         );
         let rep = svc
@@ -514,6 +651,8 @@ mod tests {
             Arc::new(hw),
             Arc::new(MockContainerPort::new()),
             Arc::new(MockAiFinetuneJobsPort::new()),
+            Arc::new(MockAiModelLibraryPort::new()),
+            None,
             dir.path().to_path_buf(),
         );
         let rep = svc
@@ -534,6 +673,12 @@ mod tests {
             "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
         )
         .unwrap();
+        // El tokenizer debe existir en el host (S3) para montarse.
+        let tok_dir = dir
+            .path()
+            .join("dev/ollama/models-gguf/tokenizer/org__repo");
+        std::fs::create_dir_all(&tok_dir).unwrap();
+        std::fs::write(tok_dir.join("tokenizer_config.json"), "{}").unwrap();
 
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
@@ -542,10 +687,21 @@ mod tests {
         let mut cont = MockContainerPort::new();
         cont.expect_create_container()
             .withf(|cfg: &ContainerConfig| {
+                let args = cfg.command.as_ref().unwrap();
+                let has_gguf_arg = args
+                    .windows(2)
+                    .any(|w| w[0] == "--gguf" && w[1] == "/model.gguf");
+                let has_tokenizer_arg = args
+                    .windows(2)
+                    .any(|w| w[0] == "--tokenizer" && w[1] == "/tokenizer");
                 cfg.name.starts_with("enola-ai-dev-finetune-")
                     && cfg.gpu_support
                     && cfg.memory_limit == Some(TRAIN_MEMORY_BYTES)
                     && cfg.read_only_rootfs
+                    && has_gguf_arg
+                    && has_tokenizer_arg
+                    && cfg.volumes.values().any(|v| v == "/model.gguf")
+                    && cfg.volumes.values().any(|v| v == "/tokenizer")
             })
             .returning(|cfg| Ok(cfg.name.clone()));
         cont.expect_start_container().returning(|_| Ok(()));
@@ -557,19 +713,252 @@ mod tests {
             Arc::new(hw),
             Arc::new(cont),
             Arc::new(jobs),
+            Arc::new(library_with_base_model(dir.path())),
+            None,
             dir.path().to_path_buf(),
         );
         // Sin --force → rechazo.
         assert!(svc
-            .start("dev", ds.to_str().unwrap(), None, false, false, false)
+            .start("dev", ds.to_str().unwrap(), None, None, false, false, false)
             .await
             .is_err());
         let job = svc
-            .start("dev", ds.to_str().unwrap(), None, false, false, true)
+            .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
             .await
             .unwrap();
         assert_eq!(job.status, FinetuneJobStatus::Running);
         assert!(job.container.contains("finetune"));
+        // El job registra el modelo base resuelto por `name` desde la biblioteca.
+        assert_eq!(job.base_model, "llama3.1:8b");
+    }
+
+    #[tokio::test]
+    async fn start_errors_when_base_model_unsupported_gguf() {
+        let dir = tempfile::tempdir().unwrap();
+        let ds = dir.path().join("train.jsonl");
+        std::fs::write(
+            &ds,
+            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+        )
+        .unwrap();
+        let tok_dir = dir
+            .path()
+            .join("dev/ollama/models-gguf/tokenizer/org__repo");
+        std::fs::create_dir_all(&tok_dir).unwrap();
+        std::fs::write(tok_dir.join("tokenizer_config.json"), "{}").unwrap();
+
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut hw = MockHardwareProbePort::new();
+        hw.expect_probe().returning(|| Ok(specs_gpu()));
+        let mut cont = MockContainerPort::new();
+        cont.expect_create_container().returning(|_| Ok("x".into()));
+        cont.expect_start_container().returning(|_| Ok(()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_add_job().returning(|_| Ok(()));
+
+        // Header GGUF con arquitectura no soportada (arch "falcon" no está en
+        // la lista de soportadas).
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_list_library_models()
+            .returning(|_| Ok(vec![lib_model("llama3.1:8b", "m.gguf", Some("org/repo"))]));
+        lib.expect_read_gguf_metadata().returning(|_, _| {
+            Ok(GgufMetadata {
+                version: 3,
+                tensor_count: 1,
+                metadata_kv_count: 2,
+                architecture: Some("falcon".into()),
+                file_type: Some(12),
+            })
+        });
+
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(hw),
+            Arc::new(cont),
+            Arc::new(jobs),
+            Arc::new(lib),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let err = svc
+            .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("no se puede cargar para fine-tuning"));
+        assert!(msg.contains(crate::domain::ai_model::GGUF_SUPPORTED_QUANT_HINT));
+    }
+
+    #[tokio::test]
+    async fn start_downloads_tokenizer_on_demand_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ds = dir.path().join("train.jsonl");
+        std::fs::write(
+            &ds,
+            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+        )
+        .unwrap();
+        // No creamos tokenizer_config.json → dispara la descarga bajo demanda.
+
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut hw = MockHardwareProbePort::new();
+        hw.expect_probe().returning(|| Ok(specs_gpu()));
+        let mut cont = MockContainerPort::new();
+        cont.expect_create_container().returning(|_| Ok("x".into()));
+        cont.expect_start_container().returning(|_| Ok(()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_add_job().returning(|_| Ok(()));
+
+        let mut tok = MockTokenizerDownloadPort::new();
+        tok.expect_download_tokenizer()
+            .withf(|r| r.repo == "org/repo" && !r.use_tor)
+            .times(1)
+            .returning(|r| {
+                Ok(TokenizerDownloadOutcome {
+                    destination: r.destination,
+                    files_downloaded: 1,
+                })
+            });
+
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(hw),
+            Arc::new(cont),
+            Arc::new(jobs),
+            Arc::new(library_with_base_model(dir.path())),
+            Some(Arc::new(tok)),
+            dir.path().to_path_buf(),
+        );
+        let job = svc
+            .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
+            .await
+            .unwrap();
+        assert_eq!(job.status, FinetuneJobStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn start_errors_without_tokenizer_repo_or_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let ds = dir.path().join("train.jsonl");
+        std::fs::write(
+            &ds,
+            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+        )
+        .unwrap();
+
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut hw = MockHardwareProbePort::new();
+        hw.expect_probe().returning(|| Ok(specs_gpu()));
+        let mut cont = MockContainerPort::new();
+        cont.expect_create_container().returning(|_| Ok("x".into()));
+        cont.expect_start_container().returning(|_| Ok(()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_add_job().returning(|_| Ok(()));
+
+        // Modelo importado sin repo HF (hf_repo = None) y sin --tokenizer.
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_list_library_models()
+            .returning(|_| Ok(vec![lib_model("llama3.1:8b", "m.gguf", None)]));
+        lib.expect_read_gguf_metadata().returning(|_, _| {
+            Ok(GgufMetadata {
+                version: 3,
+                tensor_count: 1,
+                metadata_kv_count: 2,
+                architecture: Some("llama".into()),
+                file_type: Some(12),
+            })
+        });
+
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(hw),
+            Arc::new(cont),
+            Arc::new(jobs),
+            Arc::new(lib),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let err = svc
+            .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("--tokenizer"));
+    }
+
+    #[tokio::test]
+    async fn start_tokenizer_override_repo_takes_precedence() {
+        let dir = tempfile::tempdir().unwrap();
+        let ds = dir.path().join("train.jsonl");
+        std::fs::write(
+            &ds,
+            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+        )
+        .unwrap();
+
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut hw = MockHardwareProbePort::new();
+        hw.expect_probe().returning(|| Ok(specs_gpu()));
+        let mut cont = MockContainerPort::new();
+        cont.expect_create_container().returning(|_| Ok("x".into()));
+        cont.expect_start_container().returning(|_| Ok(()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_add_job().returning(|_| Ok(()));
+
+        let base = dir.path().to_path_buf();
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_list_library_models()
+            .returning(|_| Ok(vec![lib_model("llama3.1:8b", "m.gguf", Some("org/repo"))]));
+        lib.expect_read_gguf_metadata().returning(|_, _| {
+            Ok(GgufMetadata {
+                version: 3,
+                tensor_count: 1,
+                metadata_kv_count: 2,
+                architecture: Some("llama".into()),
+                file_type: Some(12),
+            })
+        });
+        lib.expect_resolve_tokenizer_dir()
+            .withf(|i, r| i == "dev" && r == "other/repo")
+            .times(1)
+            .returning(move |_, r| Ok(base.join("tokenizer").join(r.replace('/', "__"))));
+
+        let mut tok = MockTokenizerDownloadPort::new();
+        tok.expect_download_tokenizer()
+            .withf(|r| r.repo == "other/repo")
+            .times(1)
+            .returning(|r| {
+                Ok(TokenizerDownloadOutcome {
+                    destination: r.destination,
+                    files_downloaded: 1,
+                })
+            });
+
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(hw),
+            Arc::new(cont),
+            Arc::new(jobs),
+            Arc::new(lib),
+            Some(Arc::new(tok)),
+            dir.path().to_path_buf(),
+        );
+        let job = svc
+            .start(
+                "dev",
+                ds.to_str().unwrap(),
+                None,
+                Some("other/repo"),
+                false,
+                false,
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(job.status, FinetuneJobStatus::Running);
     }
 
     #[tokio::test]
@@ -586,6 +975,8 @@ mod tests {
             Arc::new(MockHardwareProbePort::new()),
             Arc::new(MockContainerPort::new()),
             Arc::new(MockAiFinetuneJobsPort::new()),
+            Arc::new(MockAiModelLibraryPort::new()),
+            None,
             dir.path().to_path_buf(),
         );
         assert!(svc.status("inexistente-xyz").await.is_err());
@@ -603,6 +994,8 @@ mod tests {
             Arc::new(MockHardwareProbePort::new()),
             Arc::new(MockContainerPort::new()),
             Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            None,
             dir.path().to_path_buf(),
         );
         assert!(svc.status("dev").await.is_ok());
