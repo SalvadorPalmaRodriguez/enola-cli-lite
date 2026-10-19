@@ -56,6 +56,10 @@ def main() -> int:
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
+    # El rootfs es read-only: TMPDIR apunta a un subdirectorio del volumen /out.
+    tmpdir = os.environ.get("TMPDIR")
+    if tmpdir:
+        os.makedirs(tmpdir, exist_ok=True)
     train_rows = load_jsonl(args.train)
     if not train_rows:
         fail("dataset de entrenamiento vacío")
@@ -86,7 +90,12 @@ def main() -> int:
 
     def row_to_example(rec):
         enc = tokenizer(to_text(rec), truncation=True, max_length=args.max_len)
-        return {"input_ids": enc["input_ids"], "attention_mask": enc["attention_mask"]}
+        return {
+            "input_ids": enc["input_ids"],
+            "attention_mask": enc["attention_mask"],
+            # Sin labels el Trainer no puede calcular la loss (causal LM).
+            "labels": enc["input_ids"],
+        }
 
     train_ds = Dataset.from_list([row_to_example(r) for r in train_rows])
     eval_ds = (
@@ -94,7 +103,7 @@ def main() -> int:
     )
 
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    model = AutoModelForCausalLM.from_pretrained(args.base_model, torch_dtype=dtype)
+    model = AutoModelForCausalLM.from_pretrained(args.base_model, dtype=dtype)
     lora = LoraConfig(
         r=8 if args.low_memory else 16,
         lora_alpha=16,

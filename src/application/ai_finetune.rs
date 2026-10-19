@@ -294,7 +294,11 @@ impl ManageFinetune {
         let data_dir = ft_dir.join("data");
         let scripts_dir = ft_dir.join("scripts");
         let out_dir = ft_dir.join("out");
-        for d in [&data_dir, &scripts_dir, &out_dir] {
+        // El contenedor monta el rootfs en read-only (SEC-019) y solo escribe
+        // en /out: /tmp y la caché HF van a subdirectorios de ese volumen.
+        let tmp_dir = out_dir.join("tmp");
+        let hf_home = out_dir.join(".hf");
+        for d in [&data_dir, &scripts_dir, &out_dir, &tmp_dir, &hf_home] {
             std::fs::create_dir_all(d).map_err(|e| {
                 EnolaError::InfrastructureError(format!("mkdir '{}': {e}", d.display()))
             })?;
@@ -308,6 +312,13 @@ impl ManageFinetune {
 
         let mut env = HashMap::new();
         env.insert("LOW_MEMORY".into(), low_memory.to_string());
+        // El rootfs es read-only: directorios de escritura dentro del volumen /out.
+        env.insert("TMPDIR".into(), "/out/tmp".to_string());
+        env.insert("HF_HOME".into(), "/out/.hf".to_string());
+        // Sin red (`network: None`): fallar rápido si se pide un modelo remoto,
+        // en vez de colgarse en un timeout de red.
+        env.insert("HF_HUB_OFFLINE".into(), "1".to_string());
+        env.insert("TRANSFORMERS_OFFLINE".into(), "1".to_string());
         let mut args = vec![
             "python3".to_string(),
             "/opt/finetune/train_lora.py".to_string(),
@@ -388,6 +399,9 @@ impl ManageFinetune {
     /// contenedor si sigue corriendo.
     pub async fn status(&self, instance: &str) -> Result<Vec<FinetuneJob>> {
         validate_ai_instance_name(instance)?;
+        // La instancia debe existir: `status` sobre una instancia inexistente
+        // es un error, no una lista vacía (verificado por test_finetune.sh #11).
+        self.instances.get_instance(instance).await?;
         self.jobs.list_jobs(instance).await
     }
 }
@@ -556,5 +570,41 @@ mod tests {
             .unwrap();
         assert_eq!(job.status, FinetuneJobStatus::Running);
         assert!(job.container.contains("finetune"));
+    }
+
+    #[tokio::test]
+    async fn status_errors_on_nonexistent_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|name| {
+            Err(EnolaError::ValidationError(format!(
+                "instancia '{name}' no existe"
+            )))
+        });
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(MockAiFinetuneJobsPort::new()),
+            dir.path().to_path_buf(),
+        );
+        assert!(svc.status("inexistente-xyz").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn status_lists_jobs_of_existing_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs().returning(|_| Ok(vec![]));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(jobs),
+            dir.path().to_path_buf(),
+        );
+        assert!(svc.status("dev").await.is_ok());
     }
 }

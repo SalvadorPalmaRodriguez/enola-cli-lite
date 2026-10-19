@@ -90,6 +90,10 @@ pub struct AiModel {
     pub source: ModelSource,
     /// SHA-256 registrado en la descarga/importación (si se verificó).
     pub sha256: Option<String>,
+    /// Repositorio HuggingFace (`org/repo`) de origen, cuando se conoce.
+    /// Se usa para recuperar el tokenizer HF del fine-tuning offline.
+    #[serde(default)]
+    pub hf_repo: Option<String>,
 }
 
 /// Parsea el header GGUF de `bytes` (magic + version + contadores v2/v3).
@@ -271,6 +275,23 @@ pub fn parse_filename_heuristics(filename: &str) -> (String, String) {
     (family.to_string(), quant.to_string())
 }
 
+/// Arquitecturas cuya carga GGUF nativa está soportada por `transformers`
+/// (vía `AutoModelForCausalLM.from_pretrained(..., gguf_file=...)`).
+/// Mapeadas desde la `family` inferida por `parse_filename_heuristics`.
+const GGUF_SUPPORTED_FAMILIES: &[&str] = &["Llama 3", "Mistral", "Gemma", "Qwen", "Phi 3"];
+
+/// Cuantizaciones que `transformers` puede descuantizar al cargar un GGUF.
+const GGUF_SUPPORTED_QUANTS: &[&str] = &["F16", "F32", "Q4_0", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"];
+
+/// Pre-validación de `ai finetune start`: ¿puede `transformers` cargar este
+/// GGUF de forma nativa (`gguf_file`) con la `family` y `quantization` dadas?
+///
+/// El contenedor de entrenamiento no tiene red, así que esta comprobación
+/// evita lanzar un job que fallará al descuantizar/mapear un GGUF no soportado.
+pub fn gguf_load_supported(family: &str, quantization: &str) -> bool {
+    GGUF_SUPPORTED_FAMILIES.contains(&family) && GGUF_SUPPORTED_QUANTS.contains(&quantization)
+}
+
 /// Resultado de resolver la fuente de una descarga: `(url, filename)`.
 pub struct ResolvedDownload {
     /// URL final de descarga.
@@ -366,6 +387,25 @@ mod tests {
         let mut b = gguf_bytes(3, 1, 0);
         b[0] = b'X';
         assert!(parse_gguf_header(&b).is_err());
+    }
+
+    // ── gguf_load_supported ──
+
+    #[test]
+    fn gguf_load_supported_accepts_common_models() {
+        assert!(gguf_load_supported("Llama 3", "Q4_K_M"));
+        assert!(gguf_load_supported("Mistral", "Q8_0"));
+        assert!(gguf_load_supported("Gemma", "F16"));
+        assert!(gguf_load_supported("Qwen", "Q4_0"));
+        assert!(gguf_load_supported("Phi 3", "Q5_K_M"));
+    }
+
+    #[test]
+    fn gguf_load_supported_rejects_unknown_or_unsupported() {
+        assert!(!gguf_load_supported("Unknown", "Q4_K_M"));
+        assert!(!gguf_load_supported("Llama 3", "Unknown"));
+        assert!(!gguf_load_supported("Llama 3", "Q2_K"));
+        assert!(!gguf_load_supported("Falcon", "Q8_0"));
     }
 
     #[test]

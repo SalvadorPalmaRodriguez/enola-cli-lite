@@ -1,6 +1,15 @@
 // Fase 11 — Casos de uso de `ai model` (biblioteca GGUF + registro Ollama).
 //
 // Hexagonal: solo traits de `crate::ports::*` y tipos de `crate::domain::*`.
+//
+// Dos vías de instalación de modelos conviven por instancia:
+// - `ai model download|import|add` (esta capa): fichero `.gguf` en la
+//   biblioteca `<base>/<instance>/ollama/models-gguf/` + registro vía
+//   `/api/create` (Modelfile FROM), o `/api/pull` para tags del registro.
+//   Proveniencia completa: fichero auditable + SHA-256 registrado.
+// - Pull desde el panel de Open WebUI (Admin → Models): NO atraviesa esta
+//   capa. El modelo queda solo en el store interno de Ollama y `list()` lo
+//   muestra bajo `registered`, nunca en `library` (sin SHA-256 ni origen).
 
 use crate::domain::ai_model::{self, AiModel};
 use crate::domain::error::{EnolaError, Result};
@@ -299,6 +308,7 @@ impl ManageAiModels {
                     status: ai_model::AiModelStatus::Ready,
                     source: ai_model::ModelSource::Downloaded,
                     sha256: None,
+                    hf_repo: None,
                 }
             });
         debug_assert!(meta.tensor_count <= ai_model::MAX_GGUF_COUNT);
@@ -576,6 +586,7 @@ mod tests {
                 status: ai_model::AiModelStatus::Ready,
                 source: ai_model::ModelSource::Imported,
                 sha256: Some("x".into()),
+                hf_repo: None,
             }])
         });
         let s = svc(

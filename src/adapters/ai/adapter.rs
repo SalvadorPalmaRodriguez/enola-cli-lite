@@ -666,6 +666,9 @@ struct ModelIndexEntry {
     sha256: Option<String>,
     #[serde(default)]
     source: Option<String>,
+    /// Repositorio HF (`org/repo`) de origen, para recuperar el tokenizer.
+    #[serde(default)]
+    hf_repo: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -715,6 +718,7 @@ impl EnolaAiAdapter {
         filename: &str,
         sha256: Option<String>,
         source: &str,
+        hf_repo: Option<String>,
     ) -> Result<()> {
         let mut idx = self.read_index(instance);
         idx.files.insert(
@@ -722,6 +726,7 @@ impl EnolaAiAdapter {
             ModelIndexEntry {
                 sha256,
                 source: Some(source.to_string()),
+                hf_repo,
             },
         );
         self.write_index(instance, &idx)
@@ -792,6 +797,7 @@ impl EnolaAiAdapter {
                 _ => ModelSource::Downloaded,
             },
             sha256: entry.and_then(|e| e.sha256.clone()),
+            hf_repo: entry.and_then(|e| e.hf_repo.clone()),
         })
     }
 }
@@ -925,7 +931,7 @@ impl crate::ports::ai::AiModelLibraryPort for EnolaAiAdapter {
             )?;
         }
         let sha256 = format!("{:x}", hasher.finalize());
-        self.index_entry_update(instance, &filename, Some(sha256), "imported")?;
+        self.index_entry_update(instance, &filename, Some(sha256), "imported", None)?;
         let index = self.read_index(instance);
         self.model_from_path(instance, &dest, &index)
     }

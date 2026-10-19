@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.4 | **Updated:** 2026-10-18
+> **Version:** 1.6 | **Updated:** 2026-10-19
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -123,6 +123,14 @@ binary (`include_str!`) and deployed to the private dir
 `/srv/enola-ai/<n>/finetune/<job>/scripts/` — never to predictable `/tmp` paths
 (SEC-001/N-01). Jobs are registered in `finetune/jobs.json` (`0640`).
 
+> **⚠️ Real training requirements:** `ai finetune start` needs the
+> `enola-finetune:latest` image (~8 GB: PyTorch CUDA + transformers + peft +
+> datasets) built/available locally, and an NVIDIA GPU with ≥10 GB free VRAM
+> (or `--low-memory`). The rest of the pipeline (`prepare`, `validate`,
+> `status`, the `--force`/ChatML gates) works without it. Real end-to-end
+> training verification is manual and slow — see
+> `docs/dev/test/test_finetune.sh` (excluded from the fast suite by design).
+
 ---
 
 ## External BYOK providers (`ai provider` / `ask --provider`)
@@ -141,6 +149,12 @@ Cloud providers (`openai`, `anthropic`, `grok`, `groq`, `openrouter`) are
   or `[ai].tor_proxy = true` forces SOCKS5h (output states the route).
 - **`ask --provider` is single-shot without tools**: the cloud cannot run
   `enola-cli` commands (minimal leak surface by design).
+
+> **⚠️ Real verification:** actual provider calls require the user's own API
+> key (BYOK by design — enola-cli ships no credentials). What IS covered by
+> tests and E2E is the **safe behavior without a key**: `ai provider test` /
+> `ask --provider` fail closed without consent (no TTY + no `--accept-risks`),
+> and the key never appears in argv, output, logs or `config show`.
 
 ---
 
@@ -175,6 +189,33 @@ traversal and models are registered in Ollama with a `FROM` Modelfile, so
 (or `[ai].use_tor_for_downloads = true` / `ENOLA_AI_USE_TOR_DOWNLOADS`) to force
 the `socks5h://` proxy from `[http].tor_socks_proxy`; the CLI always reports
 the egress route.
+
+---
+
+## Models: `ai model` vs the Open WebUI panel
+
+Each instance runs the official Open WebUI image, which ships its own model
+manager (Admin → Settings → Models → *Pull a model from Ollama.com*) — the
+visual equivalent of `ollama pull`. Both paths coexist, but they are **not
+equivalent**:
+
+| Path | Sources | Destination | Traceability in enola |
+|------|---------|-------------|----------------------|
+| Open WebUI panel (pull) | Ollama.com registry only | Ollama's internal store (`/root/.ollama/models`) | Only shown under `registered` in `ai model list` |
+| `ai model download` / `import` / `add` | HuggingFace (`org/repo` + `--file`), direct URL, local `.gguf`, or the registry via `add` | Instance `models-gguf/` library + `/api/create` registration | `library` + `registered`: file, size, status and SHA-256 |
+
+> **⚠️ Important nuance:** a model pulled from the Open WebUI panel
+> **bypasses enola's library**. It works with `ask --instance` and shows up
+> under `registered` in `ai model list`, but it is **not** in `library`: no
+> file in `models-gguf/`, no recorded SHA-256, no documented origin. For full
+> provenance always use `ai model download`/`import`/`add`.
+
+The `ai model` path adds what the panel cannot offer: downloading any `.gguf`
+from HuggingFace or a direct URL (not just models published on ollama.com),
+`--sha256` verification, GGUF header validation after download, `Range`
+resume, optional Tor egress (`--tor`) and `--name` aliases. Each operation is
+also a scriptable, auditable command (exposed via MCP), rather than a manual
+click.
 
 ---
 
