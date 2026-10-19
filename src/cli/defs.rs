@@ -3079,6 +3079,23 @@ pub enum AiFinetuneCommands {
         instance: String,
     },
 
+    /// Register the resulting model of a completed job into the instance
+    /// library and Ollama (`/api/create`). Materializes the GGUF that the
+    /// training container exported to `/out` (unless `start` was given
+    /// `--no-register`)
+    ///
+    /// Example:
+    ///   sudo enola-cli ai finetune register dev ft48005
+    Register {
+        /// AI instance name
+        #[arg(value_name = "NAME")]
+        instance: String,
+
+        /// Fine-tuning job id (see `ai finetune status`)
+        #[arg(value_name = "JOB_ID")]
+        job_id: String,
+    },
+
     /// Interactive wizard guiding through dataset selection, model choice
     /// and training parameters (TTY only)
     ///

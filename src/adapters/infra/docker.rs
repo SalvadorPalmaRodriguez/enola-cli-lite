@@ -406,6 +406,20 @@ impl ContainerPort for BollardDockerAdapter {
                 "started_at".to_string(),
                 state.started_at.unwrap_or_default(),
             );
+            if let Some(code) = state.exit_code {
+                info.insert("exit_code".to_string(), code.to_string());
+            }
+            if let Some(finished) = state.finished_at {
+                info.insert("finished_at".to_string(), finished);
+            }
+            if let Some(error) = state.error {
+                if !error.is_empty() {
+                    info.insert("error".to_string(), error);
+                }
+            }
+            if let Some(oom) = state.oom_killed {
+                info.insert("oom_killed".to_string(), oom.to_string());
+            }
         }
         info.insert("name".to_string(), inspect.name.unwrap_or_default());
 

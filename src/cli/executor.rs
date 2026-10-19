@@ -4672,6 +4672,7 @@ async fn execute_ai_finetune(
                 ),
                 Arc::new(FsFinetuneJobsStore::new(base.clone())),
                 adapter.clone(),
+                adapter.clone(),
                 None,
                 base,
             );
@@ -4718,6 +4719,7 @@ async fn execute_ai_finetune(
                         .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
                 ),
                 Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                adapter.clone(),
                 adapter.clone(),
                 None,
                 base,
@@ -4767,6 +4769,7 @@ async fn execute_ai_finetune(
                 ),
                 Arc::new(FsFinetuneJobsStore::new(base.clone())),
                 adapter.clone(),
+                adapter.clone(),
                 Some(Arc::new(ReqwestTokenizerDownloader::new())),
                 base,
             );
@@ -4803,6 +4806,7 @@ async fn execute_ai_finetune(
                 ),
                 Arc::new(FsFinetuneJobsStore::new(base.clone())),
                 adapter.clone(),
+                adapter.clone(),
                 None,
                 base,
             );
@@ -4833,6 +4837,35 @@ async fn execute_ai_finetune(
                 }
             }
             Ok(out)
+        }
+        F::Register { instance, job_id } => {
+            let adapter = build_ai_adapter()?;
+            let base = adapter.instance_dir("");
+            let svc = ManageFinetune::new(
+                adapter.clone(),
+                Arc::new(EnolaHardwareProbe::new()),
+                Arc::new(
+                    BollardDockerAdapter::new()
+                        .map_err(|e| CliError::Generic(format!("Docker unavailable: {e}")))?,
+                ),
+                Arc::new(FsFinetuneJobsStore::new(base.clone())),
+                adapter.clone(),
+                adapter.clone(),
+                None,
+                base,
+            );
+            let job = svc
+                .register(&instance, &job_id)
+                .await
+                .map_err(CliError::from)?;
+            if format == "json" {
+                return serde_json::to_string_pretty(&job)
+                    .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
+            }
+            let name = job.result_model.unwrap_or_else(|| "?".to_string());
+            Ok(format!(
+                "📦 Modelo '{name}' registrado en la biblioteca de '{instance}' (job {job_id})\n   Ya disponible en Ollama como `{name}`"
+            ))
         }
         F::Wizard => Err(CliError::Generic(
             "`ai finetune wizard` es interactivo (TTY) — no soportado en este contexto".to_string(),

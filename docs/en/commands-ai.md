@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.8 | **Updated:** 2026-10-19
+> **Version:** 1.10 | **Updated:** 2026-10-20
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -69,6 +69,7 @@ enola-cli ai finetune validate <FILE.jsonl> [--base-model <M>]
 sudo enola-cli ai finetune start <NAME> --dataset <FILE.jsonl> [--base-model <M>]
                                 [--tokenizer <ORG/REPO>] [--low-memory] [--no-register] --force
 sudo enola-cli ai finetune status <NAME>
+sudo enola-cli ai finetune register <NAME> <JOB_ID>
 enola-cli ai finetune wizard
 ```
 
@@ -105,7 +106,8 @@ enola-cli ai finetune wizard
 | `ai finetune prepare <F>` | `Mutating` | Validates a JSONL dataset (`alpaca\|chatml\|sharegpt\|text`, auto-detected), converts to canonical ChatML and writes `train.jsonl`/`val.jsonl` with deterministic split (`--val-ratio`). |
 | `ai finetune validate <F>` | `Mutating` | Pre-flight: schema + size + VRAM (`HardwareProbePort`) + base model — before spending compute hours. |
 | `ai finetune start <N> --dataset <F> --force` | `Destructive` | Launches the `enola-ai-<n>-finetune-<job>` container (`enola-finetune:latest`, 16 GiB, GPU if present, read-only rootfs, no ports/network) with the embedded LoRA script. Dataset must be ChatML. Requires `--force`. |
-| `ai finetune status <N>` | `ReadOnly` | Lists registered jobs for the instance (`finetune/jobs.json`). |
+| `ai finetune status <N>` | `ReadOnly` | Lists the instance jobs and reconciles `Running` ones with the real container exit (`Completed`/`Failed` + `finished_at`/`error` persisted to `finetune/jobs.json`). |
+| `ai finetune register <N> <JOB_ID>` | `Mutating` | Materializes the model of a `Completed` job: imports the exported `.gguf` into the instance library (SHA-256 + header) and registers it in Ollama (`/api/create`) as `<name>-ft`. |
 | `ai finetune wizard` | `Mutating` | Interactive TTY wizard (forbidden for `enola_run_command`). |
 
 ---
@@ -136,10 +138,24 @@ the GGUF (`gguf_file`) and the tokenizer from the mounted directory.
 `--tokenizer <org/repo>` overrides the model's tokenizer repo; if it is not
 downloaded yet, it is fetched on the host on demand.
 
+**Resulting model (GGUF export + registration):** on exit 0, the container
+merges the LoRA adapter into the base weights and exports an F16 GGUF to
+`/srv/enola-ai/<n>/finetune/<job>/out/<n>-ft-<job>.gguf` — unless `start` was
+given `--no-register`, in which case only the PEFT adapter is saved under
+`/out/adapter` (no merge, no conversion). The job becomes `Completed` (see
+`ai finetune status`), but the model is **not materialized automatically**: run
+`ai finetune register <n> <job>` to import it into the GGUF library (SHA-256 +
+validated header) and register it in Ollama under the name `<n>-ft`. Registration
+is an explicit step so that `status` stays `ReadOnly` (it must not mutate anything
+under the MCP server).
+
 > **⚠️ Real training requirements:** `ai finetune start` needs the
 > `enola-finetune:latest` image (~8 GB: PyTorch CUDA + transformers + peft +
-> datasets) built/available locally, and an NVIDIA GPU with ≥10 GB free VRAM
-> (or `--low-memory`). The rest of the pipeline (`prepare`, `validate`,
+> datasets) built/available locally — recipe at
+> `assets/finetune/Dockerfile` (`docker build -t enola-finetune:latest -f
+> assets/finetune/Dockerfile assets/finetune`; CPU by default, NVIDIA GPU via
+> `--build-arg TORCH_INDEX=.../cu124`) —, and an NVIDIA GPU with ≥10 GB free
+> VRAM (or `--low-memory`). The rest of the pipeline (`prepare`, `validate`,
 > `status`, the `--force`/ChatML gates) works without it. Real end-to-end
 > training verification is manual and slow — see
 > `docs/dev/test/test_finetune.sh` (excluded from the fast suite by design).

@@ -18,6 +18,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 
@@ -119,8 +120,10 @@ def main() -> int:
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     # El GGUF trae su propia arquitectura/config en el header: transformers lo
     # descuantiza a fp32 y reconstruye el modelo sin red (offline).
+    # `pretrained_model_name_or_path` debe ser el directorio que contiene el
+    # GGUF: una ruta a fichero se valida como repo_id y lanza HFValidationError.
     model = AutoModelForCausalLM.from_pretrained(
-        args.gguf,
+        os.path.dirname(args.gguf) or ".",
         gguf_file=args.gguf,
         dtype=dtype,
     )
@@ -151,6 +154,47 @@ def main() -> int:
     model.save_pretrained(adapter_out)
     tokenizer.save_pretrained(adapter_out)
     print(f"[train_lora] adaptador guardado en {adapter_out}", flush=True)
+
+    # Fase 14.5 — export del modelo resultante a GGUF. Solo si el CLI lo pide
+    # (EXPORT_FILE = nombre del .gguf a escribir en /out; vacío → sin export).
+    export_file = os.environ.get("EXPORT_FILE", "").strip()
+    if export_file:
+        if os.path.basename(export_file) != export_file or not export_file.lower().endswith(".gguf"):
+            fail(f"EXPORT_FILE inválido '{export_file}' (debe ser un nombre .gguf sin directorios)")
+        # Merge del adaptador LoRA en los pesos base (calidad f16 final:
+        # merga en alta precisión y solo se cuantiza al convertir).
+        merged = model.merge_and_unload()
+        merged_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        merged = merged.to(dtype=merged_dtype)
+        merged_dir = os.path.join(args.out, "merged")
+        merged.save_pretrained(merged_dir)
+        tokenizer.save_pretrained(merged_dir)
+        print(f"[train_lora] modelo mergeado guardado en {merged_dir}", flush=True)
+
+        convert_script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "convert_hf_to_gguf.py"
+        )
+        if not os.path.isfile(convert_script):
+            fail(f"conversor no encontrado en '{convert_script}'")
+        cmd = [
+            sys.executable,
+            convert_script,
+            merged_dir,
+            "--outfile",
+            os.path.join(args.out, export_file),
+            "--outtype",
+            "f16",
+        ]
+        if args.low_memory:
+            # Spool a temp para no duplicar pico de RAM en máquinas ajustadas.
+            cmd.append("--use-temp-file")
+        env = dict(os.environ)
+        env["NO_LOCAL_GGUF"] = "1"
+        print(f"[train_lora] convirtiendo a GGUF: {' '.join(cmd)}", flush=True)
+        rc = subprocess.run(cmd, env=env)
+        if rc.returncode != 0:
+            fail(f"conversión HF→GGUF falló (exit {rc.returncode})")
+        print(f"[train_lora] GGUF exportado en {os.path.join(args.out, export_file)}", flush=True)
     return 0
 
 

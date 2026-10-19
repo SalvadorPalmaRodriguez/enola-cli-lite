@@ -709,6 +709,12 @@ mod tests {
             classify("ai", &["finetune", "start"]),
             ToolKind::Destructive
         );
+        // Fase 14.5 — materializa el modelo resultante (importa GGUF a la
+        // biblioteca + /api/create): mutación, no lectura.
+        assert_eq!(
+            classify("ai", &["finetune", "register"]),
+            ToolKind::Mutating
+        );
         assert_eq!(classify("ai", &["finetune", "wizard"]), ToolKind::Mutating);
         assert_eq!(classify("ai", &["finetune"]), ToolKind::Mutating);
         // wizard está vetado para enola_run_command (TTY interactivo).

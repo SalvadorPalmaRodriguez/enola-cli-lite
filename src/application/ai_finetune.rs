@@ -12,7 +12,8 @@ use crate::domain::ai_finetune::{
 use crate::domain::ai_model;
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::ai::{
-    AiAdapterPort, AiModelLibraryPort, TokenizerDownloadPort, TokenizerDownloadRequest,
+    AiAdapterPort, AiModelLibraryPort, AiModelRegistryPort, TokenizerDownloadPort,
+    TokenizerDownloadRequest,
 };
 use crate::ports::container::{ContainerConfig, ContainerPort};
 use crate::ports::finetune::AiFinetuneJobsPort;
@@ -83,6 +84,8 @@ pub struct ManageFinetune {
     jobs: Arc<dyn AiFinetuneJobsPort + Send + Sync>,
     /// Biblioteca de modelos GGUF: resuelve el modelo base y el tokenizer.
     library: Arc<dyn AiModelLibraryPort + Send + Sync>,
+    /// Registro Ollama (`/api/create`): materializa el modelo resultante.
+    registry: Arc<dyn AiModelRegistryPort + Send + Sync>,
     /// Descarga bajo demanda del tokenizer HF (`--tokenizer`), host-side.
     tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
     /// Directorio base de instancias (`/srv/enola-ai`) — datasets y scripts.
@@ -98,6 +101,7 @@ impl ManageFinetune {
         containers: Arc<dyn ContainerPort + Send + Sync>,
         jobs: Arc<dyn AiFinetuneJobsPort + Send + Sync>,
         library: Arc<dyn AiModelLibraryPort + Send + Sync>,
+        registry: Arc<dyn AiModelRegistryPort + Send + Sync>,
         tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
         base_dir: PathBuf,
     ) -> Self {
@@ -107,6 +111,7 @@ impl ManageFinetune {
             containers,
             jobs,
             library,
+            registry,
             tokenizer,
             base_dir,
         }
@@ -390,6 +395,13 @@ impl ManageFinetune {
 
         let mut env = HashMap::new();
         env.insert("LOW_MEMORY".into(), low_memory.to_string());
+        // Fase 14.5 — export del modelo resultante a GGUF en /out. Solo si el
+        // job se lanza sin --no-register; el fichero se llama
+        // `<instance>-ft-<job_id>.gguf` (lo que `register` buscará luego).
+        if !no_register {
+            let export_name = format!("{instance}-ft");
+            env.insert("EXPORT_FILE".into(), format!("{export_name}-{job_id}.gguf"));
+        }
         // El rootfs es read-only: directorios de escritura dentro del volumen /out.
         env.insert("TMPDIR".into(), "/out/tmp".to_string());
         env.insert("HF_HOME".into(), "/out/.hf".to_string());
@@ -459,10 +471,6 @@ impl ManageFinetune {
         self.containers.create_container(cfg).await?;
         self.containers.start_container(&container_name).await?;
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs().to_string())
-            .unwrap_or_default();
         let job = FinetuneJob {
             id: job_id,
             instance: instance.to_string(),
@@ -471,7 +479,7 @@ impl ManageFinetune {
             low_memory,
             status: FinetuneJobStatus::Running,
             container: container_name,
-            created_at: now,
+            created_at: now_epoch(),
             finished_at: None,
             error: None,
             result_model: if no_register {
@@ -485,14 +493,122 @@ impl ManageFinetune {
     }
 
     /// `ai finetune status <instance>` — jobs registrados + estado del
-    /// contenedor si sigue corriendo.
+    /// contenedor si sigue corriendo. Los jobs `Running` se reconcilian con
+    /// el exit real del contenedor (`Completed`/`Failed` persistidos).
     pub async fn status(&self, instance: &str) -> Result<Vec<FinetuneJob>> {
         validate_ai_instance_name(instance)?;
         // La instancia debe existir: `status` sobre una instancia inexistente
         // es un error, no una lista vacía (verificado por test_finetune.sh #11).
         self.instances.get_instance(instance).await?;
-        self.jobs.list_jobs(instance).await
+        let mut jobs = self.jobs.list_jobs(instance).await?;
+        for job in jobs.iter_mut() {
+            if job.status == FinetuneJobStatus::Running {
+                self.reconcile_job(instance, job).await?;
+            }
+        }
+        Ok(jobs)
     }
+
+    /// `ai finetune register <instance> <job-id>` — materializa el modelo
+    /// resultante de un job completado: importa el `.gguf` exportado por el
+    /// entrenamiento a la biblioteca de la instancia y lo registra en Ollama
+    /// (`/api/create`) con el nombre `result_model` (`<instance>-ft`).
+    pub async fn register(&self, instance: &str, job_id: &str) -> Result<FinetuneJob> {
+        validate_ai_instance_name(instance)?;
+        // La instancia debe existir (mismo contrato que `status`).
+        self.instances.get_instance(instance).await?;
+
+        let mut jobs = self.jobs.list_jobs(instance).await?;
+        let idx = jobs.iter().position(|j| j.id == job_id).ok_or_else(|| {
+            EnolaError::NotFound(format!("job '{job_id}' no existe en '{instance}'"))
+        })?;
+        // Si el job aún figura Running, reconciliar con el exit real del
+        // contenedor antes de decidir (el usuario puede registrar sin pasar
+        // por `status`).
+        if jobs[idx].status == FinetuneJobStatus::Running {
+            self.reconcile_job(instance, &mut jobs[idx]).await?;
+        }
+        let job = jobs[idx].clone();
+
+        if job.status != FinetuneJobStatus::Completed {
+            return Err(EnolaError::ValidationError(format!(
+                "el job '{job_id}' no está completado (estado {:?}) — espera a que el entrenamiento termine con exit 0",
+                job.status
+            )));
+        }
+        let Some(result_name) = job.result_model.clone() else {
+            return Err(EnolaError::ValidationError(format!(
+                "el job '{job_id}' se lanzó con --no-register: no hay modelo que registrar"
+            )));
+        };
+
+        // El GGUF exportado vive en `<base>/<instance>/finetune/<job>/out/`.
+        let filename = format!("{result_name}-{job_id}.gguf");
+        let gguf_path = self
+            .base_dir
+            .join(instance)
+            .join("finetune")
+            .join(&job_id)
+            .join("out")
+            .join(&filename);
+        if !gguf_path.is_file() {
+            return Err(EnolaError::NotFound(format!(
+                "no se encontró '{}' en la salida del job — el entrenamiento debe exportar el GGUF (¿falló la conversión?)",
+                gguf_path.display()
+            )));
+        }
+
+        // Importa a la biblioteca (copia + SHA-256 + validación de header) y
+        // registra en Ollama vía Modelfile `FROM models-gguf/<filename>`.
+        let model = self
+            .library
+            .import_library_file(instance, &gguf_path)
+            .await?;
+        self.registry
+            .register_library_model(instance, &model.filename, &result_name)
+            .await?;
+        Ok(job)
+    }
+
+    /// Reconcilia un job `Running` con el estado real de su contenedor.
+    /// `exited`/`dead` → `Completed` (exit 0) o `Failed` (resto). Si el
+    /// inspect falla (daemon caído, contenedor borrado) se deja `Running`:
+    /// no se puede distinguir transitorio de desaparecido y marcar `Failed`
+    /// a ciegas corrompería jobs vivos.
+    async fn reconcile_job(&self, instance: &str, job: &mut FinetuneJob) -> Result<()> {
+        let Ok(info) = self.containers.inspect_container(&job.container).await else {
+            return Ok(());
+        };
+        match info.get("status").map(String::as_str) {
+            Some("exited") | Some("dead") => {
+                let code = info
+                    .get("exit_code")
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or(1);
+                job.finished_at = Some(now_epoch());
+                if code == 0 {
+                    job.status = FinetuneJobStatus::Completed;
+                } else {
+                    job.status = FinetuneJobStatus::Failed;
+                    job.error = Some(match info.get("error") {
+                        Some(d) => format!("exit {code}: {d}"),
+                        None => format!("el contenedor terminó con exit {code}"),
+                    });
+                }
+                self.jobs.update_job(instance, job).await?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+/// Epoch actual en segundos (consistente con `created_at` de los jobs).
+fn now_epoch() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default()
 }
 
 /// Lee un fichero JSONL con límite defensivo de tamaño.
@@ -515,8 +631,8 @@ mod tests {
     use crate::domain::ai::{AiInstance, AiInstanceStatus};
     use crate::domain::ai_model::{AiModel, AiModelStatus, GgufMetadata, ModelSource};
     use crate::ports::ai::{
-        MockAiAdapterPort, MockAiModelLibraryPort, MockTokenizerDownloadPort,
-        TokenizerDownloadOutcome,
+        MockAiAdapterPort, MockAiModelLibraryPort, MockAiModelRegistryPort,
+        MockTokenizerDownloadPort, TokenizerDownloadOutcome,
     };
     use crate::ports::container::MockContainerPort;
     use crate::ports::finetune::MockAiFinetuneJobsPort;
@@ -619,6 +735,7 @@ mod tests {
             Arc::new(MockContainerPort::new()),
             Arc::new(MockAiFinetuneJobsPort::new()),
             Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
@@ -652,6 +769,7 @@ mod tests {
             Arc::new(MockContainerPort::new()),
             Arc::new(MockAiFinetuneJobsPort::new()),
             Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
@@ -714,6 +832,7 @@ mod tests {
             Arc::new(cont),
             Arc::new(jobs),
             Arc::new(library_with_base_model(dir.path())),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
@@ -778,6 +897,7 @@ mod tests {
             Arc::new(cont),
             Arc::new(jobs),
             Arc::new(lib),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
@@ -828,6 +948,7 @@ mod tests {
             Arc::new(cont),
             Arc::new(jobs),
             Arc::new(library_with_base_model(dir.path())),
+            Arc::new(MockAiModelRegistryPort::new()),
             Some(Arc::new(tok)),
             dir.path().to_path_buf(),
         );
@@ -878,6 +999,7 @@ mod tests {
             Arc::new(cont),
             Arc::new(jobs),
             Arc::new(lib),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
@@ -943,6 +1065,7 @@ mod tests {
             Arc::new(cont),
             Arc::new(jobs),
             Arc::new(lib),
+            Arc::new(MockAiModelRegistryPort::new()),
             Some(Arc::new(tok)),
             dir.path().to_path_buf(),
         );
@@ -976,6 +1099,7 @@ mod tests {
             Arc::new(MockContainerPort::new()),
             Arc::new(MockAiFinetuneJobsPort::new()),
             Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
@@ -995,9 +1119,279 @@ mod tests {
             Arc::new(MockContainerPort::new()),
             Arc::new(jobs),
             Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
         );
         assert!(svc.status("dev").await.is_ok());
+    }
+
+    fn running_job(id: &str) -> FinetuneJob {
+        FinetuneJob {
+            id: id.into(),
+            instance: "dev".into(),
+            base_model: "llama3.1:8b".into(),
+            dataset: "/data/train.jsonl".into(),
+            low_memory: true,
+            status: FinetuneJobStatus::Running,
+            container: format!("enola-ai-dev-finetune-{id}"),
+            created_at: "1".into(),
+            finished_at: None,
+            error: None,
+            result_model: Some("dev-ft".into()),
+        }
+    }
+
+    fn inspect_info(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn status_reconciles_exit_zero_to_completed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![running_job("j1")]));
+        jobs.expect_update_job()
+            .withf(|inst, j| {
+                inst == "dev"
+                    && j.id == "j1"
+                    && j.status == FinetuneJobStatus::Completed
+                    && j.finished_at.is_some()
+                    && j.error.is_none()
+            })
+            .returning(|_, _| Ok(()));
+        let mut containers = MockContainerPort::new();
+        containers
+            .expect_inspect_container()
+            .withf(|c| c == "enola-ai-dev-finetune-j1")
+            .returning(|_| Ok(inspect_info(&[("status", "exited"), ("exit_code", "0")])));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(containers),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let jobs = svc.status("dev").await.unwrap();
+        assert_eq!(jobs[0].status, FinetuneJobStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn status_reconciles_nonzero_exit_to_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![running_job("j2")]));
+        jobs.expect_update_job()
+            .withf(|inst, j| {
+                inst == "dev"
+                    && j.id == "j2"
+                    && j.status == FinetuneJobStatus::Failed
+                    && j.error.as_deref().is_some_and(|e| e.contains("exit 137"))
+            })
+            .returning(|_, _| Ok(()));
+        let mut containers = MockContainerPort::new();
+        containers
+            .expect_inspect_container()
+            .returning(|_| Ok(inspect_info(&[("status", "exited"), ("exit_code", "137")])));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(containers),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let jobs = svc.status("dev").await.unwrap();
+        assert_eq!(jobs[0].status, FinetuneJobStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn status_keeps_running_while_container_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![running_job("j3")]));
+        // Sin expect_update_job: mockall entra en pánico si se llama.
+        let mut containers = MockContainerPort::new();
+        containers
+            .expect_inspect_container()
+            .returning(|_| Ok(inspect_info(&[("status", "running")])));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(containers),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let jobs = svc.status("dev").await.unwrap();
+        assert_eq!(jobs[0].status, FinetuneJobStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn status_keeps_running_when_inspect_fails() {
+        // Daemon caído o contenedor borrado: no se puede distinguir transitorio
+        // de desaparecido — el job se queda Running (conservador).
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![running_job("j4")]));
+        let mut containers = MockContainerPort::new();
+        containers
+            .expect_inspect_container()
+            .returning(|_| Err(EnolaError::InfrastructureError("docker down".into())));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(containers),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let jobs = svc.status("dev").await.unwrap();
+        assert_eq!(jobs[0].status, FinetuneJobStatus::Running);
+    }
+
+    fn completed_job(id: &str, result_model: Option<&str>) -> FinetuneJob {
+        FinetuneJob {
+            id: id.into(),
+            instance: "dev".into(),
+            base_model: "llama3.1:8b".into(),
+            dataset: "/data/train.jsonl".into(),
+            low_memory: true,
+            status: FinetuneJobStatus::Completed,
+            container: format!("enola-ai-dev-finetune-{id}"),
+            created_at: "1".into(),
+            finished_at: Some("2".into()),
+            error: None,
+            result_model: result_model.map(str::to_string),
+        }
+    }
+
+    #[tokio::test]
+    async fn register_imports_and_registers_completed_job() {
+        let dir = tempfile::tempdir().unwrap();
+        // GGUF exportado por el entrenamiento en /out.
+        let out = dir.path().join("dev/finetune/ft1/out");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("dev-ft-ft1.gguf"), b"not-a-real-gguf").unwrap();
+
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![completed_job("ft1", Some("dev-ft"))]));
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_import_library_file()
+            .withf(|i, p| i == "dev" && p.ends_with("dev-ft-ft1.gguf"))
+            .returning(|_, _| Ok(lib_model("dev-ft", "dev-ft-ft1.gguf", None)));
+        let mut reg = MockAiModelRegistryPort::new();
+        reg.expect_register_library_model()
+            .withf(|i, f, n| i == "dev" && f == "dev-ft-ft1.gguf" && n == "dev-ft")
+            .returning(|_, _, _| Ok(()));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(jobs),
+            Arc::new(lib),
+            Arc::new(reg),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let job = svc.register("dev", "ft1").await.unwrap();
+        assert_eq!(job.result_model.as_deref(), Some("dev-ft"));
+    }
+
+    #[tokio::test]
+    async fn register_rejects_job_launched_with_no_register() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![completed_job("ft2", None)]));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let err = svc.register("dev", "ft2").await.unwrap_err();
+        assert!(err.to_string().contains("--no-register"));
+    }
+
+    #[tokio::test]
+    async fn register_rejects_missing_exported_gguf() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![completed_job("ft3", Some("dev-ft"))]));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(MockContainerPort::new()),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let err = svc.register("dev", "ft3").await.unwrap_err();
+        assert!(err.to_string().contains("no se encontró"));
+    }
+
+    #[tokio::test]
+    async fn register_rejects_unfinished_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|_| Ok(inst()));
+        let mut jobs = MockAiFinetuneJobsPort::new();
+        jobs.expect_list_jobs()
+            .returning(|_| Ok(vec![running_job("ft4")]));
+        let mut containers = MockContainerPort::new();
+        containers
+            .expect_inspect_container()
+            .returning(|_| Ok(inspect_info(&[("status", "running")])));
+        let svc = ManageFinetune::new(
+            Arc::new(insts),
+            Arc::new(MockHardwareProbePort::new()),
+            Arc::new(containers),
+            Arc::new(jobs),
+            Arc::new(MockAiModelLibraryPort::new()),
+            Arc::new(MockAiModelRegistryPort::new()),
+            None,
+            dir.path().to_path_buf(),
+        );
+        let err = svc.register("dev", "ft4").await.unwrap_err();
+        assert!(err.to_string().contains("no está completado"));
     }
 }

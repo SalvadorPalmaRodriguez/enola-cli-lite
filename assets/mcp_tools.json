@@ -4544,6 +4544,29 @@
               "subcommands": []
             },
             {
+              "description": "Register the resulting model of a completed job into the instance library and Ollama (`/api/create`). Materializes the GGUF that the training container exported to `/out` (unless `start` was given `--no-register`)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "NAME"
+                },
+                {
+                  "boolean": false,
+                  "name": "job_id",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "JOB_ID"
+                }
+              ],
+              "name": "register",
+              "subcommands": []
+            },
+            {
               "description": "Interactive wizard guiding through dataset selection, model choice and training parameters (TTY only)",
               "flags": [],
               "name": "wizard",
