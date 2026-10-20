@@ -4833,7 +4833,13 @@ async fn execute_ai_finetune(
                     out.push_str(&format!("       error: {err}\n"));
                 }
                 if let Some(m) = &j.result_model {
-                    out.push_str(&format!("       modelo: {m}\n"));
+                    if j.registered {
+                        out.push_str(&format!("       modelo registrado: {m}\n"));
+                    } else {
+                        out.push_str(&format!(
+                            "       modelo previsto: {m} (pendiente de `ai finetune register`)\n"
+                        ));
+                    }
                 }
             }
             Ok(out)
@@ -4868,7 +4874,7 @@ async fn execute_ai_finetune(
             ))
         }
         F::Wizard => Err(CliError::Generic(
-            "`ai finetune wizard` es interactivo (TTY) — no soportado en este contexto".to_string(),
+            "`ai finetune wizard` no está implementado (fuera de alcance de Fase 14.5) — usa `prepare` + `validate` + `start` + `register`".to_string(),
         )),
     }
 }

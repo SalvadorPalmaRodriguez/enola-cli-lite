@@ -3060,7 +3060,7 @@ pub enum AiFinetuneCommands {
         #[arg(long)]
         low_memory: bool,
 
-        /// Register the resulting model in the instance library on success
+        /// Do not export/register the resulting model (adapter-only job)
         #[arg(long)]
         no_register: bool,
 
@@ -3097,7 +3097,8 @@ pub enum AiFinetuneCommands {
     },
 
     /// Interactive wizard guiding through dataset selection, model choice
-    /// and training parameters (TTY only)
+    /// and training parameters (TTY only) — NOT implemented (out of scope
+    /// for Fase 14.5): use `prepare` + `validate` + `start` + `register`
     ///
     /// Example:
     ///   enola-cli ai finetune wizard

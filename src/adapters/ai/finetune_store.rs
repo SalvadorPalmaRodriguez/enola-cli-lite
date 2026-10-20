@@ -113,6 +113,7 @@ mod tests {
             finished_at: None,
             error: None,
             result_model: None,
+            registered: false,
         }
     }
 

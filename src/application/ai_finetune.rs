@@ -365,11 +365,13 @@ impl ManageFinetune {
             ai_model::resolve_library_path(&self.base_dir, instance, &resolved.filename)?;
         let base_model = resolved.name.clone();
 
+        // Id único y monótono por milisegundos (sin `% 100_000`: evita reuso y
+        // colisión de ids en jobs que viven > ~27,8 h en `jobs.json`).
         let job_id = format!(
             "ft{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() % 100_000)
+                .map(|d| d.as_millis())
                 .unwrap_or(0)
         );
         let container_name = format!("enola-ai-{instance}-finetune-{job_id}");
@@ -479,7 +481,7 @@ impl ManageFinetune {
             low_memory,
             status: FinetuneJobStatus::Running,
             container: container_name,
-            created_at: now_epoch(),
+            created_at: now_iso8601(),
             finished_at: None,
             error: None,
             result_model: if no_register {
@@ -487,6 +489,7 @@ impl ManageFinetune {
             } else {
                 Some(format!("{instance}-ft"))
             },
+            registered: false,
         };
         self.jobs.add_job(job.clone()).await?;
         Ok(job)
@@ -567,7 +570,12 @@ impl ManageFinetune {
         self.registry
             .register_library_model(instance, &model.filename, &result_name)
             .await?;
-        Ok(job)
+        // Persistir el estado "registrado" para que `status` no muestre el
+        // modelo como pendiente de registro.
+        let mut updated = job.clone();
+        updated.registered = true;
+        self.jobs.update_job(instance, &updated).await?;
+        Ok(updated)
     }
 
     /// Reconcilia un job `Running` con el estado real de su contenedor.
@@ -585,7 +593,7 @@ impl ManageFinetune {
                     .get("exit_code")
                     .and_then(|s| s.parse::<i64>().ok())
                     .unwrap_or(1);
-                job.finished_at = Some(now_epoch());
+                job.finished_at = Some(now_iso8601());
                 if code == 0 {
                     job.status = FinetuneJobStatus::Completed;
                 } else {
@@ -603,12 +611,10 @@ impl ManageFinetune {
     }
 }
 
-/// Epoch actual en segundos (consistente con `created_at` de los jobs).
-fn now_epoch() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs().to_string())
-        .unwrap_or_default()
+/// Marca de tiempo ISO-8601 UTC (consistente con `created_at`/`finished_at`,
+/// que el dominio documenta como ISO-8601).
+fn now_iso8601() -> String {
+    chrono::Utc::now().to_rfc3339()
 }
 
 /// Lee un fichero JSONL con límite defensivo de tamaño.
@@ -1139,6 +1145,7 @@ mod tests {
             finished_at: None,
             error: None,
             result_model: Some("dev-ft".into()),
+            registered: false,
         }
     }
 
@@ -1287,6 +1294,7 @@ mod tests {
             finished_at: Some("2".into()),
             error: None,
             result_model: result_model.map(str::to_string),
+            registered: false,
         }
     }
 
@@ -1303,6 +1311,9 @@ mod tests {
         let mut jobs = MockAiFinetuneJobsPort::new();
         jobs.expect_list_jobs()
             .returning(|_| Ok(vec![completed_job("ft1", Some("dev-ft"))]));
+        jobs.expect_update_job()
+            .withf(|i, j| i == "dev" && j.id == "ft1" && j.registered)
+            .returning(|_, _| Ok(()));
         let mut lib = MockAiModelLibraryPort::new();
         lib.expect_import_library_file()
             .withf(|i, p| i == "dev" && p.ends_with("dev-ft-ft1.gguf"))
@@ -1323,6 +1334,7 @@ mod tests {
         );
         let job = svc.register("dev", "ft1").await.unwrap();
         assert_eq!(job.result_model.as_deref(), Some("dev-ft"));
+        assert!(job.registered);
     }
 
     #[tokio::test]

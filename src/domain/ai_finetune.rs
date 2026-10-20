@@ -468,8 +468,13 @@ pub struct FinetuneJob {
     pub finished_at: Option<String>,
     /// Error si `Failed`.
     pub error: Option<String>,
-    /// Modelo registrado resultante (si `Completed` + registro).
+    /// Nombre del modelo resultante previsto (`<instance>-ft`), salvo que el
+    /// job se lanzara con `--no-register`.
     pub result_model: Option<String>,
+    /// `true` cuando `ai finetune register` ya materializó el modelo en la
+    /// biblioteca y en Ollama. `#[serde(default)]` tolera `jobs.json` previos.
+    #[serde(default)]
+    pub registered: bool,
 }
 
 /// Validación previa de un job: tamaño del dataset vs. VRAM disponible

@@ -11,10 +11,13 @@ use std::collections::HashSet;
 use std::fmt;
 
 /// Imagen oficial por defecto para el motor Ollama.
-pub const DEFAULT_OLLAMA_IMAGE: &str = "ollama/ollama:latest";
+/// Tag de versión fijo (no `latest`) para reproducibilidad: `latest` es
+/// mutable y ya cambió el soporte de LoRA adapters que condiciona Fase 14.5.
+pub const DEFAULT_OLLAMA_IMAGE: &str = "ollama/ollama:0.40.6";
 
 /// Imagen oficial por defecto para la interfaz Open WebUI.
-pub const DEFAULT_WEBUI_IMAGE: &str = "ghcr.io/open-webui/open-webui:main";
+/// Tag de versión fijo (`vX.Y.Z` no cambia; `main` es rolling y muta).
+pub const DEFAULT_WEBUI_IMAGE: &str = "ghcr.io/open-webui/open-webui:v0.12.3";
 
 /// Modelo por defecto al crear una instancia si el usuario no especifica otro.
 pub const DEFAULT_AI_MODEL: &str = "llama3.1:8b";

@@ -4567,7 +4567,7 @@
               "subcommands": []
             },
             {
-              "description": "Interactive wizard guiding through dataset selection, model choice and training parameters (TTY only)",
+              "description": "Interactive wizard guiding through dataset selection, model choice and training parameters (TTY only) — NOT implemented (out of scope for Fase 14.5): use `prepare` + `validate` + `start` + `register`",
               "flags": [],
               "name": "wizard",
               "subcommands": []
