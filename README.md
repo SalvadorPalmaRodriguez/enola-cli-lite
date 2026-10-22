@@ -33,6 +33,7 @@
 - **📚 Embedded offline docs** — `enola-cli docs` works with no network.
 - **🌐 Local web dashboard** — token-protected GUI bound to `127.0.0.1`.
 - **🔌 MCP server for AI agents** — Model Context Protocol server (JSON-RPC 2.0 over stdio), read-only by default with explicit `--allow-write` opt-in.
+- **🧠 Local AI (optional)** — `enola-cli ai` runs isolated Ollama + Open WebUI instances (`127.0.0.1` only, optionally published as `.onion`) with a GGUF model library, per-instance RAG and LoRA fine-tuning; `enola-cli ask` is a local assistant that shares the MCP tool registry and asks for confirmation before any change. Cloud providers (BYOK) are disabled by default and need explicit consent.
 
 ## 🏗️ Architecture
 
@@ -184,6 +185,8 @@ enola-cli
 ├── quickref    # Docker ↔ Enola quick reference
 ├── web         # Local web dashboard (GUI)
 ├── mcp         # MCP server for AI agents (JSON-RPC stdio)
+├── ask         # Local AI assistant (Ollama), confirms before changing anything
+├── ai          # Local AI instances: Ollama + Open WebUI, models, RAG, fine-tuning
 ├── config-show    # Show effective configuration
 └── config-validate # Validate configuration
 ```

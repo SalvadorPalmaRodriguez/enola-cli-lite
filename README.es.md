@@ -33,6 +33,7 @@
 - **📚 Documentación offline embebida** — `enola-cli docs` funciona sin red.
 - **🌐 Dashboard web local** — GUI protegida con token, vinculada a `127.0.0.1`.
 - **🔌 Servidor MCP para agentes IA** — servidor Model Context Protocol (JSON-RPC 2.0 sobre stdio), de solo lectura por defecto con opt-in explícito `--allow-write`.
+- **🧠 IA local (opcional)** — `enola-cli ai` levanta instancias aisladas de Ollama + Open WebUI (solo `127.0.0.1`, publicables opcionalmente como `.onion`) con biblioteca de modelos GGUF, RAG por instancia y fine-tuning LoRA; `enola-cli ask` es un asistente local que comparte el registro de herramientas MCP y pide confirmación antes de cualquier cambio. Los proveedores cloud (BYOK) están desactivados por defecto y exigen consentimiento explícito.
 
 ## 🏗️ Arquitectura
 
@@ -186,6 +187,8 @@ enola-cli
 ├── quickref    # Referencia rápida Docker ↔ Enola
 ├── web         # Dashboard web local (GUI)
 ├── mcp         # Servidor MCP para agentes IA (JSON-RPC stdio)
+├── ask         # Asistente de IA local (Ollama), confirma antes de cambiar nada
+├── ai          # Instancias de IA local: Ollama + Open WebUI, modelos, RAG, fine-tuning
 ├── config-show    # Mostrar configuración efectiva
 └── config-validate # Validar configuración
 ```
