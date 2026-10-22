@@ -2833,8 +2833,20 @@
       "subcommands": []
     },
     {
-      "description": "Displays the complete Enola CLI license agreement embedded in the binary. Works offline — no network required.",
-      "flags": [],
+      "description": "Displays the complete Enola CLI license agreement embedded in the binary. With `--third-party`, displays instead the copyright notices and license texts of the third-party software included in the binary. Works offline — no network required.",
+      "flags": [
+        {
+          "boolean": true,
+          "name": "third-party",
+          "positional": false,
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "value_name": "THIRD_PARTY"
+        }
+      ],
       "name": "license",
       "subcommands": []
     },

@@ -65,7 +65,7 @@ fn check_root_permissions(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let exempt = matches!(
         &cli.command,
         Commands::Quickref
-        | Commands::License
+        | Commands::License { .. }
         | Commands::Doctor { .. }
         | Commands::ConfigShow { .. }
         | Commands::ConfigValidate { .. }
@@ -142,7 +142,7 @@ fn should_show_update_hint(cli: &Cli) -> bool {
         // Comandos informativos/scriptables donde no queremos ruido extra.
         Commands::Docs(_)
         | Commands::Quickref
-        | Commands::License
+        | Commands::License { .. }
         | Commands::Doctor { .. }
         | Commands::Uninstall { .. }
         | Commands::Verify { .. }

@@ -62,7 +62,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
         } => execute_setup(all, vpn, security, pqc_tls).await,
         Commands::Doctor { security } => execute_doctor(security).await,
         Commands::Quickref => execute_quickref().await,
-        Commands::License => execute_license().await,
+        Commands::License { third_party } => execute_license(third_party).await,
         Commands::Uninstall {
             yes,
             keep_data,
@@ -497,7 +497,7 @@ fn command_requires_system_dependencies(cmd: &Commands) -> bool {
     match cmd {
         // Exentos: no requieren dependencias instaladas previamente
         Commands::Quickref
-        | Commands::License
+        | Commands::License { .. }
         | Commands::Doctor { .. }
         | Commands::Setup { .. }
         | Commands::Uninstall { .. }
@@ -2805,10 +2805,26 @@ async fn execute_quickref() -> CliResult<String> {
     Ok(quickref.to_string())
 }
 
-/// INT-012: Show the full proprietary license text embedded in the binary.
-async fn execute_license() -> CliResult<String> {
+/// Texto de `license`: la EULA propietaria o, con `third_party`, los avisos de
+/// copyright y licencias del software de terceros incluido en el binario.
+///
+/// Ambos textos van embebidos: el binario se distribuye suelto (sin tarball) y
+/// las licencias de las dependencias (MIT, BSD, Apache-2.0...) exigen conservar
+/// su aviso en las redistribuciones, también binarias.
+fn license_text(third_party: bool) -> &'static str {
     const LICENSE_TEXT: &str = include_str!("../../LICENSE");
-    Ok(LICENSE_TEXT.to_string())
+    const THIRD_PARTY_TEXT: &str = include_str!("../../THIRD_PARTY_LICENSES.txt");
+    if third_party {
+        THIRD_PARTY_TEXT
+    } else {
+        LICENSE_TEXT
+    }
+}
+
+/// INT-012: Show the proprietary license text, or the third-party notices
+/// (`--third-party`), both embedded in the binary.
+async fn execute_license(third_party: bool) -> CliResult<String> {
+    Ok(license_text(third_party).to_string())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5252,7 +5268,47 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
 
 #[cfg(test)]
 mod tests {
-    use super::uninstall_script_candidates;
+    use super::{license_text, uninstall_script_candidates};
+    use crate::cli::{Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn license_default_is_the_proprietary_eula() {
+        // `enola-cli license` (sin flags) sigue mostrando la EULA, sin cambios.
+        let text = license_text(false);
+        assert_eq!(text, include_str!("../../LICENSE"));
+        assert!(!text.contains("THIRD-PARTY SOFTWARE LICENSE NOTICES"));
+    }
+
+    #[test]
+    fn license_third_party_embeds_real_notices() {
+        // El binario crudo se distribuye suelto: los avisos de copyright de
+        // las dependencias (MIT/BSD/Apache/...) deben viajar DENTRO del binario.
+        let text = license_text(true);
+        assert!(text.contains("THIRD-PARTY SOFTWARE LICENSE NOTICES"));
+        // Fichero vendorizado (llama.cpp, MIT) con su copyright de origen.
+        assert!(text.contains("Copyright (c) 2023-2024 The ggml authors"));
+        // Copyleft débil: nota de dónde obtener el código (MPL-2.0).
+        assert!(text.contains("MPL-2.0 SOURCE NOTICE"));
+        // Nunca plantillas sin rellenar: el aviso del autor tiene que estar.
+        assert!(!text.contains("<year>"));
+        assert!(!text.contains("<copyright holders>"));
+    }
+
+    #[test]
+    fn license_third_party_flag_parses() {
+        let cli = Cli::try_parse_from(["enola-cli", "license", "--third-party"])
+            .expect("license --third-party debe parsear");
+        assert!(matches!(
+            cli.command,
+            Commands::License { third_party: true }
+        ));
+        let cli = Cli::try_parse_from(["enola-cli", "license"]).expect("license sin flags");
+        assert!(matches!(
+            cli.command,
+            Commands::License { third_party: false }
+        ));
+    }
 
     #[test]
     fn uninstall_candidates_are_always_absolute() {

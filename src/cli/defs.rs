@@ -309,12 +309,19 @@ pub enum Commands {
     /// Show the full proprietary software license text
     ///
     /// Displays the complete Enola CLI license agreement embedded in the binary.
+    /// With `--third-party`, displays instead the copyright notices and license
+    /// texts of the third-party software included in the binary.
     /// Works offline — no network required.
     ///
     /// Examples:
     ///   enola-cli license
     ///   enola-cli license | less
-    License,
+    ///   enola-cli license --third-party | less
+    License {
+        /// Show the third-party copyright notices and licenses instead of the EULA
+        #[arg(long)]
+        third_party: bool,
+    },
 
     // ═══════════════════════════════════════════════════════════════════
     // VERIFY (🔐 Release authenticity — PQC-030)

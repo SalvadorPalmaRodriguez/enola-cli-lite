@@ -122,6 +122,9 @@
       "--disable",
       "--status"
     ],
+    "license": [
+      "--third-party"
+    ],
     "logs.view": [
       "--lines",
       "--follow"

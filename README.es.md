@@ -973,6 +973,7 @@ Muestra el texto completo de la licencia propietaria.
 ```bash
 enola-cli license
 enola-cli license | less
+enola-cli license --third-party | less   # avisos de copyright de software de terceros
 ```
 
 ---
@@ -1190,9 +1191,10 @@ Licencia completa: [LICENSE](LICENSE) · Contacto: salvadorpalmarodriguez@gmail.
 ### Licencias de terceros
 
 Este software utiliza dependencias de terceros (Rust crates) licenciadas
-bajo MIT, Apache-2.0, BSD, ISC, MPL-2.0 y otras licencias permisivas. El listado completo
-de dependencias y sus textos de licencia está disponible en:
-[THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)
+bajo MIT, Apache-2.0, BSD, ISC, MPL-2.0 y otras licencias permisivas. Los avisos de copyright
+y los textos de licencia del software de terceros incluido en el binario están en
+[THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt), que se incluye en cada archivo de release
+y va embebido en el propio binario (`enola-cli license --third-party`).
 
 ---
 

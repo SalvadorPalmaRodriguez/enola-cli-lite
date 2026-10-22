@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands.md`
-> **Versión:** 3.7 | **Actualizado:** 2026-10-18
+> **Versión:** 3.8 | **Actualizado:** 2026-10-22
 > **Estado:** ✅ **VIGENTE — Índice de comandos**
 > **English:** [`docs/en/commands.md`](../../en/commands.md)
 > **Referencias:** commands.md
@@ -72,7 +72,7 @@ sudo enola-cli docs search <TÉRMINO>     # buscar en toda la documentación
 | Grupo | Prefijo | Descripción | Referencia |
 |-------|---------|-------------|-----------|
 | Quickref | `quickref` | Referencia rápida Docker ↔ Enola | [commands-simple.md](commands-simple.md#quickref) |
-| License | `license` | Texto completo de la licencia | [commands-simple.md](commands-simple.md#license) |
+| License | `license` | Texto completo de la licencia (`--third-party`: avisos de terceros) | [commands-simple.md](commands-simple.md#license) |
 | Verify | `verify` | Verificar autenticidad de descargas (PQC) | [commands-simple.md](commands-simple.md#verify) |
 | Uninstall | `uninstall` | Desinstalación segura del CLI | [commands-simple.md](commands-simple.md#uninstall) |
 | Web | `web` | Dashboard web local (GUI) | [web/README.md](../web/README.md) |
