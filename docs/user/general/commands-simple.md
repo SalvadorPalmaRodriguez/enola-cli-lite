@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands-simple.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-08-08
+> **Versión:** 2.2 | **Actualizado:** 2026-10-22
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -182,9 +182,13 @@ Muestra el texto completo de la licencia del software. Funciona offline.
 
 ```bash
 enola-cli license
+enola-cli license --third-party
 ```
 
-Sin flags ni argumentos.
+| Flag | Descripción |
+|------|-------------|
+| *(ninguno)* | Licencia propietaria de Enola CLI (EULA). |
+| `--third-party` | Avisos de copyright y textos de licencia del software de terceros incluido en el binario (MIT, Apache-2.0, BSD, ISC, MPL-2.0…). Van embebidos en el binario, también en el binario suelto. |
 
 ---
 
