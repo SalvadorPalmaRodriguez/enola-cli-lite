@@ -3,11 +3,36 @@
 #
 # Vendored verbatim from ggml-org/llama.cpp @ b4879
 # (commit f08f4b3187b691bb08a8884ed39ebaa94e956707), file convert_hf_to_gguf.py.
-# Copyright (c) 2023-2024 The ggml authors. MIT License.
-# Full license: https://github.com/ggml-org/llama.cpp/blob/b4879/LICENSE
 # Original file: https://github.com/ggml-org/llama.cpp/blob/b4879/convert_hf_to_gguf.py
-# Unmodified except for this provenance header. Deployed by enola-cli into the
-# finetune container (phase 14.5) to convert a merged LoRA model to GGUF.
+# Unmodified except for this provenance and licence header. Deployed by enola-cli
+# into the finetune container (phase 14.5) to convert a merged LoRA model to GGUF.
+#
+# This file is third-party software, NOT covered by the Enola CLI licence. It is
+# distributed under the MIT License below; the copyright and permission notice
+# must be preserved in all copies or substantial portions of this file.
+# Source licence: https://github.com/ggml-org/llama.cpp/blob/b4879/LICENSE
+#
+# MIT License
+#
+# Copyright (c) 2023-2024 The ggml authors
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 #
 
 from __future__ import annotations
