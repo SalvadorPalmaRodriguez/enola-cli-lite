@@ -378,6 +378,27 @@ pub mod tor {
     use crate::ports::service::ServiceManagerPort;
     use crate::ports::web::NginxManagerPort;
 
+    /// Busca un servicio Tor por el nombre que escribe el usuario (exacto o por
+    /// variantes de tipo) sin depender del orden en que Tor lista los servicios.
+    /// Si varias variantes coinciden, devuelve error con los candidatos ordenados
+    /// por tipo para que el usuario elija el nombre completo.
+    pub(crate) fn find_tor_service<'a>(
+        services: &'a [crate::ports::tor::TorServiceInfo],
+        name: &str,
+    ) -> CliResult<Option<&'a crate::ports::tor::TorServiceInfo>> {
+        use crate::domain::naming::ServiceLookup;
+        let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
+        match crate::domain::naming::ServiceName::lookup_service(name, &existing) {
+            ServiceLookup::Found(real) => Ok(services.iter().find(|s| s.name == real)),
+            ServiceLookup::NotFound => Ok(None),
+            ServiceLookup::Ambiguous(candidates) => Err(CliError::InvalidInput(format!(
+                "Service name '{}' is ambiguous: it matches {}. Use the full name.",
+                name,
+                candidates.join(", ")
+            ))),
+        }
+    }
+
     /// List all Tor hidden services
     pub async fn list() -> CliResult<Vec<crate::ports::tor::TorServiceInfo>> {
         let adapter = Arc::new(TorConfigAdapter::new());
@@ -745,7 +766,7 @@ pub mod tor {
             .map_err(CliError::from)?;
         let possible_names = ServiceName::possible_names_for_lookup(name);
 
-        let found_service = services.iter().find(|s| possible_names.contains(&s.name));
+        let found_service = find_tor_service(&services, name)?;
 
         let (actual_name, has_nginx) = match found_service {
             Some(service) => {
@@ -832,7 +853,7 @@ pub mod tor {
         // Try to find the service using all possible name variations
         let possible_names = ServiceName::possible_names_for_lookup(name);
 
-        let found_service = services.iter().find(|s| possible_names.contains(&s.name));
+        let found_service = find_tor_service(&services, name)?;
 
         let (actual_name, has_nginx) = match found_service {
             Some(service) => {
@@ -896,7 +917,6 @@ pub mod tor {
 
     /// Remove a Tor hidden service
     pub async fn remove(name: &str) -> CliResult<()> {
-        use crate::domain::naming::ServiceName;
         use crate::ports::tor::TorManagerPort;
 
         let tor_adapter = Arc::new(TorConfigAdapter::new());
@@ -908,9 +928,8 @@ pub mod tor {
             .list_hidden_services()
             .await
             .map_err(CliError::from)?;
-        let possible_names = ServiceName::possible_names_for_lookup(name);
 
-        let found_service = services.iter().find(|s| possible_names.contains(&s.name));
+        let found_service = find_tor_service(&services, name)?;
 
         let actual_name = match found_service {
             Some(service) => service.name.clone(),
@@ -928,7 +947,6 @@ pub mod tor {
 
     /// Rotate Tor identity (new .onion address)
     pub async fn rotate(name: &str) -> CliResult<String> {
-        use crate::domain::naming::ServiceName;
         use crate::ports::tor::TorManagerPort;
 
         let tor_adapter = Arc::new(TorConfigAdapter::new());
@@ -939,9 +957,7 @@ pub mod tor {
             .await
             .map_err(CliError::from)?;
 
-        let possible_names = ServiceName::possible_names_for_lookup(name);
-
-        let found_service = services.iter().find(|s| possible_names.contains(&s.name));
+        let found_service = find_tor_service(&services, name)?;
 
         let actual_name = match found_service {
             Some(service) => service.name.clone(),
@@ -973,7 +989,6 @@ pub mod tor {
         target_port: Option<u16>,
         auto_ports: bool,
     ) -> CliResult<String> {
-        use crate::domain::naming::ServiceName;
         use crate::ports::tor::TorManagerPort;
         use crate::ports::web::NginxManagerPort;
         use std::net::TcpListener;
@@ -989,9 +1004,8 @@ pub mod tor {
             .list_hidden_services()
             .await
             .map_err(CliError::from)?;
-        let possible_names = ServiceName::possible_names_for_lookup(name);
 
-        let found_service = services.iter().find(|s| possible_names.contains(&s.name));
+        let found_service = find_tor_service(&services, name)?;
 
         let (actual_name, has_nginx, nginx_actual_name) = match found_service {
             Some(service) => {
@@ -6632,6 +6646,53 @@ mod cli_error_tests {
     fn cli_result_err_is_err() {
         let r: CliResult<u32> = Err(CliError::Generic("fail".into()));
         assert!(r.is_err());
+    }
+}
+
+#[cfg(test)]
+mod tor_lookup_tests {
+    use super::tor::find_tor_service;
+    use super::CliError;
+    use crate::ports::tor::TorServiceInfo;
+
+    fn svc(name: &str) -> TorServiceInfo {
+        TorServiceInfo {
+            name: name.to_string(),
+            hostname: format!("{name}.onion"),
+            hidden_service_dir: format!("/var/lib/tor/enola_{name}"),
+            ports: vec![],
+            clients: vec![],
+            active: true,
+            auth_enabled: false,
+        }
+    }
+
+    #[test]
+    fn find_tor_service_resolves_unique_variant_and_exact_name() {
+        let services = vec![svc("wp_blog"), svc("git_repo")];
+        let found = find_tor_service(&services, "repo").expect("sin error");
+        assert_eq!(found.map(|s| s.name.as_str()), Some("git_repo"));
+        let found = find_tor_service(&services, "wp_blog").expect("sin error");
+        assert_eq!(found.map(|s| s.name.as_str()), Some("wp_blog"));
+        assert!(find_tor_service(&services, "nada")
+            .expect("sin error")
+            .is_none());
+    }
+
+    #[test]
+    fn find_tor_service_ambiguous_lists_candidates_in_order() {
+        // Tor lista `wp_dev` antes que `git_dev`: no se elige ninguno; el error
+        // enumera ambos ordenados por tipo y pide el nombre completo.
+        let services = vec![svc("wp_dev"), svc("git_dev")];
+        match find_tor_service(&services, "dev") {
+            Err(CliError::InvalidInput(msg)) => {
+                assert!(msg.contains("ambiguous"), "{msg}");
+                let git = msg.find("git_dev").expect("lista git_dev");
+                let wp = msg.find("wp_dev").expect("lista wp_dev");
+                assert!(git < wp, "orden por tipo: {msg}");
+            }
+            other => panic!("se esperaba ambigüedad, no {other:?}"),
+        }
     }
 }
 

@@ -310,11 +310,93 @@ impl ServiceName {
 
         names
     }
+
+    /// Resuelve el nombre de servicio que escribe el usuario contra los
+    /// servicios Tor existentes (`existing`), sin depender de su orden:
+    ///
+    /// 1. Coincidencia exacta → ese servicio (el usuario dio el nombre real).
+    /// 2. Si no, variantes de [`Self::possible_names_for_lookup`]: una sola
+    ///    coincidencia → ese servicio; varias → [`ServiceLookup::Ambiguous`] con
+    ///    todas, ordenadas por tipo (orden de las variantes) y sin duplicados,
+    ///    para que el usuario elija. Nunca se escoge una al azar.
+    pub fn lookup_service(input: &str, existing: &[&str]) -> ServiceLookup {
+        if existing.contains(&input) {
+            return ServiceLookup::Found(input.to_string());
+        }
+        let mut matches: Vec<String> = Vec::new();
+        for candidate in Self::possible_names_for_lookup(input) {
+            if existing.contains(&candidate.as_str()) && !matches.contains(&candidate) {
+                matches.push(candidate);
+            }
+        }
+        match matches.len() {
+            0 => ServiceLookup::NotFound,
+            1 => ServiceLookup::Found(matches.remove(0)),
+            _ => ServiceLookup::Ambiguous(matches),
+        }
+    }
+}
+
+/// Resultado de [`ServiceName::lookup_service`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceLookup {
+    /// Un único servicio coincide: su nombre real en Tor.
+    Found(String),
+    /// Ningún servicio coincide.
+    NotFound,
+    /// Varios servicios coinciden, ordenados por tipo: el usuario debe elegir.
+    Ambiguous(Vec<String>),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lookup_service_exact_name_wins_even_if_variants_exist() {
+        // El usuario escribió el nombre real: no hay ambigüedad posible.
+        let existing = ["wp_dev", "git_dev", "dev"];
+        assert_eq!(
+            ServiceName::lookup_service("wp_dev", &existing),
+            ServiceLookup::Found("wp_dev".to_string())
+        );
+        assert_eq!(
+            ServiceName::lookup_service("dev", &existing),
+            ServiceLookup::Found("dev".to_string())
+        );
+    }
+
+    #[test]
+    fn lookup_service_single_variant_is_found() {
+        let existing = ["wp_blog", "git_repo"];
+        assert_eq!(
+            ServiceName::lookup_service("repo", &existing),
+            ServiceLookup::Found("git_repo".to_string())
+        );
+    }
+
+    #[test]
+    fn lookup_service_multiple_variants_is_ambiguous_and_ordered_by_type() {
+        // Nunca se elige una al azar (ni por el orden en que Tor las liste):
+        // se devuelven todas, ordenadas por tipo y sin duplicados.
+        let existing = ["wp_dev", "proxy_dev", "git_dev"];
+        assert_eq!(
+            ServiceName::lookup_service("dev", &existing),
+            ServiceLookup::Ambiguous(vec![
+                "git_dev".to_string(),
+                "wp_dev".to_string(),
+                "proxy_dev".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn lookup_service_not_found() {
+        assert_eq!(
+            ServiceName::lookup_service("nada", &["wp_dev"]),
+            ServiceLookup::NotFound
+        );
+    }
 
     #[test]
     fn test_service_name_git() {

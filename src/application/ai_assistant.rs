@@ -174,6 +174,9 @@ pub(crate) fn resolve_instance_endpoint(
 ) -> Result<Option<String>> {
     if let Some(raw_name) = instance {
         let name = raw_name.trim();
+        // Por prioridad: el contenedor canónico de `ai create` primero; el resto
+        // son formas legacy/externas. Se recorren los candidatos (no los
+        // contenedores) para que el orden de `docker ps` no decida.
         let candidates = [
             format!("enola-ai-{name}-ollama"),
             format!("enola-ollama-{name}"),
@@ -181,9 +184,9 @@ pub(crate) fn resolve_instance_endpoint(
             format!("{name}-ollama"),
             name.to_string(),
         ];
-        if let Some(found) = containers
+        if let Some(found) = candidates
             .iter()
-            .find(|c| candidates.iter().any(|cand| c.name == *cand))
+            .find_map(|cand| containers.iter().find(|c| c.name == *cand))
         {
             let port = extract_ollama_host_port(&found.ports);
             return Ok(Some(format!("http://127.0.0.1:{port}")));
@@ -195,11 +198,26 @@ pub(crate) fn resolve_instance_endpoint(
         )));
     }
 
-    if let Some(found) = containers.iter().find(|c| {
-        (c.name.starts_with("enola-ai-") && c.name.ends_with("-ollama"))
-            || c.name.starts_with("enola-ollama-")
-            || c.name == "piloto-ollama"
-    }) {
+    // Autodescubrimiento determinista: clase (gestionada `enola-ai-*-ollama` →
+    // legacy `enola-ollama-*` → externa `piloto-ollama`) y, dentro de la clase,
+    // nombre alfabético. Nunca el orden arbitrario de `docker ps`.
+    let class = |name: &str| -> Option<u8> {
+        if name.starts_with("enola-ai-") && name.ends_with("-ollama") {
+            Some(0)
+        } else if name.starts_with("enola-ollama-") {
+            Some(1)
+        } else if name == "piloto-ollama" {
+            Some(2)
+        } else {
+            None
+        }
+    };
+    if let Some(found) = containers
+        .iter()
+        .filter_map(|c| class(&c.name).map(|k| (k, c)))
+        .min_by(|(ka, a), (kb, b)| ka.cmp(kb).then_with(|| a.name.cmp(&b.name)))
+        .map(|(_, c)| c)
+    {
         let port = extract_ollama_host_port(&found.ports);
         return Ok(Some(format!("http://127.0.0.1:{port}")));
     }
@@ -1281,6 +1299,51 @@ mod tests {
         let missing = resolve_instance_endpoint(&containers, Some("nonexistent")).unwrap_err();
         assert!(missing.to_string().contains("nonexistent"));
         assert!(missing.to_string().contains("ai create"));
+    }
+
+    fn ollama_container(name: &str, host_port: u16) -> ContainerInfo {
+        ContainerInfo {
+            id: name.to_string(),
+            name: name.to_string(),
+            image: "ollama/ollama:latest".to_string(),
+            status: "Up".to_string(),
+            ports: vec![format!("127.0.0.1:{host_port}->11434/tcp")],
+        }
+    }
+
+    #[test]
+    fn resolve_instance_endpoint_prefers_canonical_container_over_legacy_names() {
+        // Docker lista antes un contenedor con nombre legacy (`dev`): aun así
+        // `--instance dev` debe resolver al canónico `enola-ai-dev-ollama`.
+        let containers = vec![
+            ollama_container("dev", 11500),
+            ollama_container("enola-ollama-dev", 11501),
+            ollama_container("enola-ai-dev-ollama", 11435),
+        ];
+        let endpoint = resolve_instance_endpoint(&containers, Some("dev")).unwrap();
+        assert_eq!(endpoint.as_deref(), Some("http://127.0.0.1:11435"));
+    }
+
+    #[test]
+    fn resolve_instance_endpoint_autodiscovery_is_ordered_by_class_then_name() {
+        // Sin `--instance`: primero instancias gestionadas (`enola-ai-*-ollama`),
+        // luego legacy (`enola-ollama-*`), luego el externo `piloto-ollama`; dentro
+        // de cada clase, orden alfabético. Nunca el orden arbitrario de Docker.
+        let containers = vec![
+            ollama_container("piloto-ollama", 11434),
+            ollama_container("enola-ollama-old", 11600),
+            ollama_container("enola-ai-zeta-ollama", 11437),
+            ollama_container("enola-ai-alpha-ollama", 11436),
+        ];
+        let auto = resolve_instance_endpoint(&containers, None).unwrap();
+        assert_eq!(auto.as_deref(), Some("http://127.0.0.1:11436"));
+
+        let legacy_and_external = vec![
+            ollama_container("piloto-ollama", 11434),
+            ollama_container("enola-ollama-old", 11600),
+        ];
+        let auto = resolve_instance_endpoint(&legacy_and_external, None).unwrap();
+        assert_eq!(auto.as_deref(), Some("http://127.0.0.1:11600"));
     }
 
     #[test]

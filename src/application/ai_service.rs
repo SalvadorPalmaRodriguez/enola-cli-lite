@@ -234,15 +234,18 @@ pub async fn enrich_instances_with_onion(
         return;
     };
     for inst in instances.iter_mut() {
+        // Por prioridad: `proxy_ai-<n>` es el nombre que despliega `ai publish`;
+        // el resto son formas alternativas. Se recorren los candidatos (no los
+        // servicios) para que el orden en que Tor los lista no decida.
         let candidates = [
             format!("proxy_ai-{}", inst.name),
             format!("ai-{}", inst.name),
             format!("ai_{}", inst.name),
             format!("proxy_ai_{}", inst.name),
         ];
-        if let Some(found) = tor_services
+        if let Some(found) = candidates
             .iter()
-            .find(|s| candidates.iter().any(|c| c == &s.name))
+            .find_map(|c| tor_services.iter().find(|s| &s.name == c))
         {
             if !found.hostname.is_empty() && !found.hostname.contains("pending") {
                 inst.onion_address = Some(found.hostname.clone());
@@ -428,6 +431,45 @@ mod tests {
         assert_eq!(
             instances[0].onion_address.as_deref(),
             Some("devonion.onion")
+        );
+    }
+
+    #[tokio::test]
+    async fn enrich_instances_with_onion_follows_name_priority_not_tor_order() {
+        // `ai publish` despliega `proxy_ai-<n>`: debe ganar aunque Tor liste
+        // antes otra forma (`ai_dev`) para la misma instancia.
+        let service = |name: &str, host: &str| TorServiceInfo {
+            name: name.into(),
+            hostname: host.into(),
+            hidden_service_dir: format!("/var/lib/tor/enola_{name}"),
+            ports: vec![(80, "127.0.0.1:10081".to_string())],
+            clients: vec![],
+            active: true,
+            auth_enabled: false,
+        };
+        let mut tor = MockTorManagerPort::new();
+        tor.expect_list_hidden_services().returning(move || {
+            Ok(vec![
+                service("ai_dev", "other.onion"),
+                service("proxy_ai-dev", "published.onion"),
+            ])
+        });
+        let mut instances = vec![AiInstance {
+            name: "dev".into(),
+            model: "llama3.1:8b".into(),
+            api_port: Some(11435),
+            webui_port: Some(8081),
+            status: AiInstanceStatus::Running,
+            ollama_status: "Up".into(),
+            webui_status: "Up".into(),
+            gpu_enabled: false,
+            onion_address: None,
+        }];
+
+        enrich_instances_with_onion(&mut instances, &tor).await;
+        assert_eq!(
+            instances[0].onion_address.as_deref(),
+            Some("published.onion")
         );
     }
 

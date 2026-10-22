@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/tor/commands-tor.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-09-13
+> **Versión:** 2.3 | **Actualizado:** 2026-10-23
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -12,6 +12,11 @@ Tipos de servicio:
 - `raw` / `tcp`: Conexión TCP directa (Tor → App) — para SSH, bases de datos
 - `static`: Sitio estático servido por Nginx
 - `files`: Servidor de archivos con directory listing
+
+**Cómo se resuelve `<NAME>`** en `tor start|stop|remove|rotate|edit`:
+1. Si coincide exactamente con un servicio (p. ej. `wp_dev`), se usa ese.
+2. Si no, se prueban las variantes por tipo (`git_dev`, `wp_dev`, `proxy_dev`…): con una sola coincidencia se usa esa.
+3. Si coinciden varias, el comando **falla** y lista los candidatos ordenados por tipo; repite con el nombre completo (`enola-cli tor list` los muestra todos). Nunca se elige uno al azar.
 
 ---
 

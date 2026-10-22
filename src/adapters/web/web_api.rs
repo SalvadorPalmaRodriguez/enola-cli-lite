@@ -972,7 +972,7 @@ struct TorDetailResponse {
 
 async fn api_tor_detail(Path(name): Path<String>) -> ApiResult<TorDetailResponse> {
     use crate::adapters::tor::TorConfigAdapter;
-    use crate::domain::naming::ServiceName;
+    use crate::domain::naming::{ServiceLookup, ServiceName};
     use crate::ports::tor::TorManagerPort;
 
     let tor_adapter = TorConfigAdapter::new();
@@ -984,10 +984,31 @@ async fn api_tor_detail(Path(name): Path<String>) -> ApiResult<TorDetailResponse
             code: 500,
         })?;
 
-    let possible_names = ServiceName::possible_names_for_lookup(&name);
+    // Misma resolución que la CLI: exacto o variante única; si varias variantes
+    // coinciden, 409 con los candidatos ordenados (nunca una al azar).
+    let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
+    let real_name = match ServiceName::lookup_service(&name, &existing) {
+        ServiceLookup::Found(real) => real,
+        ServiceLookup::NotFound => {
+            return Err(ApiError {
+                error: format!("Service '{}' not found", name),
+                code: 404,
+            })
+        }
+        ServiceLookup::Ambiguous(candidates) => {
+            return Err(ApiError {
+                error: format!(
+                    "Service name '{}' is ambiguous: it matches {}. Use the full name.",
+                    name,
+                    candidates.join(", ")
+                ),
+                code: 409,
+            })
+        }
+    };
     let service = services
         .iter()
-        .find(|s| possible_names.contains(&s.name))
+        .find(|s| s.name == real_name)
         .ok_or_else(|| ApiError {
             error: format!("Service '{}' not found", name),
             code: 404,
