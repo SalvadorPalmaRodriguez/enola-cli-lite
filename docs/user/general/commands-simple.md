@@ -214,7 +214,7 @@ enola-cli verify <ARCHIVO> [--pqsig <PATH>] [--pubkey <PATH>] [--json]
 
 **Ejemplos:**
 ```bash
-enola-cli verify enola-cli-v0.9.0-alpha-x86_64-linux.tar.gz
+enola-cli verify enola-cli-v0.10.0-alpha-x86_64-linux.tar.gz
 enola-cli verify mybinary --pqsig mybinary.pqsig --json
 ```
 

@@ -5,6 +5,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0-alpha] — 2026-10-24
+
 ### Breaking
 - **Canonical Tor service names `<domain>_<name>` (services published with v0.9.0 must be republished)** — publishing now names every hidden service and its certificate after the domain (the Nginx site is `proxy_<domain>_<n>`): `git_<n>`, `wp_<n>`, `drupal_<n>`, `ghost_<n>`, `magnolia_<n>`, `strapi_<n>`, `wagtail_<n>`, `fileserver_<n>` and `ai_<n>` (`tor create web` keeps `proxy_<n>`). Services published with v0.9.0 keep their old names — `git publish` → `<n>`, `wp publish` → `proxy_<n>`, `drupal|ghost|magnolia|strapi|wagtail publish` → `proxy_<cms>-<n>` (`files create` is unchanged) — and are **not managed automatically**: `hide`, `tor auth <domain> <instance>` and `tor ssl` no longer find them. They are never ignored silently: if only the old service exists, these commands fail with the exact command to run, and publishing a CMS whose old service still exists is refused instead of creating a second `.onion` (for `wp`/`git`, whose old names are also used by `tor create`, it publishes and warns). To migrate: `sudo enola-cli tor remove <old-name>` and publish again. **The `.onion` address changes.**
 

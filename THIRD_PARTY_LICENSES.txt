@@ -1,6 +1,6 @@
 ================================================================================
   ENOLA CLI — THIRD-PARTY SOFTWARE LICENSE NOTICES
-  Cargo.lock sha256: 736fc57898be7b2c64f3511780114689a4c384bcadaf0721ab55601935007c45
+  Cargo.lock sha256: e6c0880438c4091bb93d1f779530195c39ab0786fbb045fe989b565feab6a47d
 ================================================================================
 
 This file reproduces the copyright notices and license texts of the
