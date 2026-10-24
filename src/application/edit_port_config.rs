@@ -259,6 +259,20 @@ mod tests {
         async fn is_port_available(&self, _port: u16) -> bool {
             true
         }
+
+        async fn create_fileserver_config_with_ssl(
+            &self,
+            _config: crate::ports::web::NginxFileServerConfigWithSsl,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn detect_ssl_config(
+            &self,
+            _domain: &str,
+        ) -> Result<(bool, Option<u16>, Option<String>)> {
+            Ok((false, None, None))
+        }
     }
 
     // Mock ContainerPort

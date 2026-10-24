@@ -33,7 +33,8 @@ impl DeploySshHiddenService {
         // 0. Validate service name — se interpola en rutas/config de Tor
         // vía DeployTorService (R-12; defensa en profundidad aunque el
         // caso de uso delegado también valida).
-        crate::domain::naming::validate_service_name(service_name)?;
+        // Es el nombre de servicio canónico (`<dominio>_<name>`): admite `_`.
+        crate::domain::naming::validate_tor_service_name(service_name)?;
 
         // 1. Ensure SSH Server is running on localhost
         // Try 'ssh' or 'sshd'. Ubuntu usually uses 'ssh'.

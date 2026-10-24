@@ -183,6 +183,21 @@
           "subcommands": []
         },
         {
+          "description": "Enable HTTPS on an existing .onion service (post-hoc SSL)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "name",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "value_name": "NAME"
+            }
+          ],
+          "name": "ssl",
+          "subcommands": []
+        },
+        {
           "description": "Manage client authorization",
           "flags": [],
           "name": "auth",
@@ -197,6 +212,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
+                },
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "INSTANCE"
                 }
               ],
               "name": "list",
@@ -212,6 +235,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
+                },
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "INSTANCE"
                 }
               ],
               "name": "enable",
@@ -227,6 +258,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
+                },
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "INSTANCE"
                 }
               ],
               "name": "disable",
@@ -242,6 +281,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
+                },
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "INSTANCE"
                 },
                 {
                   "boolean": false,
@@ -273,6 +320,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
+                },
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "INSTANCE"
                 },
                 {
                   "boolean": false,
@@ -311,6 +366,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "SERVICE"
+                },
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "INSTANCE"
                 },
                 {
                   "boolean": false,
@@ -595,6 +658,17 @@
               ],
               "required": false,
               "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -926,6 +1000,28 @@
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -1116,6 +1212,28 @@
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -1276,6 +1394,28 @@
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -1436,6 +1576,28 @@
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -1573,6 +1735,28 @@
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -1728,6 +1912,28 @@
               "possible_values": [],
               "required": true,
               "value_name": "NAME"
+            },
+            {
+              "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
             }
           ],
           "name": "publish",
@@ -3760,6 +3966,28 @@
             },
             {
               "boolean": true,
+              "name": "ssl",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "SSL"
+            },
+            {
+              "boolean": true,
+              "name": "auth",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "value_name": "AUTH"
+            },
+            {
+              "boolean": true,
               "name": "verify",
               "positional": false,
               "possible_values": [
@@ -4618,7 +4846,7 @@
               "subcommands": []
             },
             {
-              "description": "Interactive wizard guiding through dataset selection, model choice and training parameters (TTY only) — NOT implemented (out of scope for Fase 14.5): use `prepare` + `validate` + `start` + `register`",
+              "description": "Interactive wizard guiding through dataset selection, model choice and training parameters (TTY only) — NOT implemented yet: deferred to a future phase by scope decision 2026-10-20 (TODO[FT-WIZARD-001]). Use `prepare` + `validate` + `start` + `register`",
               "flags": [],
               "name": "wizard",
               "subcommands": []

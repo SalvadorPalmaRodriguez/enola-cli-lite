@@ -888,6 +888,16 @@ pub enum TorCommands {
         name: String,
     },
 
+    /// Enable HTTPS on an existing .onion service (post-hoc SSL)
+    ///
+    /// Generates a self-signed certificate, converts the Nginx site to
+    /// HTTP+HTTPS and adds port 443 to the hidden service.
+    /// Fails with a clear error if the service already has SSL.
+    Ssl {
+        /// Service name (canonical: ai_dev, wp_blog, proxy_web1, fileserver_docs)
+        name: String,
+    },
+
     /// Manage client authorization
     #[command(subcommand)]
     Auth(TorAuthCommands),
@@ -897,20 +907,32 @@ pub enum TorCommands {
 pub enum TorAuthCommands {
     /// List authorized clients for a service
     List {
-        /// Service name
+        /// Service name (canonical or legacy)
         service: String,
+
+        /// Instance name — when given, `service` is the domain
+        /// (`tor auth <cmd> <domain> <instance>` → canonical name)
+        instance: Option<String>,
     },
 
     /// Enable client authorization for a service
     Enable {
-        /// Service name
+        /// Service name (canonical or legacy)
         service: String,
+
+        /// Instance name — when given, `service` is the domain
+        /// (`tor auth <cmd> <domain> <instance>` → canonical name)
+        instance: Option<String>,
     },
 
     /// Disable client authorization for a service
     Disable {
-        /// Service name
+        /// Service name (canonical or legacy)
         service: String,
+
+        /// Instance name — when given, `service` is the domain
+        /// (`tor auth <cmd> <domain> <instance>` → canonical name)
+        instance: Option<String>,
     },
 
     /// Add an authorized client (SERVER-SIDE operation)
@@ -924,8 +946,11 @@ pub enum TorAuthCommands {
     ///   2. Client sends public key to operator (secure channel)
     ///   3. Operator runs: enola-cli tor auth add <service> --client alice --pubkey <key>
     Add {
-        /// Service name
+        /// Service name (canonical or legacy)
         service: String,
+
+        /// Instance name — when given, `service` is the domain
+        instance: Option<String>,
 
         /// Client name
         #[arg(short, long)]
@@ -938,8 +963,11 @@ pub enum TorAuthCommands {
 
     /// Revoke a client's authorization
     Revoke {
-        /// Service name
+        /// Service name (canonical or legacy)
         service: String,
+
+        /// Instance name — when given, `service` is the domain
+        instance: Option<String>,
 
         /// Client name to revoke
         #[arg(short, long)]
@@ -976,8 +1004,11 @@ pub enum TorAuthCommands {
     /// The client must already exist (otherwise use `tor auth add`); rotation
     /// does not enable client auth on the service.
     Rotate {
-        /// Service name
+        /// Service name (canonical or legacy)
         service: String,
+
+        /// Instance name — when given, `service` is the domain
+        instance: Option<String>,
 
         /// Client name to rotate
         #[arg(short, long)]
@@ -1190,6 +1221,10 @@ pub enum GitCommands {
         /// Enable HTTPS with self-signed certificate
         #[arg(long)]
         ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
     },
 
     /// Hide Git server from Tor (remove hidden service)
@@ -1363,6 +1398,14 @@ pub enum WordPressCommands {
     Publish {
         /// Site name
         name: String,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
     },
 
     /// Hide site from Tor (remove hidden service)
@@ -1452,6 +1495,14 @@ pub enum DrupalCommands {
     Publish {
         /// Site name
         name: String,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
     },
 
     /// Hide site from Tor (remove hidden service)
@@ -1538,6 +1589,14 @@ pub enum GhostCommands {
     Publish {
         /// Blog name
         name: String,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
     },
 
     /// Hide blog from Tor (remove hidden service)
@@ -1600,7 +1659,18 @@ pub enum MagnoliaCommands {
     Status { name: String },
 
     /// Publish Magnolia instance on Tor (create hidden service)
-    Publish { name: String },
+    Publish {
+        /// Instance name
+        name: String,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
+    },
 
     /// Hide Magnolia instance from Tor (remove hidden service)
     Hide { name: String },
@@ -1649,7 +1719,18 @@ pub enum StrapiCommands {
     Status { name: String },
 
     /// Publish Strapi instance on Tor (create hidden service)
-    Publish { name: String },
+    Publish {
+        /// Instance name
+        name: String,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
+    },
 
     /// Hide Strapi instance from Tor (remove hidden service)
     Hide { name: String },
@@ -1707,7 +1788,18 @@ pub enum WagtailCommands {
     Status { name: String },
 
     /// Publish Wagtail instance on Tor (create hidden service)
-    Publish { name: String },
+    Publish {
+        /// Instance name
+        name: String,
+
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
+    },
 
     /// Hide Wagtail instance from Tor (remove hidden service)
     Hide { name: String },
@@ -1756,7 +1848,7 @@ pub enum FileCommands {
         auth: bool,
 
         /// Enable HTTPS: generates a self-signed certificate and adds a second Nginx
-        /// listener (TLSv1.3 only — PQC-safe). The .onion expone tanto :80 (HTTP) como :443 (HTTPS).
+        /// listener (TLS 1.3 only). The .onion exposes both :80 (HTTP) and :443 (HTTPS).
         #[arg(long)]
         ssl: bool,
     },
@@ -2570,6 +2662,14 @@ pub enum AiCommands {
         #[arg(value_name = "NAME")]
         name: String,
 
+        /// Enable HTTPS with self-signed certificate
+        #[arg(long)]
+        ssl: bool,
+
+        /// Enable Tor client authorization (onion requires a client key)
+        #[arg(short, long)]
+        auth: bool,
+
         /// Probe the resulting .onion address over Tor SOCKS5h after publishing
         #[arg(long, default_value_t = false)]
         verify: bool,
@@ -3138,8 +3238,9 @@ pub enum AiFinetuneCommands {
     },
 
     /// Interactive wizard guiding through dataset selection, model choice
-    /// and training parameters (TTY only) — NOT implemented (out of scope
-    /// for Fase 14.5): use `prepare` + `validate` + `start` + `register`
+    /// and training parameters (TTY only) — NOT implemented yet: deferred
+    /// to a future phase by scope decision 2026-10-20 (TODO[FT-WIZARD-001]).
+    /// Use `prepare` + `validate` + `start` + `register`
     ///
     /// Example:
     ///   enola-cli ai finetune wizard

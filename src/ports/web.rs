@@ -27,6 +27,18 @@ pub struct NginxProxyConfig {
     pub rate_limit: Option<String>, // e.g. "10r/s"
 }
 
+/// Configuración de file server con SSL/HTTPS (autoindex + TLS + PQC).
+/// El site Nginx se escribe como `fileserver_{service_name}` (nombre canónico).
+#[derive(Debug, Clone)]
+pub struct NginxFileServerConfigWithSsl {
+    pub service_name: String,
+    pub http_port: u16,   // Nginx HTTP listen port
+    pub https_port: u16,  // Nginx HTTPS listen port
+    pub root_dir: String, // e.g. "/srv/enola-files/{name}"
+    pub ssl_cert_path: String,
+    pub ssl_key_path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct NginxProxyConfigWithSsl {
     pub service_name: String,
@@ -53,6 +65,16 @@ pub trait NginxManagerPort {
 
     /// Create a reverse proxy configuration with SSL/HTTPS support
     async fn create_proxy_config_with_ssl(&self, config: NginxProxyConfigWithSsl) -> Result<()>;
+
+    /// Create a file server configuration with SSL/HTTPS (autoindex + TLS + PQC)
+    async fn create_fileserver_config_with_ssl(
+        &self,
+        config: NginxFileServerConfigWithSsl,
+    ) -> Result<()>;
+
+    /// Detect whether a site config already has SSL enabled.
+    /// Returns `(has_ssl, https_port, cert_path)`.
+    async fn detect_ssl_config(&self, domain: &str) -> Result<(bool, Option<u16>, Option<String>)>;
 
     /// Generate a self-signed SSL certificate for a service
     /// Returns (cert_path, key_path)

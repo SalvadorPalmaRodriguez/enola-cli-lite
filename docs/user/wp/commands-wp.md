@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/wp/commands-wp.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -156,7 +156,7 @@ sudo enola-cli wp config <NOMBRE>
 Publica el sitio en Tor como hidden service.
 
 ```bash
-sudo enola-cli wp publish <NOMBRE>
+sudo enola-cli wp publish <NOMBRE> [--ssl] [--auth]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |

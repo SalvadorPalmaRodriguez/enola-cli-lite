@@ -9,10 +9,16 @@
 //! |--------------|----------------|-----------------|------------------|--------------|
 //! | Git          | enola_git_     | git_{name}      | enola-git-{name} | proxy_git_{name} |
 //! | WordPress    | enola_wp_      | wp_{name}       | wp-{name}        | proxy_wp_{name} |
+//! | Drupal       | enola_drupal_  | drupal_{name}   | drupal-{name}    | proxy_drupal_{name} |
+//! | Ghost        | enola_ghost_   | ghost_{name}    | ghost-{name}     | proxy_ghost_{name} |
+//! | Magnolia     | enola_magnolia_| magnolia_{name} | magnolia-{name}  | proxy_magnolia_{name} |
+//! | Strapi       | enola_strapi_  | strapi_{name}   | strapi-{name}    | proxy_strapi_{name} |
+//! | Wagtail      | enola_wagtail_ | wagtail_{name}  | wagtail-{name}   | proxy_wagtail_{name} |
 //! | Static Site  | enola_static_  | static_{name}   | N/A              | static_{name} |
-//! | File Server  | enola_files_   | files_{name}    | N/A              | files_{name} |
+//! | File Server  | enola_fileserver_ | fileserver_{name} | N/A         | fileserver_{name} |
 //! | Proxy/Web    | enola_proxy_   | proxy_{name}    | N/A              | proxy_{name} |
 //! | Raw TCP      | enola_raw_     | raw_{name}      | N/A              | N/A |
+//! | AI           | enola_ai_      | ai_{name}       | enola-ai-{name}  | proxy_ai_{name} |
 
 use super::error::EnolaError;
 use std::fmt;
@@ -68,11 +74,62 @@ pub fn validate_service_name(name: &str) -> Result<(), EnolaError> {
     Ok(())
 }
 
+/// Comprueba que un nombre de servicio Tor/Nginx **canónico** solo contenga
+/// minúsculas, dígitos, guiones y guiones bajos, empiece por letra o dígito
+/// y no exceda 80 caracteres (63 de base + prefijo de dominio, p.ej.
+/// `fileserver_` = 11 + margen).
+fn is_valid_tor_service_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 80 {
+        return false;
+    }
+    let bytes = name.as_bytes();
+    let first = bytes[0];
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return false;
+    }
+    bytes[1..]
+        .iter()
+        .all(|&b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+/// Valida un nombre de servicio **ya compuesto** en la capa Tor/Nginx
+/// (canonical `<dominio>_<name>`, p.ej. `ai_dev`, `drupal_blog`,
+/// `fileserver_share`, `proxy_web1`).
+///
+/// A diferencia de [`validate_service_name`] —que valida el nombre base
+/// elegido por el usuario— aquí se admite `_` porque es el separador
+/// canónico de dominio. Las reglas de seguridad son las mismas: sin
+/// metacaracteres de shell, sin traversal, sin mayúsculas ni espacios.
+///
+/// # Errors
+/// Retorna `EnolaError::ValidationError` si el nombre no cumple las reglas.
+pub fn validate_tor_service_name(name: &str) -> Result<(), EnolaError> {
+    if name.is_empty() {
+        return Err(EnolaError::ValidationError(
+            "El nombre del servicio no puede estar vacío".into(),
+        ));
+    }
+    if !is_valid_tor_service_name(name) {
+        return Err(EnolaError::ValidationError(format!(
+            "Nombre de servicio inválido: '{}'\n\
+             Reglas: solo minúsculas, dígitos, guiones y guiones bajos; empieza con letra o dígito; máx 80 chars.\n\
+             Ejemplo válido: ai_mi-instancia",
+            name
+        )));
+    }
+    Ok(())
+}
+
 /// Service types supported by Enola
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceType {
     Git,
     WordPress,
+    Drupal,
+    Ghost,
+    Magnolia,
+    Strapi,
+    Wagtail,
     StaticSite,
     FileServer,
     Proxy,
@@ -81,12 +138,38 @@ pub enum ServiceType {
 }
 
 impl ServiceType {
+    /// Todas las variantes de `ServiceType` (D16).
+    ///
+    /// Fuente única de verdad para iterar tipos en `from_tor_dir`,
+    /// `from_tor_config` y `possible_names_for_lookup`. Al añadir una
+    /// variante al enum hay que incluirla aquí — el test
+    /// `test_service_type_all_covers_every_variant` lo exige.
+    pub const ALL: [ServiceType; 12] = [
+        ServiceType::Git,
+        ServiceType::WordPress,
+        ServiceType::Drupal,
+        ServiceType::Ghost,
+        ServiceType::Magnolia,
+        ServiceType::Strapi,
+        ServiceType::Wagtail,
+        ServiceType::StaticSite,
+        ServiceType::FileServer,
+        ServiceType::Proxy,
+        ServiceType::Raw,
+        ServiceType::Ai,
+    ];
+
     /// Get the prefix used for Tor hidden service directories
     /// e.g., /var/lib/tor/enola_git_{name}
     pub fn tor_dir_prefix(&self) -> &'static str {
         match self {
             ServiceType::Git => "enola_git_",
             ServiceType::WordPress => "enola_wp_",
+            ServiceType::Drupal => "enola_drupal_",
+            ServiceType::Ghost => "enola_ghost_",
+            ServiceType::Magnolia => "enola_magnolia_",
+            ServiceType::Strapi => "enola_strapi_",
+            ServiceType::Wagtail => "enola_wagtail_",
             ServiceType::StaticSite => "enola_static_",
             ServiceType::FileServer => "enola_fileserver_",
             ServiceType::Proxy => "enola_proxy_",
@@ -101,6 +184,11 @@ impl ServiceType {
         match self {
             ServiceType::Git => "git_",
             ServiceType::WordPress => "wp_",
+            ServiceType::Drupal => "drupal_",
+            ServiceType::Ghost => "ghost_",
+            ServiceType::Magnolia => "magnolia_",
+            ServiceType::Strapi => "strapi_",
+            ServiceType::Wagtail => "wagtail_",
             ServiceType::StaticSite => "static_",
             ServiceType::FileServer => "fileserver_",
             ServiceType::Proxy => "proxy_",
@@ -115,6 +203,11 @@ impl ServiceType {
         match self {
             ServiceType::Git => Some("enola-git-"),
             ServiceType::WordPress => Some("wp-"),
+            ServiceType::Drupal => Some("drupal-"),
+            ServiceType::Ghost => Some("ghost-"),
+            ServiceType::Magnolia => Some("magnolia-"),
+            ServiceType::Strapi => Some("strapi-"),
+            ServiceType::Wagtail => Some("wagtail-"),
             ServiceType::StaticSite => None,
             ServiceType::FileServer => None,
             ServiceType::Proxy => None,
@@ -129,6 +222,11 @@ impl ServiceType {
         match self {
             ServiceType::Git => Some("proxy_git_"),
             ServiceType::WordPress => Some("proxy_wp_"),
+            ServiceType::Drupal => Some("proxy_drupal_"),
+            ServiceType::Ghost => Some("proxy_ghost_"),
+            ServiceType::Magnolia => Some("proxy_magnolia_"),
+            ServiceType::Strapi => Some("proxy_strapi_"),
+            ServiceType::Wagtail => Some("proxy_wagtail_"),
             ServiceType::StaticSite => Some("static_"),
             ServiceType::FileServer => Some("fileserver_"),
             ServiceType::Proxy => Some("proxy_"),
@@ -142,6 +240,11 @@ impl ServiceType {
         match s.to_lowercase().as_str() {
             "git" | "forgejo" => Some(ServiceType::Git),
             "wordpress" | "wp" => Some(ServiceType::WordPress),
+            "drupal" => Some(ServiceType::Drupal),
+            "ghost" => Some(ServiceType::Ghost),
+            "magnolia" => Some(ServiceType::Magnolia),
+            "strapi" => Some(ServiceType::Strapi),
+            "wagtail" => Some(ServiceType::Wagtail),
             "static" | "site" => Some(ServiceType::StaticSite),
             "files" | "fileserver" => Some(ServiceType::FileServer),
             "proxy" | "web" | "http" => Some(ServiceType::Proxy),
@@ -157,6 +260,11 @@ impl fmt::Display for ServiceType {
         match self {
             ServiceType::Git => write!(f, "git"),
             ServiceType::WordPress => write!(f, "wordpress"),
+            ServiceType::Drupal => write!(f, "drupal"),
+            ServiceType::Ghost => write!(f, "ghost"),
+            ServiceType::Magnolia => write!(f, "magnolia"),
+            ServiceType::Strapi => write!(f, "strapi"),
+            ServiceType::Wagtail => write!(f, "wagtail"),
             ServiceType::StaticSite => write!(f, "static"),
             ServiceType::FileServer => write!(f, "fileserver"),
             ServiceType::Proxy => write!(f, "proxy"),
@@ -234,15 +342,7 @@ impl ServiceName {
     /// Parse a service name from a Tor directory name
     /// e.g., "enola_git_myserver" -> Some(ServiceName { base_name: "myserver", service_type: Git })
     pub fn from_tor_dir(dir_name: &str) -> Option<Self> {
-        for service_type in [
-            ServiceType::Git,
-            ServiceType::WordPress,
-            ServiceType::StaticSite,
-            ServiceType::FileServer,
-            ServiceType::Proxy,
-            ServiceType::Raw,
-            ServiceType::Ai,
-        ] {
+        for service_type in ServiceType::ALL {
             let prefix = service_type.tor_dir_prefix();
             if dir_name.starts_with(prefix) {
                 let base_name = dir_name.strip_prefix(prefix)?;
@@ -268,15 +368,7 @@ impl ServiceName {
     /// Parse a service name from a Tor config name
     /// e.g., "git_myserver" -> Some(ServiceName { base_name: "myserver", service_type: Git })
     pub fn from_tor_config(config_name: &str) -> Option<Self> {
-        for service_type in [
-            ServiceType::Git,
-            ServiceType::WordPress,
-            ServiceType::StaticSite,
-            ServiceType::FileServer,
-            ServiceType::Proxy,
-            ServiceType::Raw,
-            ServiceType::Ai,
-        ] {
+        for service_type in ServiceType::ALL {
             let prefix = service_type.tor_config_prefix();
             if config_name.starts_with(prefix) {
                 let base_name = config_name.strip_prefix(prefix)?;
@@ -286,25 +378,34 @@ impl ServiceName {
         None
     }
 
+    /// Resuelve `(domain, instance)` al nombre canónico del servicio Tor (D10).
+    ///
+    /// `domain` acepta los alias de [`ServiceType::parse_from_str`]
+    /// (`"git"`, `"wp"`, `"drupal"`, `"files"`, `"ai"`, `"web"`, ...).
+    /// Devuelve `None` si el dominio no corresponde a un `ServiceType`.
+    ///
+    /// ```text
+    /// resolve("ai", "dev")  -> Some("ai_dev")
+    /// resolve("wp", "blog") -> Some("wp_blog")
+    /// ```
+    pub fn resolve(domain: &str, instance: &str) -> Option<String> {
+        ServiceType::parse_from_str(domain)
+            .map(|service_type| Self::new(instance, service_type).tor_config_name())
+    }
+
     /// Try to find a service by base name, checking all possible prefixes
     /// Returns the list of possible names to search for
     pub fn possible_names_for_lookup(base_name: &str) -> Vec<String> {
         let mut names = vec![base_name.to_string()];
 
-        for service_type in [
-            ServiceType::Git,
-            ServiceType::WordPress,
-            ServiceType::StaticSite,
-            ServiceType::FileServer,
-            ServiceType::Proxy,
-            ServiceType::Raw,
-            ServiceType::Ai,
-        ] {
+        for service_type in ServiceType::ALL {
             names.push(format!("{}{}", service_type.tor_config_prefix(), base_name));
         }
 
-        // Legacy & hyphenated names
-        names.push(format!("proxy_{}", base_name));
+        // Fallback legacy NO canónico (D10): servicios creados antes de la
+        // nomenclatura `<dominio>_<name>` usaban guiones o el prefijo `proxy_`.
+        // Se mantienen solo para localizar servicios antiguos; los nuevos
+        // nunca se generan con estas formas.
         names.push(format!("ai-{}", base_name));
         names.push(format!("proxy_ai-{}", base_name));
 
@@ -337,6 +438,98 @@ impl ServiceName {
     }
 }
 
+/// Seguridad con que un nombre de la v0.9.0-alpha pertenece a un servicio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyMatch {
+    /// Solo lo pudo crear el `publish` de ese dominio en la v0.9.0
+    /// (`proxy_drupal-<n>`, ...).
+    Unambiguous,
+    /// Coincide con un nombre que también generan otros comandos
+    /// (`proxy_<n>` = `tor create web`; `<n>` = `tor create` raw/static).
+    Ambiguous,
+}
+
+impl ServiceName {
+    /// Nombres Tor que la v0.9.0-alpha daba a este servicio al publicarlo con
+    /// el comando de su dominio, antes de la nomenclatura `<dominio>_<name>`:
+    /// `git publish` → `<n>`, `wp publish` → `proxy_<n>`, y los CMS
+    /// `drupal|ghost|magnolia|strapi|wagtail publish` → `proxy_<cms>-<n>`.
+    /// `files` no cambió de nombre y `ai` no existía. Solo se usan para
+    /// **detectar y avisar**: los servicios antiguos no se gestionan.
+    pub fn legacy_v09_tor_names(&self) -> Vec<(String, LegacyMatch)> {
+        let base = &self.base_name;
+        let cms = match self.service_type {
+            ServiceType::Git => return vec![(base.clone(), LegacyMatch::Ambiguous)],
+            ServiceType::WordPress => {
+                return vec![(format!("proxy_{base}"), LegacyMatch::Ambiguous)]
+            }
+            ServiceType::Drupal => "drupal",
+            ServiceType::Ghost => "ghost",
+            ServiceType::Magnolia => "magnolia",
+            ServiceType::Strapi => "strapi",
+            ServiceType::Wagtail => "wagtail",
+            ServiceType::StaticSite
+            | ServiceType::FileServer
+            | ServiceType::Proxy
+            | ServiceType::Raw
+            | ServiceType::Ai => return Vec::new(),
+        };
+        vec![(format!("proxy_{cms}-{base}"), LegacyMatch::Unambiguous)]
+    }
+}
+
+/// Si el servicio canónico `canonical` (`<dominio>_<name>`) **no** está en
+/// `existing` pero sí uno de sus nombres de la v0.9.0-alpha, devuelve ese
+/// nombre y su [`LegacyMatch`]. `None` si existe el canónico, si no hay nada
+/// antiguo o si `canonical` no sigue la nomenclatura canónica.
+pub fn find_legacy_v09(canonical: &str, existing: &[&str]) -> Option<(String, LegacyMatch)> {
+    if existing.contains(&canonical) {
+        return None;
+    }
+    ServiceName::from_tor_config(canonical)?
+        .legacy_v09_tor_names()
+        .into_iter()
+        .find(|(name, _)| existing.contains(&name.as_str()))
+}
+
+/// Mensaje accionable cuando se encuentra `legacy` en lugar de `canonical`.
+pub fn legacy_v09_hint(canonical: &str, legacy: &str) -> String {
+    format!(
+        "No existe el servicio '{canonical}', pero sí '{legacy}', que parece publicado con \
+         enola-cli v0.9.0 (nomenclatura anterior). Desde v0.10.0 los servicios usan nombres \
+         canónicos y los antiguos no se gestionan automáticamente. Si es ese servicio, \
+         elimínalo con `sudo enola-cli tor remove {legacy}` y vuelve a publicarlo: \
+         la dirección .onion cambiará."
+    )
+}
+
+/// Resultado de [`find_published`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PublishedLookup {
+    /// El servicio canónico (`<dominio>_<name>`) existe: su nombre.
+    Found(String),
+    /// No está publicado.
+    NotPublished,
+    /// No está el canónico, pero sí uno de v0.9.0: aviso con el comando para
+    /// eliminarlo ([`legacy_v09_hint`]). Nunca se usa ese servicio antiguo.
+    LegacyV09(String),
+}
+
+/// Localiza el servicio publicado de `base` en el dominio `kind` **solo** por
+/// su nombre canónico, sin probar variantes (que podrían ser de otro servicio,
+/// p.ej. `proxy_<n>` de `tor create web`). Lo usan `hide`, `edit` y `status`
+/// de cada dominio para que resuelvan lo mismo que crea `publish`.
+pub fn find_published(base: &str, kind: ServiceType, existing: &[&str]) -> PublishedLookup {
+    let canonical = ServiceName::new(base, kind).tor_config_name();
+    if existing.contains(&canonical.as_str()) {
+        return PublishedLookup::Found(canonical);
+    }
+    match find_legacy_v09(&canonical, existing) {
+        Some((legacy, _)) => PublishedLookup::LegacyV09(legacy_v09_hint(&canonical, &legacy)),
+        None => PublishedLookup::NotPublished,
+    }
+}
+
 /// Resultado de [`ServiceName::lookup_service`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServiceLookup {
@@ -351,6 +544,101 @@ pub enum ServiceLookup {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_published_uses_only_the_canonical_name() {
+        // `wp publish blog` crea `wp_blog`: es lo único que se usa.
+        assert_eq!(
+            find_published("blog", ServiceType::WordPress, &["proxy_blog", "wp_blog"]),
+            PublishedLookup::Found("wp_blog".into())
+        );
+        assert_eq!(
+            find_published("repo", ServiceType::Git, &["git_repo"]),
+            PublishedLookup::Found("git_repo".into())
+        );
+        // Un `proxy_blog` (posible `tor create web blog`) nunca se toma por el WP.
+        match find_published("blog", ServiceType::WordPress, &["proxy_blog"]) {
+            PublishedLookup::LegacyV09(hint) => assert!(hint.contains("tor remove proxy_blog")),
+            other => panic!("se esperaba LegacyV09, no {other:?}"),
+        }
+        assert_eq!(
+            find_published("repo", ServiceType::Git, &["otro"]),
+            PublishedLookup::NotPublished
+        );
+    }
+
+    // ── Servicios publicados con la v0.9.0-alpha (nombres no canónicos) ──
+
+    #[test]
+    fn legacy_v09_names_per_domain() {
+        let names = |base: &str, t: ServiceType| ServiceName::new(base, t).legacy_v09_tor_names();
+        assert_eq!(
+            names("blog", ServiceType::WordPress),
+            vec![("proxy_blog".to_string(), LegacyMatch::Ambiguous)]
+        );
+        assert_eq!(
+            names("repo", ServiceType::Git),
+            vec![("repo".to_string(), LegacyMatch::Ambiguous)]
+        );
+        for (t, cms) in [
+            (ServiceType::Drupal, "drupal"),
+            (ServiceType::Ghost, "ghost"),
+            (ServiceType::Magnolia, "magnolia"),
+            (ServiceType::Strapi, "strapi"),
+            (ServiceType::Wagtail, "wagtail"),
+        ] {
+            assert_eq!(
+                names("sitio", t),
+                vec![(format!("proxy_{cms}-sitio"), LegacyMatch::Unambiguous)]
+            );
+        }
+        // Sin cambio de nombre o inexistentes en v0.9.0.
+        for t in [
+            ServiceType::FileServer,
+            ServiceType::Ai,
+            ServiceType::Proxy,
+            ServiceType::StaticSite,
+            ServiceType::Raw,
+        ] {
+            assert!(names("x", t).is_empty(), "{t}");
+        }
+    }
+
+    #[test]
+    fn find_legacy_v09_only_when_canonical_is_missing() {
+        // Canónico ausente + antiguo presente → se detecta.
+        assert_eq!(
+            find_legacy_v09("drupal_sitio", &["proxy_drupal-sitio", "git_x"]),
+            Some(("proxy_drupal-sitio".to_string(), LegacyMatch::Unambiguous))
+        );
+        assert_eq!(
+            find_legacy_v09("wp_blog", &["proxy_blog"]),
+            Some(("proxy_blog".to_string(), LegacyMatch::Ambiguous))
+        );
+        // Canónico presente → nada que avisar (aunque exista un antiguo).
+        assert_eq!(
+            find_legacy_v09("drupal_sitio", &["drupal_sitio", "proxy_drupal-sitio"]),
+            None
+        );
+        // Ni canónico ni antiguo, o nombre no canónico → None.
+        assert_eq!(find_legacy_v09("drupal_sitio", &["git_x"]), None);
+        assert_eq!(find_legacy_v09("no-canonico", &["no-canonico"]), None);
+    }
+
+    #[test]
+    fn legacy_v09_hint_is_actionable() {
+        let h = legacy_v09_hint("drupal_sitio", "proxy_drupal-sitio");
+        assert!(
+            h.contains("proxy_drupal-sitio") && h.contains("drupal_sitio"),
+            "{h}"
+        );
+        assert!(h.contains("v0.9.0"), "{h}");
+        assert!(
+            h.contains("sudo enola-cli tor remove proxy_drupal-sitio"),
+            "{h}"
+        );
+        assert!(h.contains(".onion"), "{h}");
+    }
 
     #[test]
     fn lookup_service_exact_name_wins_even_if_variants_exist() {
@@ -475,6 +763,14 @@ mod tests {
         assert!(names.contains(&"wp_myservice".to_string()));
         assert!(names.contains(&"proxy_myservice".to_string()));
         assert!(names.contains(&"fileserver_myservice".to_string()));
+        assert!(names.contains(&"drupal_myservice".to_string()));
+        assert!(names.contains(&"ghost_myservice".to_string()));
+        assert!(names.contains(&"magnolia_myservice".to_string()));
+        assert!(names.contains(&"strapi_myservice".to_string()));
+        assert!(names.contains(&"wagtail_myservice".to_string()));
+        // Fallback legacy NO canónico (D10)
+        assert!(names.contains(&"ai-myservice".to_string()));
+        assert!(names.contains(&"proxy_ai-myservice".to_string()));
     }
 
     #[test]
@@ -492,6 +788,185 @@ mod tests {
         assert!(lookup.contains(&"ai_dev".to_string()));
         assert!(lookup.contains(&"ai-dev".to_string()));
         assert!(lookup.contains(&"proxy_ai-dev".to_string()));
+    }
+
+    // ── MEGAPLAN-PUBLISH-HARMONIZATION: nomenclatura canónica (D3/D10/D16) ──
+
+    #[test]
+    fn test_service_type_cms_prefixes() {
+        // D3: prefijo por backend para los 5 CMS
+        let cases: [(ServiceType, &str, &str, &str, &str); 5] = [
+            (
+                ServiceType::Drupal,
+                "enola_drupal_",
+                "drupal_",
+                "proxy_drupal_",
+                "drupal-",
+            ),
+            (
+                ServiceType::Ghost,
+                "enola_ghost_",
+                "ghost_",
+                "proxy_ghost_",
+                "ghost-",
+            ),
+            (
+                ServiceType::Magnolia,
+                "enola_magnolia_",
+                "magnolia_",
+                "proxy_magnolia_",
+                "magnolia-",
+            ),
+            (
+                ServiceType::Strapi,
+                "enola_strapi_",
+                "strapi_",
+                "proxy_strapi_",
+                "strapi-",
+            ),
+            (
+                ServiceType::Wagtail,
+                "enola_wagtail_",
+                "wagtail_",
+                "proxy_wagtail_",
+                "wagtail-",
+            ),
+        ];
+        for (ty, dir_p, cfg_p, ngx_p, docker_p) in cases {
+            let name = ServiceName::new("sitio", ty);
+            assert_eq!(name.tor_dir_name(), format!("{}sitio", dir_p));
+            assert_eq!(name.tor_config_name(), format!("{}sitio", cfg_p));
+            assert_eq!(name.nginx_config_name(), Some(format!("{}sitio", ngx_p)));
+            assert_eq!(
+                name.docker_container_name(),
+                Some(format!("{}sitio", docker_p))
+            );
+        }
+    }
+
+    #[test]
+    fn test_service_type_parse_and_display_cms() {
+        for (s, ty) in [
+            ("drupal", ServiceType::Drupal),
+            ("ghost", ServiceType::Ghost),
+            ("magnolia", ServiceType::Magnolia),
+            ("strapi", ServiceType::Strapi),
+            ("wagtail", ServiceType::Wagtail),
+        ] {
+            assert_eq!(ServiceType::parse_from_str(s), Some(ty));
+            assert_eq!(ty.to_string(), s);
+        }
+    }
+
+    #[test]
+    fn test_service_type_all_covers_every_variant() {
+        // D16: ALL es la fuente única de verdad de variantes
+        assert_eq!(ServiceType::ALL.len(), 12);
+        for ty in [
+            ServiceType::Git,
+            ServiceType::WordPress,
+            ServiceType::Drupal,
+            ServiceType::Ghost,
+            ServiceType::Magnolia,
+            ServiceType::Strapi,
+            ServiceType::Wagtail,
+            ServiceType::StaticSite,
+            ServiceType::FileServer,
+            ServiceType::Proxy,
+            ServiceType::Raw,
+            ServiceType::Ai,
+        ] {
+            assert!(ServiceType::ALL.contains(&ty), "ALL debe contener {:?}", ty);
+        }
+    }
+
+    #[test]
+    fn test_from_tor_dir_and_config_cms() {
+        let parsed = ServiceName::from_tor_dir("enola_drupal_blog").unwrap();
+        assert_eq!(parsed.base_name, "blog");
+        assert_eq!(parsed.service_type, ServiceType::Drupal);
+
+        let parsed = ServiceName::from_tor_config("wagtail_site").unwrap();
+        assert_eq!(parsed.base_name, "site");
+        assert_eq!(parsed.service_type, ServiceType::Wagtail);
+    }
+
+    #[test]
+    fn test_service_name_resolve() {
+        // D10: resolución amigable (domain, instance) → nombre canónico
+        assert_eq!(
+            ServiceName::resolve("ai", "dev"),
+            Some("ai_dev".to_string())
+        );
+        assert_eq!(
+            ServiceName::resolve("git", "repo"),
+            Some("git_repo".to_string())
+        );
+        assert_eq!(
+            ServiceName::resolve("wp", "blog"),
+            Some("wp_blog".to_string())
+        );
+        assert_eq!(
+            ServiceName::resolve("wordpress", "blog"),
+            Some("wp_blog".to_string())
+        );
+        assert_eq!(
+            ServiceName::resolve("drupal", "site"),
+            Some("drupal_site".to_string())
+        );
+        assert_eq!(
+            ServiceName::resolve("files", "share"),
+            Some("fileserver_share".to_string())
+        );
+        assert_eq!(
+            ServiceName::resolve("web", "proxy1"),
+            Some("proxy_proxy1".to_string())
+        );
+        assert_eq!(ServiceName::resolve("bogus", "x"), None);
+    }
+
+    #[test]
+    fn test_validate_tor_service_name_accepts_canonical() {
+        // Nombres canónicos `<dominio>_<name>` y nombres planos válidos
+        for name in [
+            "ai_dev",
+            "drupal_blog",
+            "fileserver_uitest-files",
+            "proxy_ai_dev",
+            "proxy_web1",
+            "git_my-repo",
+            "wagtail_x",
+            "raw_tcp1",
+            "a",
+        ] {
+            assert!(
+                validate_tor_service_name(name).is_ok(),
+                "debe aceptar: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_tor_service_name_rejects_unsafe() {
+        // Mismas defensas que validate_service_name: metacaracteres, traversal,
+        // mayúsculas, espacios, vacío, líder no alfanumérico.
+        for name in [
+            "",
+            "../etc",
+            "/abs",
+            "a/b",
+            "Bad_Name",
+            "name;rm",
+            "name space",
+            "_leading",
+            "-leading",
+            &"a".repeat(81),
+        ] {
+            assert!(
+                validate_tor_service_name(name).is_err(),
+                "debe rechazar: {name:?}"
+            );
+        }
     }
 
     // ── TEST-COV-NEG-001: Args inválidos — validate_service_name ─────────────

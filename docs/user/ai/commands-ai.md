@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ai/commands-ai.md`
-> **Versión:** 1.14 | **Actualizado:** 2026-10-24
+> **Versión:** 1.16 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands-ask.md, ../general/commands.md, ../general/config-reference.md, ../mcp/commands-mcp.md
 
@@ -25,7 +25,7 @@ sudo enola-cli ai status <NAME>
 sudo enola-cli ai start <NAME>
 sudo enola-cli ai stop <NAME>
 sudo enola-cli ai delete <NAME> --force
-sudo enola-cli ai publish <NAME> [--verify]
+sudo enola-cli ai publish <NAME> [--ssl] [--auth] [--verify]
 sudo enola-cli ai hide <NAME>
 sudo enola-cli ai logs <NAME> [--lines <N>]
 
@@ -81,7 +81,7 @@ enola-cli ai finetune wizard
 | `ai start <NAME>` | `Mutating` | Inicia los contenedores de una instancia detenida. |
 | `ai stop <NAME>` | `Mutating` | Detiene los contenedores de una instancia en ejecución. |
 | `ai delete <NAME> --force` | `Destructive` | Elimina contenedores, red Docker, datos en `/srv/enola-ai/<name>` y servicio `.onion`. Exige `--force`. |
-| `ai publish <NAME> [--verify]` | `Destructive` | Publica la interfaz Open WebUI como servicio oculto `.onion` vía Nginx + Tor (y verifica alcanzabilidad SOCKS5h con `--verify`). |
+| `ai publish <NAME> [--ssl] [--auth] [--verify]` | `Destructive` | Publica la interfaz Open WebUI como servicio oculto `.onion` vía Nginx + Tor (y verifica alcanzabilidad SOCKS5h con `--verify`). El servicio Tor es `ai_<NAME>`. Con `--format json` devuelve `name`, `onion_address`, `webui_port`, `nginx_port`, `verification`, `https_port` (solo con `--ssl`; si no, `null`) y `auth_enabled`. |
 | `ai hide <NAME>` | `Destructive` | Retira el servicio `.onion` y la configuración Nginx de la instancia, conservando los contenedores locales. |
 | `ai logs <NAME> [--lines N]` | `ReadOnly` | Muestra las últimas `N` líneas de logs de Ollama y Open WebUI (también accesible mediante `enola-cli logs view ai-<NAME>`). |
 | `ai model list [--instance N]` | `ReadOnly` | Lista los `.gguf` de la biblioteca de cada instancia y los modelos registrados en su Ollama (`/api/tags`). |
@@ -109,7 +109,7 @@ enola-cli ai finetune wizard
 | `ai finetune start <N> --dataset <F> --force` | `Destructive` | Lanza el contenedor `enola-ai-<n>-finetune-<job>` (`enola-finetune:latest`, 16 GiB, GPU si hay, read-only rootfs, sin puertos/red) con el script LoRA embebido. Dataset debe ser ChatML. Exige `--force`. |
 | `ai finetune status <N>` | `ReadOnly` | Lista los jobs de la instancia y reconcilia los `Running` con el exit real de su contenedor (`Completed`/`Failed` + `finished_at`/`error` persistidos en `finetune/jobs.json`). |
 | `ai finetune register <N> <JOB_ID>` | `Mutating` | Materializa el modelo de un job `Completed`: importa el `.gguf` exportado a la biblioteca de la instancia (SHA-256 + header) y lo registra en Ollama (`/api/create`) como `<name>-ft`. |
-| `ai finetune wizard` | `Mutating` | Asistente interactivo TTY (vetado para `enola_run_command`). |
+| `ai finetune wizard` | `Mutating` | Asistente interactivo TTY — **no implementado**: diferido a fase futura (stub documentado; vetado para `enola_run_command`). Usa `prepare`+`validate`+`start`+`register`. |
 
 ---
 
@@ -310,7 +310,7 @@ sudo enola-cli --format json ai status dev
 enola-cli ask "lista mis servicios tor" --instance dev
 
 # Publicar Open WebUI en Tor y verificar que la dirección .onion responde
-sudo enola-cli ai publish dev --verify
+sudo enola-cli ai publish dev [--ssl] [--auth] [--verify]
 
 # Ver logs de la instancia (vía subcomando ai o vía logs view)
 sudo enola-cli ai logs dev --lines 100

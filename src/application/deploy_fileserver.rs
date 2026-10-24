@@ -114,10 +114,10 @@ impl DeployFileServer {
             .await?;
         let _ = self.manifest.append("tor_service", &tor_service_name);
 
-        // 6. Handle Auth (Optional)
+        // 6. Handle Auth (Optional) — siempre vía ManageClientAuth (D6)
         if request.enable_auth {
-            self.tor_manager
-                .enable_client_auth(&tor_service_name)
+            crate::application::manage_client_auth::ManageClientAuth::new(self.tor_manager.clone())
+                .toggle_auth(&tor_service_name, true)
                 .await?;
         }
 
@@ -282,6 +282,20 @@ mod tests {
             true
         }
 
+        async fn create_fileserver_config_with_ssl(
+            &self,
+            _config: crate::ports::web::NginxFileServerConfigWithSsl,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn detect_ssl_config(
+            &self,
+            _domain: &str,
+        ) -> Result<(bool, Option<u16>, Option<String>)> {
+            Ok((false, None, None))
+        }
+
         async fn enable_site(&self, _domain: &str) -> Result<()> {
             Ok(())
         }
@@ -323,6 +337,7 @@ mod tests {
     struct MockTorManager {
         should_fail: bool,
         deployed_services: Mutex<Vec<String>>,
+        auth_enabled: Mutex<Vec<String>>,
     }
 
     impl MockTorManager {
@@ -330,6 +345,7 @@ mod tests {
             Self {
                 should_fail: false,
                 deployed_services: Mutex::new(vec![]),
+                auth_enabled: Mutex::new(vec![]),
             }
         }
 
@@ -338,6 +354,7 @@ mod tests {
             Self {
                 should_fail: true,
                 deployed_services: Mutex::new(vec![]),
+                auth_enabled: Mutex::new(vec![]),
             }
         }
     }
@@ -382,7 +399,8 @@ mod tests {
         async fn revoke_client_auth(&self, _: &str, _: &str) -> Result<()> {
             Ok(())
         }
-        async fn enable_client_auth(&self, _: &str) -> Result<()> {
+        async fn enable_client_auth(&self, name: &str) -> Result<()> {
+            self.auth_enabled.lock().unwrap().push(name.to_string());
             Ok(())
         }
         async fn stop_hidden_service(&self, _: &str) -> Result<()> {
@@ -472,6 +490,38 @@ mod tests {
 
         // This will fail either due to permissions or invalid config
         assert!(result.is_err());
+    }
+
+    async fn deploy_with_auth(enable_auth: bool) -> Vec<String> {
+        let tor = Arc::new(MockTorManager::new());
+        let use_case = DeployFileServer::new(
+            Arc::new(MockNginxManager::new()),
+            tor.clone(),
+            Arc::new(MockServiceManager),
+            Arc::new(MockFileManager),
+            Arc::new(mock_manifest()),
+        );
+        let request = DeployFileServerRequest {
+            service_name: "authfiles".to_string(),
+            port: 8080,
+            share_path: Some("/srv/enola-files/authfiles".to_string()),
+            enable_auth,
+        };
+        use_case.execute(request).await.unwrap();
+        let enabled = tor.auth_enabled.lock().unwrap().clone();
+        enabled
+    }
+
+    #[tokio::test]
+    async fn files_create_auth_enables_client_auth_on_canonical_service() {
+        // D6: `files create --auth` delega en ManageClientAuth, que activa
+        // client auth sobre el servicio canónico `fileserver_<n>`.
+        assert_eq!(deploy_with_auth(true).await, vec!["fileserver_authfiles"]);
+    }
+
+    #[tokio::test]
+    async fn files_create_without_auth_leaves_client_auth_untouched() {
+        assert!(deploy_with_auth(false).await.is_empty());
     }
 
     #[test]

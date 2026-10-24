@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/strapi/commands-strapi.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-08-02
+> **Versión:** 2.2 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -129,7 +129,7 @@ sudo enola-cli strapi delete <NOMBRE> [--force]
 Publica la instancia en Tor como hidden service.
 
 ```bash
-sudo enola-cli strapi publish <NOMBRE>
+sudo enola-cli strapi publish <NOMBRE> [--ssl] [--auth] [--ssl] [--auth]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |

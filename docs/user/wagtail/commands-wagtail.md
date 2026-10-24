@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/wagtail/commands-wagtail.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-08-08
+> **Versión:** 2.3 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -112,7 +112,7 @@ sudo enola-cli wagtail delete <NOMBRE> [--force]
 Publica la instancia en Tor como hidden service.
 
 ```bash
-sudo enola-cli wagtail publish <NOMBRE>
+sudo enola-cli wagtail publish <NOMBRE> [--ssl] [--auth] [--ssl] [--auth]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |

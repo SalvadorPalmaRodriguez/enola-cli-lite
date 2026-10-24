@@ -50,6 +50,7 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/tor/publish/{service_type}/{name}", post(api_tor_publish))
         .route("/tor/hide/{service_type}/{name}", post(api_tor_hide))
         // Tor Auth
+        .route("/tor/ssl/{name}", post(api_tor_ssl))
         .route("/tor/auth/{service}/list", get(api_tor_auth_list))
         .route("/tor/auth/{service}/enable", post(api_tor_auth_enable))
         .route("/tor/auth/{service}/disable", post(api_tor_auth_disable))
@@ -288,6 +289,7 @@ async fn api_tor_list() -> ApiResult<Vec<crate::ports::tor::TorServiceInfo>> {
 #[derive(Deserialize)]
 struct TorPublishRequest {
     ssl: Option<bool>,
+    auth: Option<bool>,
 }
 
 async fn api_tor_publish(
@@ -295,26 +297,27 @@ async fn api_tor_publish(
     Json(req): Json<TorPublishRequest>,
 ) -> ApiResult<String> {
     let ssl = req.ssl.unwrap_or(false);
+    let auth = req.auth.unwrap_or(false);
     let result = match service_type.as_str() {
-        "git" => commands::git::publish(&name, ssl)
+        "git" => commands::git::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
-        "wordpress" | "wp" => commands::wordpress::publish(&name)
+        "wordpress" | "wp" => commands::wordpress::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
-        "drupal" => commands::drupal::publish(&name)
+        "drupal" => commands::drupal::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
-        "ghost" => commands::ghost::publish(&name)
+        "ghost" => commands::ghost::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
-        "magnolia" => commands::magnolia::publish(&name)
+        "magnolia" => commands::magnolia::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
-        "strapi" => commands::strapi::publish(&name)
+        "strapi" => commands::strapi::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
-        "wagtail" => commands::wagtail::publish(&name)
+        "wagtail" => commands::wagtail::publish(&name, ssl, auth)
             .await
             .map_err(ApiError::from)?,
         _ => {
@@ -473,13 +476,14 @@ async fn api_git_delete(
 #[derive(Deserialize)]
 struct GitPublishRequest {
     ssl: Option<bool>,
+    auth: Option<bool>,
 }
 
 async fn api_git_publish(
     Path(name): Path<String>,
     Json(req): Json<GitPublishRequest>,
 ) -> ApiResult<String> {
-    let result = commands::git::publish(&name, req.ssl.unwrap_or(false))
+    let result = commands::git::publish(&name, req.ssl.unwrap_or(false), req.auth.unwrap_or(false))
         .await
         .map_err(ApiError::from)?;
     Ok(Json(result))
@@ -544,10 +548,14 @@ async fn api_wp_delete(
     Ok(Json(()))
 }
 
-async fn api_wp_publish(Path(name): Path<String>) -> ApiResult<String> {
-    let result = commands::wordpress::publish(&name)
-        .await
-        .map_err(ApiError::from)?;
+async fn api_wp_publish(
+    Path(name): Path<String>,
+    Json(req): Json<TorPublishRequest>,
+) -> ApiResult<String> {
+    let result =
+        commands::wordpress::publish(&name, req.ssl.unwrap_or(false), req.auth.unwrap_or(false))
+            .await
+            .map_err(ApiError::from)?;
     Ok(Json(result))
 }
 
@@ -560,13 +568,18 @@ async fn api_wp_hide(Path(name): Path<String>) -> ApiResult<()> {
 
 // ── CMS (Drupal, Ghost, Magnolia, Strapi, Wagtail) — publish/hide only ────────
 
-async fn api_cms_publish(Path((cms_type, name)): Path<(String, String)>) -> ApiResult<String> {
+async fn api_cms_publish(
+    Path((cms_type, name)): Path<(String, String)>,
+    Json(req): Json<TorPublishRequest>,
+) -> ApiResult<String> {
+    let ssl = req.ssl.unwrap_or(false);
+    let auth = req.auth.unwrap_or(false);
     let result = match cms_type.as_str() {
-        "drupal" => commands::drupal::publish(&name).await,
-        "ghost" => commands::ghost::publish(&name).await,
-        "magnolia" => commands::magnolia::publish(&name).await,
-        "strapi" => commands::strapi::publish(&name).await,
-        "wagtail" => commands::wagtail::publish(&name).await,
+        "drupal" => commands::drupal::publish(&name, ssl, auth).await,
+        "ghost" => commands::ghost::publish(&name, ssl, auth).await,
+        "magnolia" => commands::magnolia::publish(&name, ssl, auth).await,
+        "strapi" => commands::strapi::publish(&name, ssl, auth).await,
+        "wagtail" => commands::wagtail::publish(&name, ssl, auth).await,
         _ => {
             return Err(ApiError {
                 error: format!("Unknown CMS type: {}", cms_type),
@@ -1245,17 +1258,41 @@ async fn api_console_run(
     }
 }
 
+// ── Tor SSL (post-hoc HTTPS, MEGAPLAN-PUBLISH D11) ────────────────────────────
+
+/// `POST /api/tor/ssl/{name}` — activa SSL en un servicio .onion ya publicado.
+async fn api_tor_ssl(Path(name): Path<String>) -> ApiResult<String> {
+    let onion = commands::tor::ssl(&name).await.map_err(ApiError::from)?;
+    Ok(Json(format!(
+        "🔐 SSL enabled for '{}'\n🧅 Address: https://{}",
+        name, onion
+    )))
+}
+
 // ── Tor Auth ──────────────────────────────────────────────────────────────────
 
-async fn api_tor_auth_list(Path(service): Path<String>) -> ApiResult<Vec<String>> {
-    let clients = commands::tor::auth::list(&service)
+#[derive(Deserialize)]
+struct TorAuthInstanceQuery {
+    /// Instance name — cuando existe, `service` es el dominio
+    /// (`?instance=dev` con `service=ai` → `ai_dev`, D10).
+    instance: Option<String>,
+}
+
+async fn api_tor_auth_list(
+    Path(service): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<TorAuthInstanceQuery>,
+) -> ApiResult<Vec<String>> {
+    let clients = commands::tor::auth::list(&service, q.instance.as_deref())
         .await
         .map_err(ApiError::from)?;
     Ok(Json(clients))
 }
 
-async fn api_tor_auth_enable(Path(service): Path<String>) -> ApiResult<String> {
-    commands::tor::auth::enable(&service)
+async fn api_tor_auth_enable(
+    Path(service): Path<String>,
+    Json(req): Json<TorAuthInstanceQuery>,
+) -> ApiResult<String> {
+    commands::tor::auth::enable(&service, req.instance.as_deref())
         .await
         .map_err(ApiError::from)?;
     Ok(Json(format!(
@@ -1264,8 +1301,11 @@ async fn api_tor_auth_enable(Path(service): Path<String>) -> ApiResult<String> {
     )))
 }
 
-async fn api_tor_auth_disable(Path(service): Path<String>) -> ApiResult<String> {
-    commands::tor::auth::disable(&service)
+async fn api_tor_auth_disable(
+    Path(service): Path<String>,
+    Json(req): Json<TorAuthInstanceQuery>,
+) -> ApiResult<String> {
+    commands::tor::auth::disable(&service, req.instance.as_deref())
         .await
         .map_err(ApiError::from)?;
     Ok(Json(format!(
@@ -1276,6 +1316,7 @@ async fn api_tor_auth_disable(Path(service): Path<String>) -> ApiResult<String> 
 
 #[derive(Deserialize)]
 struct TorAuthAddRequest {
+    instance: Option<String>,
     client: String,
     pubkey: String,
 }
@@ -1284,7 +1325,7 @@ async fn api_tor_auth_add(
     Path(service): Path<String>,
     Json(req): Json<TorAuthAddRequest>,
 ) -> ApiResult<String> {
-    commands::tor::auth::add(&service, &req.client, &req.pubkey)
+    commands::tor::auth::add(&service, req.instance.as_deref(), &req.client, &req.pubkey)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(format!(
@@ -1295,11 +1336,13 @@ async fn api_tor_auth_add(
 
 #[derive(Deserialize)]
 struct TorAuthRevokeRequest {
+    instance: Option<String>,
     client: String,
 }
 
 #[derive(Deserialize)]
 struct TorAuthRotateRequest {
+    instance: Option<String>,
     client: String,
     pubkey: String,
 }
@@ -1308,7 +1351,7 @@ async fn api_tor_auth_revoke(
     Path(service): Path<String>,
     Json(req): Json<TorAuthRevokeRequest>,
 ) -> ApiResult<String> {
-    commands::tor::auth::revoke(&service, &req.client)
+    commands::tor::auth::revoke(&service, req.instance.as_deref(), &req.client)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(format!(
@@ -1354,7 +1397,7 @@ async fn api_tor_auth_rotate(
     Path(service): Path<String>,
     Json(req): Json<TorAuthRotateRequest>,
 ) -> ApiResult<String> {
-    commands::tor::auth::rotate(&service, &req.client, &req.pubkey)
+    commands::tor::auth::rotate(&service, req.instance.as_deref(), &req.client, &req.pubkey)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(format!(

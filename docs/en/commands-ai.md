@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.14 | **Updated:** 2026-10-24
+> **Version:** 1.16 | **Updated:** 2026-10-24
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -26,7 +26,7 @@ sudo enola-cli ai status <NAME>
 sudo enola-cli ai start <NAME>
 sudo enola-cli ai stop <NAME>
 sudo enola-cli ai delete <NAME> --force
-sudo enola-cli ai publish <NAME> [--verify]
+sudo enola-cli ai publish <NAME> [--ssl] [--auth] [--verify]
 sudo enola-cli ai hide <NAME>
 sudo enola-cli ai logs <NAME> [--lines <N>]
 
@@ -82,7 +82,7 @@ enola-cli ai finetune wizard
 | `ai start <NAME>` | `Mutating` | Starts the containers of a stopped AI instance. |
 | `ai stop <NAME>` | `Mutating` | Stops the containers of a running AI instance. |
 | `ai delete <NAME> --force` | `Destructive` | Removes containers, Docker network, data in `/srv/enola-ai/<name>`, and any `.onion` service. Requires `--force`. |
-| `ai publish <NAME> [--verify]` | `Destructive` | Publishes Open WebUI as a Tor `.onion` hidden service via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`). |
+| `ai publish <NAME> [--ssl] [--auth] [--verify]` | `Destructive` | Publishes Open WebUI as a Tor `.onion` hidden service via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`). The Tor service is `ai_<NAME>`. With `--format json` it returns `name`, `onion_address`, `webui_port`, `nginx_port`, `verification`, `https_port` (only with `--ssl`, otherwise `null`) and `auth_enabled`. |
 | `ai hide <NAME>` | `Destructive` | Removes the `.onion` hidden service and Nginx config while keeping local containers intact. |
 | `ai logs <NAME> [--lines N]` | `ReadOnly` | Displays the last `N` log lines from Ollama and Open WebUI (also available via `enola-cli logs view ai-<NAME>`). |
 | `ai model list [--instance N]` | `ReadOnly` | Lists `.gguf` files in each instance library and models registered in its Ollama (`/api/tags`). |
@@ -110,7 +110,7 @@ enola-cli ai finetune wizard
 | `ai finetune start <N> --dataset <F> --force` | `Destructive` | Launches the `enola-ai-<n>-finetune-<job>` container (`enola-finetune:latest`, 16 GiB, GPU if present, read-only rootfs, no ports/network) with the embedded LoRA script. Dataset must be ChatML. Requires `--force`. |
 | `ai finetune status <N>` | `ReadOnly` | Lists the instance jobs and reconciles `Running` ones with the real container exit (`Completed`/`Failed` + `finished_at`/`error` persisted to `finetune/jobs.json`). |
 | `ai finetune register <N> <JOB_ID>` | `Mutating` | Materializes the model of a `Completed` job: imports the exported `.gguf` into the instance library (SHA-256 + header) and registers it in Ollama (`/api/create`) as `<name>-ft`. |
-| `ai finetune wizard` | `Mutating` | Interactive TTY wizard (forbidden for `enola_run_command`). |
+| `ai finetune wizard` | `Mutating` | Interactive TTY wizard — **not implemented**: deferred to a future phase (documented stub; forbidden for `enola_run_command`). Use `prepare`+`validate`+`start`+`register`. |
 
 ---
 
@@ -310,7 +310,7 @@ sudo enola-cli --format json ai status dev
 enola-cli ask "list my tor services" --instance dev
 
 # Publish Open WebUI on Tor and verify .onion reachability
-sudo enola-cli ai publish dev --verify
+sudo enola-cli ai publish dev [--ssl] [--auth] [--verify]
 
 # View instance logs (via ai logs or logs view)
 sudo enola-cli ai logs dev --lines 100

@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/drupal/commands-drupal.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -130,7 +130,7 @@ sudo enola-cli drupal delete miblog --force
 Publica el sitio en Tor como hidden service. El sitio pasa a ser accesible via una dirección `.onion`.
 
 ```bash
-sudo enola-cli drupal publish <NOMBRE>
+sudo enola-cli drupal publish <NOMBRE> [--ssl] [--auth]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |

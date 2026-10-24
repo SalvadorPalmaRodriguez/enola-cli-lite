@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/files/commands-files.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -52,6 +52,12 @@ sudo enola-cli files create --name myshare --ssl
 sudo enola-cli files create --name myshare --auth
 sudo enola-cli files create --name myshare --ssl --auth
 ```
+
+El share se publica con el nombre canónico `fileserver_<NOMBRE>`, que es el
+mismo para el servicio Tor, el site Nginx y el certificado
+(`/etc/nginx/ssl/fileserver_<NOMBRE>.{crt,key}`). Si lo creaste sin `--ssl`,
+puedes activar HTTPS más tarde con `sudo enola-cli tor ssl fileserver_<NOMBRE>`.
+`--auth` se gestiona igual que en el resto de servicios (`tor auth … fileserver <NOMBRE>`).
 
 ---
 

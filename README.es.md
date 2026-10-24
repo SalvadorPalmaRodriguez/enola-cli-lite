@@ -325,8 +325,24 @@ sudo enola-cli tor auth revoke <servicio> -c <cliente>
 sudo enola-cli tor auth generate -c <nombre_cliente>
 
 # Rotar claves de un cliente (mitiga harvest-now-decrypt-later)
-sudo enola-cli tor auth rotate <servicio> -c <cliente>
+sudo enola-cli tor auth rotate <servicio> -c <cliente> -p <nueva_clave_publica>
 ```
+
+`<servicio>` es el nombre canónico del servicio Tor (`<dominio>_<nombre>`, p. ej.
+`ai_dev`, `wp_blog`, `fileserver_docs`). También puedes indicar el dominio y la
+instancia y que enola-cli lo componga: `tor auth enable ai dev` equivale a
+`tor auth enable ai_dev`. Los nombres antiguos (p. ej. `proxy_ai-dev`) siguen
+funcionando con un solo argumento.
+
+### HTTPS después de publicar
+
+```bash
+# Añadir HTTPS (certificado self-signed + .onion:443) a un servicio publicado en HTTP
+sudo enola-cli tor ssl <servicio>          # p. ej. tor ssl wp_blog
+```
+
+La dirección `.onion` no cambia. Falla con un error claro si el servicio ya
+tiene SSL.
 
 ---
 
@@ -376,7 +392,7 @@ sudo enola-cli git edit <nombre> [opciones]
 
 ```bash
 # Publicar en Tor
-sudo enola-cli git publish <nombre> [--ssl]
+sudo enola-cli git publish <nombre> [--ssl] [--auth]
 
 # Ocultar de Tor
 sudo enola-cli git hide <nombre>
@@ -437,7 +453,7 @@ sudo enola-cli wp config <nombre>
 
 ```bash
 # Publicar en Tor
-sudo enola-cli wp publish <nombre>
+sudo enola-cli wp publish <nombre> [--ssl] [--auth]
 
 # Ocultar de Tor
 sudo enola-cli wp hide <nombre>
@@ -476,7 +492,7 @@ sudo enola-cli drupal status <nombre>
 sudo enola-cli drupal delete <nombre> [--force]
 
 # Exposición en Tor
-sudo enola-cli drupal publish <nombre>
+sudo enola-cli drupal publish <nombre> [--ssl] [--auth]
 sudo enola-cli drupal hide <nombre>
 
 # Cambiar puerto HTTP (recrea el contenedor web atómicamente)
@@ -503,7 +519,7 @@ sudo enola-cli ghost status <nombre>
 sudo enola-cli ghost delete <nombre> [--force]
 
 # Exposición en Tor
-sudo enola-cli ghost publish <nombre>
+sudo enola-cli ghost publish <nombre> [--ssl] [--auth]
 sudo enola-cli ghost hide <nombre>
 
 # Cambiar puerto HTTP
@@ -530,7 +546,7 @@ sudo enola-cli magnolia status <nombre>
 sudo enola-cli magnolia delete <nombre> [--force]
 
 # Exposición en Tor
-sudo enola-cli magnolia publish <nombre>
+sudo enola-cli magnolia publish <nombre> [--ssl] [--auth]
 sudo enola-cli magnolia hide <nombre>
 ```
 
@@ -557,7 +573,7 @@ sudo enola-cli strapi status <nombre>
 sudo enola-cli strapi delete <nombre> [--force]
 
 # Exposición en Tor
-sudo enola-cli strapi publish <nombre>
+sudo enola-cli strapi publish <nombre> [--ssl] [--auth]
 sudo enola-cli strapi hide <nombre>
 ```
 
@@ -581,7 +597,7 @@ sudo enola-cli wagtail status <nombre>
 sudo enola-cli wagtail delete <nombre> [--force]
 
 # Exposición en Tor
-sudo enola-cli wagtail publish <nombre>
+sudo enola-cli wagtail publish <nombre> [--ssl] [--auth]
 sudo enola-cli wagtail hide <nombre>
 ```
 

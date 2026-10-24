@@ -260,7 +260,8 @@ pub(crate) fn register(
         "Publish an existing WordPress site as a Tor hidden service (returns onion_address). Exposes a service to the network: requires confirm_token.",
         json!({
             "type": "object",
-            "properties": {"name": name_prop(), "try_run": try_run_prop(),
+            "properties": {"name": name_prop(), "ssl": {"type": "boolean"},
+                "auth": {"type": "boolean"}, "try_run": try_run_prop(),
                 "confirm_token": confirm_token_prop()},
             "required": ["name"],
             "additionalProperties": false
@@ -271,6 +272,7 @@ pub(crate) fn register(
             tor: tor.clone(),
             service_manager: service_manager.clone(),
             manifest: manifest.clone(),
+            nginx: nginx.clone(),
         }),
     )?;
     register_tool(
@@ -292,6 +294,7 @@ pub(crate) fn register(
         Arc::new(TorRemoveHandler {
             tor: tor.clone(),
             tool_label: "wp_hide",
+            domain: Some(crate::domain::naming::ServiceType::WordPress),
         }),
     )?;
     register_tool(
@@ -337,6 +340,7 @@ pub(crate) fn register(
         Arc::new(TorRemoveHandler {
             tor: tor.clone(),
             tool_label: "tor_remove",
+            domain: None,
         }),
     )?;
     register_tool(
@@ -349,6 +353,7 @@ pub(crate) fn register(
                 "name": name_prop(),
                 "port": port_prop(),
                 "share_path": {"type": "string", "minLength": 1, "maxLength": 512},
+                "ssl": {"type": "boolean"},
                 "enable_auth": {"type": "boolean"},
                 "try_run": try_run_prop(),
                 "confirm_token": confirm_token_prop()
@@ -358,9 +363,28 @@ pub(crate) fn register(
         }),
         ToolKind::Destructive,
         Arc::new(FilesCreateHandler {
+            nginx: nginx.clone(),
+            tor: tor.clone(),
+            service_manager,
+            file_manager: file_manager.clone(),
+            manifest: manifest.clone(),
+        }),
+    )?;
+    register_tool(
+        registry,
+        "tor_ssl",
+        "Enable HTTPS on an existing .onion service (post-hoc SSL: cert + Nginx HTTPS + .onion:443). Modifies the service: requires confirm_token.",
+        json!({
+            "type": "object",
+            "properties": {"name": name_prop(), "try_run": try_run_prop(),
+                "confirm_token": confirm_token_prop()},
+            "required": ["name"],
+            "additionalProperties": false
+        }),
+        ToolKind::Destructive,
+        Arc::new(TorSslHandler {
             nginx,
             tor,
-            service_manager,
             file_manager,
             manifest,
         }),
@@ -680,19 +704,23 @@ struct WpPublishHandler {
     tor: Arc<dyn TorManagerPort + Send + Sync>,
     service_manager: Arc<dyn ServiceManagerPort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    nginx: Arc<dyn NginxManagerPort + Send + Sync>,
 }
 
 #[async_trait::async_trait]
 impl ToolHandler for WpPublishHandler {
     async fn call(&self, args: Value) -> Result<Value> {
         let name = required_name(&args)?;
+        let ssl = args.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+        let auth = args.get("auth").and_then(|v| v.as_bool()).unwrap_or(false);
         let result = PublishWordPress::new(
             self.container.clone(),
             self.tor.clone(),
             self.service_manager.clone(),
             self.manifest.clone(),
+            self.nginx.clone(),
         )
-        .execute(name)
+        .execute(name, ssl, auth)
         .await?;
         Ok(serde_json::to_value(result)
             .map_err(|e| EnolaError::Unknown(format!("wp_publish serialization: {e}")))?)
@@ -727,6 +755,20 @@ impl ToolHandler for WpPublishHandler {
 struct TorRemoveHandler {
     tor: Arc<dyn TorManagerPort + Send + Sync>,
     tool_label: &'static str,
+    /// Dominio de la tool (`wp_hide` → WordPress): `name` es el nombre del
+    /// sitio y se usa el servicio canónico `<dominio>_<name>`. `None`
+    /// (`tor_remove`): `name` es el nombre del servicio Tor tal cual.
+    domain: Option<crate::domain::naming::ServiceType>,
+}
+
+impl TorRemoveHandler {
+    /// Nombre del servicio Tor objetivo según el dominio de la tool.
+    fn target(&self, name: &str) -> String {
+        match self.domain {
+            Some(kind) => crate::domain::naming::ServiceName::new(name, kind).tor_config_name(),
+            None => name.to_string(),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -740,10 +782,11 @@ impl ToolHandler for TorRemoveHandler {
             )));
         }
         let nginx: Option<Arc<dyn NginxManagerPort + Send + Sync>> = None;
+        let target = self.target(name);
         RemoveTorService::new(self.tor.clone(), nginx)
-            .execute(name)
+            .execute(&target)
             .await?;
-        Ok(json!({ "name": name, "removed": true }))
+        Ok(json!({ "name": name, "service": target, "removed": true }))
     }
 
     /// Simulación limitada: consulta los hidden services configurados
@@ -751,13 +794,14 @@ impl ToolHandler for TorRemoveHandler {
     async fn try_run(&self, args: Value) -> Result<Value> {
         let name = required_name(&args)?;
         let services = self.tor.list_hidden_services().await.unwrap_or_default();
-        let exists = services.iter().any(|s| s.name == name);
+        let target = self.target(name);
+        let exists = services.iter().any(|s| s.name == target);
         Ok(simulated_result(
             self.tool_label,
             json!({"name": name}),
             None,
             vec![format!(
-                "permanently remove the Tor hidden service '{name}' (exists: {exists})"
+                "permanently remove the Tor hidden service '{target}' (exists: {exists})"
             )],
             Some(
                 "limited simulation: the .onion address and its keys are lost unless \
@@ -852,6 +896,40 @@ impl ToolHandler for FilesCreateHandler {
             .and_then(|v| v.as_str())
             .map(mcp_share_path)
             .transpose()?;
+        let enable_auth = args
+            .get("enable_auth")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if args.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false) {
+            // MEGAPLAN-PUBLISH D13: SSL fileserver vía el caso de uso unificado.
+            let share_dir = share_path
+                .clone()
+                .unwrap_or_else(|| format!("/srv/enola-files/{name}"));
+            let http_port = self.nginx.find_available_port(10000, 15000).await?;
+            let https_port = self.nginx.find_available_port(15001, 20000).await?;
+            let res = crate::application::publish_tor_web_service::PublishTorWebService::new(
+                self.nginx.clone(),
+                self.tor.clone(),
+                self.manifest.clone(),
+            )
+            .execute(
+                crate::application::publish_tor_web_service::PublishTorWebServiceRequest {
+                    service_kind: crate::domain::naming::ServiceType::FileServer,
+                    name_canonical: format!("fileserver_{name}"),
+                    backend_port: 0,
+                    http_port,
+                    https_port: Some(https_port),
+                    extra_ports: vec![],
+                    ssl: true,
+                    auth: enable_auth,
+                    root_dir: Some(share_dir.clone()),
+                },
+            )
+            .await?;
+            return Ok(
+                json!({ "name": name, "onion_address": res.onion_address, "share_path": share_dir }),
+            );
+        }
         let (onion, share_path) = DeployFileServer::new(
             self.nginx.clone(),
             self.tor.clone(),
@@ -867,10 +945,7 @@ impl ToolHandler for FilesCreateHandler {
                 .map(|p| p as u16)
                 .unwrap_or(8080),
             share_path,
-            enable_auth: args
-                .get("enable_auth")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            enable_auth,
         })
         .await?;
         Ok(json!({ "name": name, "onion_address": onion, "share_path": share_path }))
@@ -900,6 +975,84 @@ impl ToolHandler for FilesCreateHandler {
                     .to_string(),
             ),
         ))
+    }
+}
+
+struct TorSslHandler {
+    nginx: Arc<dyn NginxManagerPort + Send + Sync>,
+    tor: Arc<dyn TorManagerPort + Send + Sync>,
+    file_manager: Arc<dyn FileManagerPort + Send + Sync>,
+    manifest: Arc<dyn ManifestPort + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for TorSslHandler {
+    async fn call(&self, args: Value) -> Result<Value> {
+        use crate::application::tor_ssl::{parse_site_config, TorSsl, TorSslRequest};
+
+        // El nombre de `tor_ssl` es CANÓNICO (`ai_dev`, `proxy_web1`,
+        // `fileserver_docs`) — `validate_tor_service_name` admite `_`
+        // como separador de dominio (los demás handlers usan el
+        // validador estricto de nombres de usuario).
+        let name = required_string(&args, "name")?;
+        crate::domain::naming::validate_tor_service_name(name)?;
+
+        // Resolución D8: leer el site Nginx existente para http/backend/root.
+        let candidates = [
+            format!("/etc/nginx/sites-available/proxy_{name}"),
+            format!("/etc/nginx/sites-available/{name}.conf"),
+            format!("/etc/nginx/sites-available/proxy_{name}.conf"),
+            format!("/etc/nginx/sites-available/{name}"),
+        ];
+        let mut content = None;
+        for path in &candidates {
+            if let Ok(c) = self
+                .file_manager
+                .read_file(std::path::Path::new(path))
+                .await
+            {
+                content = Some(c);
+                break;
+            }
+        }
+        let content = content.ok_or_else(|| {
+            EnolaError::NotFound(format!(
+                "Service '{name}' has no Nginx site to convert to SSL"
+            ))
+        })?;
+        let (http_port, backend_port, root_dir) = parse_site_config(&content);
+        let http_port = http_port.ok_or_else(|| {
+            EnolaError::ValidationError(format!(
+                "Could not detect HTTP listen port for service '{name}'"
+            ))
+        })?;
+        let is_fileserver = crate::domain::naming::ServiceName::from_tor_config(name)
+            .map(|sn| sn.service_type == crate::domain::naming::ServiceType::FileServer)
+            .unwrap_or(false);
+        if is_fileserver && root_dir.is_none() {
+            return Err(EnolaError::ValidationError(format!(
+                "Could not detect root_dir for file server '{name}'"
+            )));
+        }
+        if !is_fileserver && backend_port.is_none() {
+            return Err(EnolaError::ValidationError(format!(
+                "Could not detect backend port (proxy_pass) for service '{name}'"
+            )));
+        }
+
+        let https_port = self.nginx.find_available_port(15001, 20000).await?;
+        let res = TorSsl::new(self.nginx.clone(), self.tor.clone(), self.manifest.clone())
+            .execute(TorSslRequest {
+                service_name: name.to_string(),
+                http_port,
+                https_port,
+                backend_port: backend_port.unwrap_or(0),
+                root_dir,
+            })
+            .await?;
+        Ok(
+            json!({ "name": name, "onion_address": res.onion_address, "https_port": res.https_port }),
+        )
     }
 }
 
@@ -987,7 +1140,7 @@ mod tests {
         )
         .unwrap();
         let tools = registry.list_tools();
-        assert_eq!(tools.len(), 19);
+        assert_eq!(tools.len(), 20);
         let readonly: Vec<_> = tools
             .iter()
             .filter(|t| t.kind == ToolKind::ReadOnly)
@@ -1002,7 +1155,7 @@ mod tests {
             .collect();
         assert_eq!(readonly.len(), 13);
         assert_eq!(mutating.len(), 1);
-        assert_eq!(destructive.len(), 5);
+        assert_eq!(destructive.len(), 6);
         for name in [
             "tor_list",
             "diag_tor",
@@ -1030,6 +1183,7 @@ mod tests {
             "wp_publish",
             "tor_create",
             "files_create",
+            "tor_ssl",
         ] {
             assert!(destructive.iter().any(|t| t.name == name), "missing {name}");
         }
@@ -1076,6 +1230,7 @@ mod tests {
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
             tool_label: "tor_remove",
+            domain: None,
         };
         let r = h.call(json!({"name": "svc"})).await;
         assert!(r.is_err());
@@ -1091,6 +1246,7 @@ mod tests {
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
             tool_label: "tor_remove",
+            domain: None,
         };
         let r = h.call(json!({"name": "svc", "force": true})).await.unwrap();
         assert_eq!(r["removed"], true);
@@ -1142,11 +1298,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wp_hide_removes_the_canonical_wp_service() {
+        // `wp publish site` crea `wp_site`: `wp_hide` debe quitar ese, no `site`.
+        let mut tor = MockTorManagerPort::new();
+        tor.expect_remove_hidden_service()
+            .withf(|n| n == "wp_site")
+            .times(1)
+            .returning(|_| Ok(()));
+        let h = TorRemoveHandler {
+            tor: Arc::new(tor),
+            tool_label: "wp_hide",
+            domain: Some(crate::domain::naming::ServiceType::WordPress),
+        };
+        let out = h
+            .call(json!({"name": "site", "force": true}))
+            .await
+            .unwrap();
+        assert_eq!(out["service"], "wp_site");
+    }
+
+    #[tokio::test]
     async fn wp_hide_requires_force() {
         let tor = MockTorManagerPort::new();
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
             tool_label: "wp_hide",
+            domain: Some(crate::domain::naming::ServiceType::WordPress),
         };
         assert!(h.call(json!({"name": "site"})).await.is_err());
     }
@@ -1172,6 +1349,7 @@ mod tests {
             tor: Arc::new(MockTorManagerPort::new()),
             service_manager: Arc::new(MockServiceManagerPort::new()),
             manifest: Arc::new(crate::ports::manifest::MockManifestPort::new()),
+            nginx: Arc::new(MockNginxManagerPort::new()),
         };
         assert!(h.call(json!({"name": "ghost"})).await.is_err());
     }
@@ -1323,6 +1501,7 @@ mod tests {
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
             tool_label: "tor_remove",
+            domain: None,
         };
         let out = h
             .try_run(json!({"name": "svc", "force": true}))

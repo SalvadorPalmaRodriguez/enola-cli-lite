@@ -457,17 +457,19 @@ impl ServiceBlueprint {
                 }];
                 let mut notes = Vec::new();
                 if opts.ssl {
+                    // Nombres canónicos (MEGAPLAN-PUBLISH): site `proxy_git_{name}`,
+                    // cert `git_{name}.{crt,key}` — KEEP-IN-SYNC deploy_git_server.rs
                     paths.push(PlannedPath {
-                        path: format!("/etc/nginx/sites-available/proxy_{}", name),
+                        path: format!("/etc/nginx/sites-available/proxy_git_{}", name),
                         purpose: "Nginx HTTPS reverse-proxy site (symlinked into sites-enabled)"
                             .to_string(),
                     });
                     paths.push(PlannedPath {
-                        path: format!("/etc/nginx/ssl/{}.crt", name),
+                        path: format!("/etc/nginx/ssl/git_{}.crt", name),
                         purpose: "Self-signed TLS certificate".to_string(),
                     });
                     paths.push(PlannedPath {
-                        path: format!("/etc/nginx/ssl/{}.key", name),
+                        path: format!("/etc/nginx/ssl/git_{}.key", name),
                         purpose: "Self-signed TLS private key".to_string(),
                     });
                     notes.push(
@@ -508,12 +510,13 @@ impl ServiceBlueprint {
                                 .to_string(),
                         });
                         if opts.ssl {
+                            // Cert canónico = nombre del servicio Tor (`proxy_{name}`)
                             paths.push(PlannedPath {
-                                path: format!("/etc/nginx/ssl/{}.crt", name),
+                                path: format!("/etc/nginx/ssl/proxy_{}.crt", name),
                                 purpose: "Self-signed TLS certificate".to_string(),
                             });
                             paths.push(PlannedPath {
-                                path: format!("/etc/nginx/ssl/{}.key", name),
+                                path: format!("/etc/nginx/ssl/proxy_{}.key", name),
                                 purpose: "Self-signed TLS private key".to_string(),
                             });
                         }
@@ -856,8 +859,8 @@ mod tests {
                 "/var/lib/tor/enola_proxy_svc",
                 "/etc/tor/enola.d/proxy_svc.conf",
                 "/etc/nginx/sites-available/proxy_svc",
-                "/etc/nginx/ssl/svc.crt",
-                "/etc/nginx/ssl/svc.key",
+                "/etc/nginx/ssl/proxy_svc.crt",
+                "/etc/nginx/ssl/proxy_svc.key",
             ]
         );
     }
@@ -955,9 +958,9 @@ mod tests {
             paths,
             [
                 "/srv/enola-git/repo",
-                "/etc/nginx/sites-available/proxy_repo",
-                "/etc/nginx/ssl/repo.crt",
-                "/etc/nginx/ssl/repo.key",
+                "/etc/nginx/sites-available/proxy_git_repo",
+                "/etc/nginx/ssl/git_repo.crt",
+                "/etc/nginx/ssl/git_repo.key",
             ]
         );
         assert_eq!(plan.notes.len(), 1);

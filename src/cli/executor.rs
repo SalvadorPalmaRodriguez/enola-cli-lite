@@ -866,26 +866,33 @@ async fn execute_tor(cmd: TorCommands, format: &str) -> CliResult<String> {
                 name, new_hostname
             ))
         }
+        TorCommands::Ssl { name } => {
+            let onion = commands::tor::ssl(&name).await?;
+            Ok(format!(
+                "🔐 SSL enabled for '{}'\n🧅 Address: https://{}",
+                name, onion
+            ))
+        }
         TorCommands::Auth(auth_cmd) => execute_tor_auth(auth_cmd, format).await,
     }
 }
 
 async fn execute_tor_auth(cmd: TorAuthCommands, format: &str) -> CliResult<String> {
     match cmd {
-        TorAuthCommands::List { service } => {
-            let clients = commands::tor::auth::list(&service).await?;
+        TorAuthCommands::List { service, instance } => {
+            let clients = commands::tor::auth::list(&service, instance.as_deref()).await?;
             if clients.is_empty() {
                 Ok(format!("No authorized clients for service '{}'", service))
             } else {
                 format_output(&clients, format)
             }
         }
-        TorAuthCommands::Enable { service } => {
-            commands::tor::auth::enable(&service).await?;
+        TorAuthCommands::Enable { service, instance } => {
+            commands::tor::auth::enable(&service, instance.as_deref()).await?;
             Ok(format!("✅ Client authorization enabled for '{}'", service))
         }
-        TorAuthCommands::Disable { service } => {
-            commands::tor::auth::disable(&service).await?;
+        TorAuthCommands::Disable { service, instance } => {
+            commands::tor::auth::disable(&service, instance.as_deref()).await?;
             Ok(format!(
                 "✅ Client authorization disabled for '{}'",
                 service
@@ -893,17 +900,22 @@ async fn execute_tor_auth(cmd: TorAuthCommands, format: &str) -> CliResult<Strin
         }
         TorAuthCommands::Add {
             service,
+            instance,
             client,
             pubkey,
         } => {
-            commands::tor::auth::add(&service, &client, &pubkey).await?;
+            commands::tor::auth::add(&service, instance.as_deref(), &client, &pubkey).await?;
             Ok(format!(
                 "✅ Client '{}' added to service '{}'",
                 client, service
             ))
         }
-        TorAuthCommands::Revoke { service, client } => {
-            commands::tor::auth::revoke(&service, &client).await?;
+        TorAuthCommands::Revoke {
+            service,
+            instance,
+            client,
+        } => {
+            commands::tor::auth::revoke(&service, instance.as_deref(), &client).await?;
             Ok(format!(
                 "✅ Client '{}' revoked from service '{}'",
                 client, service
@@ -939,10 +951,11 @@ async fn execute_tor_auth(cmd: TorAuthCommands, format: &str) -> CliResult<Strin
         // envía SOLO la pública; el operador sustituye la pública almacenada.
         TorAuthCommands::Rotate {
             service,
+            instance,
             client,
             pubkey,
         } => {
-            commands::tor::auth::rotate(&service, &client, &pubkey).await?;
+            commands::tor::auth::rotate(&service, instance.as_deref(), &client, &pubkey).await?;
             Ok(format!(
                 "🔄 Public key rotated for client '{}' on service '{}'\n\n\
                  ── ROTATION FLOW ──\n\
@@ -1415,8 +1428,8 @@ async fn execute_git(cmd: GitCommands, format: &str) -> CliResult<String> {
             }
             Ok(result)
         }
-        GitCommands::Publish { name, ssl } => {
-            let result = commands::git::publish(&name, ssl).await?;
+        GitCommands::Publish { name, ssl, auth } => {
+            let result = commands::git::publish(&name, ssl, auth).await?;
             Ok(result)
         }
         GitCommands::Hide { name } => {
@@ -1602,8 +1615,8 @@ async fn execute_wordpress(cmd: WordPressCommands, format: &str) -> CliResult<St
             let status = commands::wordpress::status(&name).await?;
             format_output(&status, format)
         }
-        WordPressCommands::Publish { name } => {
-            let result = commands::wordpress::publish(&name).await?;
+        WordPressCommands::Publish { name, ssl, auth } => {
+            let result = commands::wordpress::publish(&name, ssl, auth).await?;
             Ok(result)
         }
         WordPressCommands::Hide { name } => {
@@ -1802,10 +1815,10 @@ async fn execute_drupal(cmd: DrupalCommands, format: &str) -> CliResult<String> 
             ))
         }
         // — DRUPAL-004a: publish/hide cableados sobre Tor —
-        D::Publish { name } => {
+        D::Publish { name, ssl, auth } => {
             crate::domain::naming::validate_service_name(&name)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?;
-            let result = commands::drupal::publish(&name).await?;
+            let result = commands::drupal::publish(&name, ssl, auth).await?;
             Ok(result)
         }
         D::Hide { name } => {
@@ -1991,10 +2004,10 @@ async fn execute_ghost(cmd: GhostCommands, format: &str) -> CliResult<String> {
             ))
         }
         // — CMS-GHOST-003: publish/hide/edit cableados (paralelo a DRUPAL-004a/006) —
-        G::Publish { name } => {
+        G::Publish { name, ssl, auth } => {
             crate::domain::naming::validate_service_name(&name)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?;
-            commands::ghost::publish(&name).await
+            commands::ghost::publish(&name, ssl, auth).await
         }
         G::Hide { name } => {
             crate::domain::naming::validate_service_name(&name)
@@ -2225,10 +2238,10 @@ async fn execute_magnolia(cmd: MagnoliaCommands, format: &str) -> CliResult<Stri
             }
             render_cms_status(&inst, "🌳", "Magnolia", format)
         }
-        M::Publish { name } => {
+        M::Publish { name, ssl, auth } => {
             crate::domain::naming::validate_service_name(&name)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?;
-            commands::magnolia::publish(&name).await
+            commands::magnolia::publish(&name, ssl, auth).await
         }
         M::Hide { name } => {
             crate::domain::naming::validate_service_name(&name)
@@ -2335,10 +2348,10 @@ async fn execute_strapi(cmd: StrapiCommands, format: &str) -> CliResult<String> 
             }
             render_cms_status(&inst, "🚀", "Strapi", format)
         }
-        S::Publish { name } => {
+        S::Publish { name, ssl, auth } => {
             crate::domain::naming::validate_service_name(&name)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?;
-            commands::strapi::publish(&name).await
+            commands::strapi::publish(&name, ssl, auth).await
         }
         S::Hide { name } => {
             crate::domain::naming::validate_service_name(&name)
@@ -2467,10 +2480,10 @@ async fn execute_wagtail(cmd: WagtailCommands, format: &str) -> CliResult<String
             }
             render_cms_status(&inst, "🦅", "Wagtail", format)
         }
-        W::Publish { name } => {
+        W::Publish { name, ssl, auth } => {
             crate::domain::naming::validate_service_name(&name)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?;
-            commands::wagtail::publish(&name).await
+            commands::wagtail::publish(&name, ssl, auth).await
         }
         W::Hide { name } => {
             crate::domain::naming::validate_service_name(&name)
@@ -4336,7 +4349,12 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
 
             Ok(format!("✅ AI instance '{}' deleted", name))
         }
-        A::Publish { name, verify } => {
+        A::Publish {
+            name,
+            ssl,
+            auth,
+            verify,
+        } => {
             validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
             let adapter = build_ai_adapter()?;
             let mut uc = PublishAiInstance::new(
@@ -4349,7 +4367,10 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
             if verify {
                 uc = uc.with_probe(Arc::new(ReqwestHttpProbe));
             }
-            let res = uc.execute(&name, verify).await.map_err(CliError::from)?;
+            let res = uc
+                .execute(&name, ssl, auth, verify)
+                .await
+                .map_err(CliError::from)?;
             if format == "json" {
                 return serde_json::to_string_pretty(&res)
                     .map_err(|e| CliError::Generic(format!("JSON serialization error: {e}")));
@@ -4909,8 +4930,15 @@ async fn execute_ai_finetune(
                 "📦 Modelo '{name}' registrado en la biblioteca de '{instance}' (job {job_id})\n   Ya disponible en Ollama como `{name}`"
             ))
         }
+        // TODO[FT-WIZARD-001]: Implementar el asistente TTY de finetune | El
+        // usuario decidió diferirlo a una fase futura (2026-10-20): guiaría la
+        // selección de dataset, modelo base y parámetros, y terminaría llamando
+        // al pipeline `prepare`+`validate`+`start`+`register`; debe seguir
+        // vetado en FORBIDDEN_PATHS por ser interactivo | Pendiente | sin
+        // asignar | 2026-10-20 | Decisión de alcance del producto | Mantiene la
+        // spec 14.5 cerrada con stub documentado | Baja
         F::Wizard => Err(CliError::Generic(
-            "`ai finetune wizard` no está implementado (fuera de alcance de Fase 14.5) — usa `prepare` + `validate` + `start` + `register`".to_string(),
+            "`ai finetune wizard` no está implementado (diferido a una fase futura — TODO[FT-WIZARD-001]) — usa `prepare` + `validate` + `start` + `register`".to_string(),
         )),
     }
 }

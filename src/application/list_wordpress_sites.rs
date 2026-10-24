@@ -91,7 +91,13 @@ pub fn extract_port(ports_str: &str) -> Option<u16> {
 
 /// Lee la dirección .onion de un servicio WordPress desde el hostname de Tor.
 pub fn get_wp_onion(name: &str) -> Option<String> {
-    let hostname_path = format!("/var/lib/tor/enola_{name}/hostname");
+    // Directorio canónico `enola_wp_<name>` (el que crea `wp publish`).
+    let dir = crate::domain::naming::ServiceName::new(
+        name,
+        crate::domain::naming::ServiceType::WordPress,
+    )
+    .tor_dir_name();
+    let hostname_path = format!("/var/lib/tor/{dir}/hostname");
     std::fs::read_to_string(&hostname_path)
         .ok()
         .map(|s| s.trim().to_string())

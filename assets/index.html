@@ -74,6 +74,7 @@
                     <select id="tor-auth-service" onchange="torAuthLoadClients()">
                         <option value="">-- Select service --</option>
                     </select>
+                    <input type="text" id="tor-auth-instance" placeholder="Instance (optional: domain+instance)" title="Optional instance name — e.g. service 'ai' + instance 'dev' resolves to 'ai_dev'">
                     <button onclick="torAuthList()">List Clients</button>
                     <button onclick="torAuthEnable()">Enable Auth</button>
                     <button onclick="torAuthDisable()">Disable Auth</button>

@@ -261,12 +261,15 @@ impl DeployGitServer {
             if let Some(nginx_manager) = &self.nginx_manager {
                 let https_port = nginx_manager.find_available_port(15001, 20000).await?;
 
-                let (cert_path, key_path) = nginx_manager
-                    .generate_self_signed_cert(service_name)
-                    .await?;
+                // Nombres canónicos (MEGAPLAN-PUBLISH): cert `git_{name}` y
+                // site `proxy_git_{name}` — los mismos que usará `git publish
+                // --ssl` al actualizar el site tras completar el wizard.
+                let canonical = format!("git_{}", service_name);
+                let (cert_path, key_path) =
+                    nginx_manager.generate_self_signed_cert(&canonical).await?;
 
                 let ssl_config = NginxProxyConfigWithSsl {
-                    service_name: service_name.to_string(),
+                    service_name: canonical.clone(),
                     http_port,
                     https_port,
                     backend_port: http_port,
@@ -280,7 +283,7 @@ impl DeployGitServer {
                     .create_proxy_config_with_ssl(ssl_config)
                     .await?;
                 nginx_manager
-                    .enable_site(&format!("proxy_{}", service_name))
+                    .enable_site(&format!("proxy_{}", canonical))
                     .await?;
                 nginx_manager.reload().await?;
             }

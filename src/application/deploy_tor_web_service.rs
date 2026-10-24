@@ -40,7 +40,9 @@ impl DeployTorWebService {
     pub async fn execute(&self, request: DeployTorWebServiceRequest) -> Result<String> {
         // 1. Validate Input — el nombre se interpola en configs Nginx
         // (`proxy_{name}.conf`) y en rutas Tor: validación estricta (R-12).
-        crate::domain::naming::validate_service_name(&request.service_name)?;
+        // Es el nombre de servicio canónico (`<dominio>_<name>`), no el nombre
+        // base del usuario: admite `_` como separador de dominio.
+        crate::domain::naming::validate_tor_service_name(&request.service_name)?;
 
         // 2. Create Nginx Reverse Proxy Config
         eprintln!("   📝 Creating Nginx proxy config...");
@@ -92,11 +94,9 @@ impl DeployTorWebService {
         // 4. Deploy Hidden Service
         // Map port 80 (public onion) -> request.nginx_port (internal nginx)
         let ports = vec![(80, request.nginx_port)];
-        // Use "proxy_" prefix to match the Nginx config name (proxy_{service_name}).
-        // deploy_hidden_service adds "enola_" prefix to the directory internally,
-        // so the dir becomes enola_proxy_{service_name} and config proxy_{service_name}.conf.
-        // This makes possible_names_for_lookup("service_name") find it via the "proxy_" variant.
-        let tor_service_name = format!("proxy_{}", request.service_name);
+        // Nombre canónico (MEGAPLAN-PUBLISH, D12): el servicio Tor ES
+        // `service_name` (`<dominio>_<name>`); el site Nginx es `proxy_{name}`.
+        let tor_service_name = request.service_name.clone();
 
         eprintln!(
             "   🧅 Deploying Tor hidden service '{}'...",
@@ -110,10 +110,10 @@ impl DeployTorWebService {
             .await?;
         let _ = self.manifest.append("tor_service", &tor_service_name);
 
-        // 5. Handle Auth (Optional)
+        // 5. Handle Auth (Optional) — siempre vía ManageClientAuth (D6)
         if request.enable_auth {
-            self.tor_manager
-                .enable_client_auth(&tor_service_name)
+            crate::application::manage_client_auth::ManageClientAuth::new(self.tor_manager.clone())
+                .toggle_auth(&tor_service_name, true)
                 .await?;
         }
 

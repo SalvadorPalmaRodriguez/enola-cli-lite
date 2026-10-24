@@ -1,4 +1,4 @@
-> **Versión:** 1.3 | **Actualizado:** 2026-09-15
+> **Versión:** 1.4 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE**
 > **Referencias:** commands.md
 # Tor Client Authorization — Guía para usuarios
@@ -52,6 +52,25 @@ sudo enola-cli tor auth add mi-servicio --client mi-nombre --pubkey ABCD1234...
 ```
 
 Una vez añadido, ya puedes acceder al `.onion` desde tu Tor Browser.
+
+### Cómo nombrar el servicio
+
+Todos los subcomandos `tor auth` (`enable`, `disable`, `add`, `rotate`, `list`)
+aceptan el servicio de dos formas equivalentes:
+
+```bash
+# Nombre canónico del servicio Tor: <dominio>_<nombre>
+sudo enola-cli tor auth enable ai_dev
+
+# Dominio + instancia: enola-cli compone el nombre canónico por ti
+sudo enola-cli tor auth enable ai dev        # ≡ ai_dev
+sudo enola-cli tor auth add wp blog --client mi-nombre --pubkey ABCD1234...   # ≡ wp_blog
+```
+
+Dominios: `git`, `wp`, `drupal`, `ghost`, `magnolia`, `strapi`, `wagtail`,
+`fileserver`, `ai` y `proxy` (servicios creados con `tor create web`). Con un
+solo argumento también se aceptan los nombres antiguos (por ejemplo
+`proxy_ai-dev`), para servicios publicados con versiones anteriores.
 
 ## Rotación de claves
 

@@ -5,7 +5,7 @@
 // determinista y puro.
 
 use crate::domain::error::{EnolaError, Result};
-use crate::domain::naming::validate_service_name;
+use crate::domain::naming::{validate_service_name, ServiceName, ServiceType};
 use crate::domain::rag::VectorStoreBackend;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -271,9 +271,9 @@ pub fn ai_network_name(name: &str) -> String {
     format!("enola_net_ai_{name}")
 }
 
-/// Nombre canónico del servicio Tor para publicar Open WebUI: `ai-<name>`.
+/// Nombre canónico del servicio Tor para publicar Open WebUI: `ai_<name>`.
 pub fn ai_tor_service_name(name: &str) -> String {
-    format!("ai-{name}")
+    ServiceName::new(name, ServiceType::Ai).tor_config_name()
 }
 
 /// Selecciona un par de puertos `(api_port, webui_port)` libres para una instancia IA.
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(ollama_container_name("dev"), "enola-ai-dev-ollama");
         assert_eq!(webui_container_name("dev"), "enola-ai-dev-webui");
         assert_eq!(ai_network_name("dev"), "enola_net_ai_dev");
-        assert_eq!(ai_tor_service_name("dev"), "ai-dev");
+        assert_eq!(ai_tor_service_name("dev"), "ai_dev");
     }
 
     #[test]

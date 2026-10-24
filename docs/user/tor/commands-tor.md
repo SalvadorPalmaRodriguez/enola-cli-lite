@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/tor/commands-tor.md`
-> **Versión:** 2.3 | **Actualizado:** 2026-10-23
+> **Versión:** 2.4 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -172,6 +172,28 @@ sudo enola-cli tor rotate <NOMBRE>
 
 ---
 
+## `tor ssl` — Activar HTTPS en un servicio ya publicado
+
+Activa SSL de forma post-hoc sobre un servicio `.onion` publicado en HTTP:
+genera el certificado self-signed canónico (`<nombre>.crt|.key` en
+`/etc/nginx/ssl/`), convierte el site Nginx a HTTP+HTTPS y añade el puerto
+443 al hidden service (la dirección `.onion` no cambia).
+
+```bash
+sudo enola-cli tor ssl <SERVICIO>
+```
+
+El `<SERVICIO>` es el nombre canónico del servicio (`ai_dev`, `wp_blog`,
+`proxy_web1`, `fileserver_docs`, `git_repo`, `drupal_sitio`, ...).
+Falla con error claro si el servicio ya tiene SSL o si no existe site
+Nginx convertible (`raw`/`static`).
+
+```bash
+sudo enola-cli tor ssl ai_dev
+# 🔐 SSL enabled for 'ai_dev'
+# 🧅 Address: https://abc123...onion
+```
+
 ## `tor auth` — Gestión de autorización de clientes
 
 Subcomandos para controlar qué clientes pueden acceder a un servicio oculto con autorización habilitada.
@@ -302,6 +324,40 @@ sudo enola-cli tor auth rotate <SERVICIO> --client <CLIENTE> --pubkey <NUEVA_PUB
 | `--pubkey` / `-p` | String | Sí | Nueva clave pública X25519 (base32, 52 chars) |
 
 ---
+
+## Nombres de servicio y migración desde v0.9.0
+
+Desde v0.10.0 cada servicio publicado se llama `<dominio>_<nombre>`: así se llaman
+el servicio Tor y su certificado (`/etc/nginx/ssl/<dominio>_<nombre>.{crt,key}`), y
+el site Nginx es `proxy_<dominio>_<nombre>` (`fileserver_<nombre>` en `files`):
+
+| Publicado con | Nombre en v0.10.0 | Nombre que daba v0.9.0 |
+|---|---|---|
+| `git publish repo` | `git_repo` | `repo` |
+| `wp publish blog` | `wp_blog` | `proxy_blog` |
+| `drupal publish sitio` (igual `ghost`, `magnolia`, `strapi`, `wagtail`) | `drupal_sitio` | `proxy_drupal-sitio` |
+| `files create --name docs` | `fileserver_docs` | `fileserver_docs` (sin cambio) |
+| `ai publish dev` | `ai_dev` | — (no existía) |
+| `tor create --name web1 -s web` | `proxy_web1` | `proxy_web1` (sin cambio) |
+
+Los servicios publicados con v0.9.0 **no se gestionan automáticamente**: `hide`,
+`tor auth <dominio> <instancia>` y `tor ssl` buscan el nombre nuevo.
+Si solo encuentran el antiguo, fallan con el comando exacto para migrar. Volver a
+publicar un CMS cuyo servicio antiguo sigue existiendo se rechaza, para no crear
+una segunda dirección `.onion`. En `wp` y `git`, cuyos nombres antiguos también los
+genera `tor create`, se publica y se muestra un aviso.
+
+Para migrar un servicio:
+
+```bash
+sudo enola-cli tor list                         # localiza el nombre antiguo
+sudo enola-cli tor remove proxy_drupal-sitio    # elimina el servicio antiguo
+sudo enola-cli drupal publish sitio [--ssl] [--auth]
+```
+
+> ⚠️ **La dirección `.onion` cambia** al volver a publicar: comunica la nueva a
+> quien use el servicio y, si tenía autorización de cliente, vuelve a añadir las
+> claves públicas (`tor auth add <dominio> <nombre> …`).
 
 ## Ver también
 

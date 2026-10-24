@@ -47,7 +47,9 @@ Global options: `--format text|json`, `--verbose`, `--binary-base-url <URL>`, `-
 - `tor remove <name> [--force]` — delete
 - `tor edit <name> [-p <port>] [-n <nginx-port>] [-t <target-port>] [--auto-ports]` — change ports
 - `tor rotate <name>` — new .onion identity
-- `tor auth list|enable|disable <service>` — client authorization
+- `tor ssl <service>` — post-hoc HTTPS on a service published over HTTP (canonical self-signed cert `/etc/nginx/ssl/<service>.{crt,key}`, Nginx site to HTTP+HTTPS, `.onion:443` added, same address); error if it already has SSL
+- Canonical Tor service names: `<domain>_<name>` — `git_`, `wp_`, `drupal_`, `ghost_`, `magnolia_`, `strapi_`, `wagtail_`, `fileserver_`, `ai_`, and `proxy_` for `tor create web`; the certificate uses the same name and the Nginx site is `proxy_<domain>_<name>` (`fileserver_<name>` for files, `proxy_<name>` for `tor create web`). Older names (`proxy_ai-<n>`, `ai-<n>`) are only looked up as legacy fallbacks. **Breaking in v0.10.0**: services published with v0.9.0 (`git` → `<n>`, `wp` → `proxy_<n>`, CMS → `proxy_<cms>-<n>`) are not managed; `hide`/`tor auth <domain> <instance>`/`tor ssl` fail with the exact migration command, and re-publishing a CMS with its old service present is refused (wp/git: warning). Migrate with `tor remove <old-name>` + publish again (the `.onion` address changes)
+- `tor auth list|enable|disable <service>` — client authorization. Every `tor auth` subcommand also accepts `<domain> <instance>` (`tor auth enable ai dev` ≡ `ai_dev`)
 - `tor auth add <service> -c <client> -p <pubkey>` / `tor auth revoke <service> -c <client>`
 - `tor auth generate -c <client>` — generate x25519 keypair (client side)
 - `tor auth rotate <service> -c <client> -p <pubkey>` — replace client public key (client generates the new pair; private key never reaches the operator)
@@ -57,12 +59,12 @@ Global options: `--format text|json`, `--verbose`, `--binary-base-url <URL>`, `-
 - `git start|stop|status|delete <name>` — lifecycle
 - `git registration <name> --enable|--disable|--status` — user self-registration
 - `git edit <name> [--http-port] [--https-port] [--ssh-port] [--auto-ports]`
-- `git publish <name> [--ssl]` / `git hide <name>` — Tor exposure
+- `git publish <name> [--ssl] [--auth]` / `git hide <name>` — Tor exposure
 - `git user list|create|delete <server> [...]` — user management
 - `git watcher` — pipeline watcher (foreground)
 
 ### CMS modules — wp, drupal, ghost, magnolia, strapi, wagtail
-All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `start`, `stop`, `status`, `delete [--force]`, `publish` (expose on Tor), `hide`.
+All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `start`, `stop`, `status`, `delete [--force]`, `publish [--ssl] [--auth]` (expose on Tor as `<backend>_<name>`), `hide`.
 - `wp` — WordPress. Extra: `restart`, `update` (with backup), `config`, `edit [--http-port] [--https-port] [--ssl] [--auto-ports]`. Port range 8080-9000 (auto).
 - `drupal` — drupal:10-apache + mariadb:10.11. Extra: `edit --http-port` (atomic container recreation).
 - `ghost` — ghost:5-alpine + embedded SQLite, container port 2368. Extra: `edit --http-port`.
@@ -146,7 +148,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 ### ai — local AI instances (Ollama + Open WebUI)
 - `ai create --name <n> [--model <m>] [--api-port <p>] [--webui-port <p>] [--no-gpu] [--memory-gb <gb>] [--no-pull]` — deploys `enola-ai-<n>-ollama` and `enola-ai-<n>-webui` bound to `127.0.0.1` over `ContainerPort` (Bollard) with `flock` port locks, calibrated limits (`memory_limit >= 8 GiB`, `pids_limit >= 4096`), and NVIDIA GPU detection via `EnolaHardwareProbe`
 - `ai list` / `ai status <n>` / `ai start <n>` / `ai stop <n>` / `ai delete <n> --force` / `ai logs <n> [--lines N]` (also via `logs view ai-<n>`)
-- `ai publish <n> [--verify]` / `ai hide <n>` — exposes/removes Open WebUI as a `.onion` hidden service via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`)
+- `ai publish <n> [--ssl] [--auth] [--verify]` / `ai hide <n>` — exposes/removes Open WebUI as the `.onion` service `ai_<n>` via Nginx + Tor (and verifies SOCKS5h reachability with `--verify`); the JSON result adds `https_port` (with `--ssl`) and `auth_enabled`
 - `ai model list|download|import|add|delete|validate|refresh` — per-instance GGUF library at `/srv/enola-ai/<n>/ollama/models-gguf/`; download (HF `org/repo --file` or URL) streams to `<file>.part` (Range resume only from `.part`) + SHA-256 and GGUF header check before an atomic rename (a previous model with the same name is never touched on failure), registers via `/api/create` unless `--no-register`; `add` pulls `/api/pull` for registry refs or registers library `.gguf`; `delete` needs `--force` (Destructive); downloads default to clearnet, `--tor`/`use_tor_for_downloads` forces SOCKS5h and reports the route
 - `ai rag status|ingest|ingest-docs|bind|sync|config` — per-instance vector store (`enola-ai-<n>-chromadb`|`-qdrant`) lazily provisioned via `ContainerPort` on `127.0.0.1` (ports 12001–12500, flock, `/srv/enola-ai/<n>/<backend>/`, 1 GiB/512 pids); ingest chunks with presets `docs|code|faq|large` and Ollama `/api/embed` (`nomic-embed-text`; if Ollama is down ingestion fails closed — TTY offers retry/hash/cancel — and hash embeddings only via explicit `--embedding-fallback hash`; each collection records its method in `rag_config.json` `embedding_kinds` and mixing is refused; queries use the recorded method); `bind` (Destructive, `--force`, canonicalize + system-dir denylist) registers `git|filesystem|wordpress` sources; `sync` re-ingests (git pull as invoking user, WP REST posts); `ingest-docs` (Mutating) rebuilds collection `enola_docs` from the embedded docs (same embedding policy); `docs_lookup` MCP tool (ReadOnly) queries only `enola_docs` semantically, never the user index, and degrades to empty results plus a note when the docs are not indexed
 - `ai benchmark <n> [--model m] [--prompt p] [--runs n]` — local generation benchmark: tokens/s from Ollama `eval_count`/`eval_duration` (wall-clock fallback), avg latency, model size (Mutating)

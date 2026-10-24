@@ -34,6 +34,7 @@ pub mod mcp; // MCP-004 — ToolRegistry, resources y política del servidor MCP
 pub mod nginx_status_checker;
 pub mod plan_service; // Tarea 3 — `enola plan` dry-run use case
 pub mod port_validator; // PORTS-001 (175)
+pub mod publish_tor_web_service; // MEGAPLAN-PUBLISH — caso de uso unificado de publicación .onion
 pub mod publish_wordpress; // MCP-007 — publicar WordPress en Tor (onion estructurado)
 pub mod release_verify; // RELEASE-VERIFY (PQC-030): verificación de releases (ML-DSA-65 + SHA-256) desde enola-cli
 pub mod remove_tor_service;
@@ -47,7 +48,7 @@ pub mod system_doctor; // OBS-001: diagnstico global multi-seccin
 pub mod system_health_check;
 pub mod system_resource_monitor;
 pub mod toggle_wordpress;
-pub mod tor_service_manager;
+pub mod tor_ssl; // MEGAPLAN-PUBLISH — `tor ssl` (retrofit SSL post-hoc, D11)
 pub mod update_checker; // UPD-CLI-001/002: verificador de actualizaciones y feed advisories
 pub mod update_wordpress;
 pub mod verify_onion; // MCP-006 — sonda de alcanzabilidad .onion (SOCKS5h)

@@ -21,6 +21,8 @@
       "--lines"
     ],
     "ai.publish": [
+      "--ssl",
+      "--auth",
       "--verify"
     ],
     "apparmor.mode": [
@@ -63,6 +65,10 @@
     "drupal.edit": [
       "--http-port"
     ],
+    "drupal.publish": [
+      "--ssl",
+      "--auth"
+    ],
     "files.create": [
       "--name",
       "--auth",
@@ -97,6 +103,10 @@
     "ghost.edit": [
       "--http-port"
     ],
+    "ghost.publish": [
+      "--ssl",
+      "--auth"
+    ],
     "git.create": [
       "--name",
       "--ssl",
@@ -115,7 +125,8 @@
       "--auto-ports"
     ],
     "git.publish": [
-      "--ssl"
+      "--ssl",
+      "--auth"
     ],
     "git.registration": [
       "--enable",
@@ -135,6 +146,10 @@
     ],
     "magnolia.delete": [
       "--force"
+    ],
+    "magnolia.publish": [
+      "--ssl",
+      "--auth"
     ],
     "maintenance.backup": [
       "--keep"
@@ -204,6 +219,10 @@
     ],
     "strapi.delete": [
       "--force"
+    ],
+    "strapi.publish": [
+      "--ssl",
+      "--auth"
     ],
     "test.run": [
       "--filter"
@@ -277,6 +296,10 @@
     "wagtail.delete": [
       "--force"
     ],
+    "wagtail.publish": [
+      "--ssl",
+      "--auth"
+    ],
     "web": [
       "--port"
     ],
@@ -292,6 +315,10 @@
       "--https-port",
       "--ssl",
       "--auto-ports"
+    ],
+    "wp.publish": [
+      "--ssl",
+      "--auth"
     ]
   },
   "modules": [
@@ -489,6 +516,7 @@
       "remove",
       "edit",
       "rotate",
+      "ssl",
       "auth"
     ],
     "update": [

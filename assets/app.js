@@ -216,6 +216,7 @@
                         <button class="btn-sm" onclick="torAction('${escapeHtml(t.name)}','stop')">Stop</button>
                         <button class="btn-sm" onclick="torEdit('${escapeHtml(t.name)}')">Edit</button>
                         <button class="btn-sm" onclick="torRotate('${escapeHtml(t.name)}')">Rotate</button>
+                        <button class="btn-sm" onclick="torEnableSsl('${escapeHtml(t.name)}')">SSL</button>
                         <button class="btn-sm btn-danger" onclick="torAction('${escapeHtml(t.name)}','remove')">Remove</button>
                     </td></tr>`;
             });
@@ -264,6 +265,13 @@
             const body = (action === 'remove' || action === 'rotate') ? { confirm: name } : {};
             await apiPostJson('/api/tor/' + name + '/' + action, body);
             toast(action + ': ' + name);
+            loadTor();
+        } catch (e) { toast(e.message, true); }
+    };
+    window.torEnableSsl = async function(name) {
+        try {
+            const result = await apiPostJson('/api/tor/ssl/' + encodeURIComponent(name), {});
+            toast(result || ('SSL enabled: ' + name));
             loadTor();
         } catch (e) { toast(e.message, true); }
     };
@@ -327,13 +335,19 @@
         if (current && torServices.includes(current)) sel.value = current;
     }
 
+    function torAuthInstance() {
+        const el = document.getElementById('tor-auth-instance');
+        return el && el.value.trim() ? el.value.trim() : null;
+    }
+
     window.torAuthLoadClients = async function() {
         const service = document.getElementById('tor-auth-service').value;
         const el = document.getElementById('tor-auth-clients');
         if (!service) { el.innerHTML = emptyState('Select a service first.'); return; }
         el.innerHTML = loadingPulse();
         try {
-            const data = await apiGetJson('/api/tor/auth/' + encodeURIComponent(service) + '/list');
+            const inst = torAuthInstance();
+            const data = await apiGetJson('/api/tor/auth/' + encodeURIComponent(service) + '/list' + (inst ? '?instance=' + encodeURIComponent(inst) : ''));
             if (!data.length) { el.innerHTML = emptyState('No authorized clients.'); return; }
             let html = '<table><thead><tr><th>Client</th><th>Actions</th></tr></thead><tbody>';
             data.forEach(c => {
@@ -350,7 +364,7 @@
     window.torAuthRevokeClient = async function(service, client) {
         showConfirm('Revoke Client', 'Revoke client "' + client + '" from "' + service + '"?', async () => {
             try {
-                await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/revoke', { client });
+                await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/revoke', { instance: torAuthInstance(), client });
                 toast('Client revoked: ' + client);
                 torAuthLoadClients();
             } catch (e) { toast(e.message, true); }
@@ -365,7 +379,7 @@
         const service = document.getElementById('tor-auth-service').value;
         if (!service) { toast('Select a service first', true); return; }
         try {
-            await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/enable');
+            await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/enable', { instance: torAuthInstance() });
             toast('Auth enabled for ' + service);
         } catch (e) { toast(e.message, true); }
     };
@@ -374,7 +388,7 @@
         const service = document.getElementById('tor-auth-service').value;
         if (!service) { toast('Select a service first', true); return; }
         try {
-            await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/disable');
+            await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/disable', { instance: torAuthInstance() });
             toast('Auth disabled for ' + service);
         } catch (e) { toast(e.message, true); }
     };
@@ -400,7 +414,7 @@
         const pubkey = document.getElementById('tor-auth-add-pubkey').value.trim();
         if (!service || !client || !pubkey) { toast('Service, client, and pubkey required', true); return; }
         try {
-            const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/add', { client, pubkey });
+            const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/add', { instance: torAuthInstance(), client, pubkey });
             toast(result || 'Client added');
             torAuthLoadClients();
         } catch (e) { toast(e.message, true); }
@@ -412,7 +426,7 @@
         if (!service || !client) { toast('Service and client required', true); return; }
         showConfirm('Revoke Client', 'Revoke client "' + client + '" from "' + service + '"?', async () => {
             try {
-                const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/revoke', { client });
+                const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/revoke', { instance: torAuthInstance(), client });
                 toast(result || 'Client revoked');
                 torAuthLoadClients();
             } catch (e) { toast(e.message, true); }
@@ -427,7 +441,7 @@
         if (!client) { toast('Client name required', true); return; }
         if (!pubkey) { toast('New public key required', true); return; }
         try {
-            const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/rotate', { client, pubkey });
+            const result = await apiPostJson('/api/tor/auth/' + encodeURIComponent(service) + '/rotate', { instance: torAuthInstance(), client, pubkey });
             document.getElementById('tor-auth-output').innerHTML =
                 '<p class="hint">' + escapeHtml(result || 'Public key rotated') + '</p>';
             torAuthLoadClients();
@@ -492,7 +506,8 @@
         try {
             if (action === 'publish') {
                 const ssl = confirm('Publish with SSL? (Cancel = HTTP)');
-                const result = await apiPostJson('/api/git/' + name + '/publish', { ssl });
+                const auth = confirm('Enable Tor client auth? (OK = yes, Cancel = no)');
+                const result = await apiPostJson('/api/git/' + name + '/publish', { ssl, auth });
                 toast('Published: ' + (result || 'ok'));
             } else if (action === 'watcher') {
                 const result = await apiPostJson('/api/git/watcher');
@@ -685,7 +700,9 @@
     async function wpActionDo(name, action) {
         try {
             if (action === 'publish') {
-                const result = await apiPostJson('/api/wp/' + name + '/publish');
+                const ssl = confirm('Publish with SSL? (OK = HTTPS, Cancel = HTTP)');
+                const auth = confirm('Enable Tor client auth? (OK = yes, Cancel = no)');
+                const result = await apiPostJson('/api/wp/' + name + '/publish', { ssl, auth });
                 toast('Published: ' + (result || 'ok'));
             } else {
                 await apiPostJson('/api/wp/' + name + '/' + action, action === 'delete' ? { confirm: name } : {});
@@ -808,7 +825,9 @@
     async function cmsActionDo(type, name, action) {
         try {
             if (action === 'publish') {
-                const result = await apiPostJson('/api/cms/' + type + '/' + name + '/publish');
+                const ssl = confirm('Publish with SSL? (OK = HTTPS, Cancel = HTTP)');
+                const auth = confirm('Enable Tor client auth? (OK = yes, Cancel = no)');
+                const result = await apiPostJson('/api/cms/' + type + '/' + name + '/publish', { ssl, auth });
                 toast('Published: ' + (result || 'ok'));
             } else if (action === 'delete') {
                 await apiPostJson('/api/cms/' + type + '/' + name + '/delete', { force: true, confirm: name });

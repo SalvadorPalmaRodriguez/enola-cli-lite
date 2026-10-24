@@ -222,154 +222,127 @@ pub(crate) fn reserve_port_or_fail(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SHARED HELPER: Expose service on Tor (reusable for git, wordpress, CMS, etc)
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARED HELPER: unified .onion publication (MEGAPLAN-PUBLISH-HARMONIZATION)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Expose any service on Tor with optional SSL.
-/// This is the single source of truth for creating Tor hidden services.
+/// Publica un servicio tras Nginx + Tor vía `PublishTorWebService` (D12).
 ///
-/// # Arguments
-/// * `service_name` - Name for the Tor service (will be prefixed with proxy_ for SSL services)
-/// * `backend_port` - Port where the actual service is listening (e.g., 3000 for Forgejo)
-/// * `ssl` - Whether to enable SSL via Nginx
-/// * `extra_ports` - Additional ports to expose (e.g., SSH port 22 for Git)
-///
-/// # Returns
-/// * `Ok((onion_address, http_port, https_port))` - The onion address and the ports used
-pub async fn expose_service_on_tor(
-    service_name: &str,
+/// El CLI resuelve aquí los puertos Nginx con lock (D8) y compone el nombre
+/// canónico `<dominio>_<name>`; el caso de uso orquesta cert → Nginx → Tor →
+/// auth (ManageClientAuth). Devuelve el resultado de la publicación.
+/// Parámetros de [`publish_onion`] (los 9 comandos de publicación + `tor create web`).
+struct OnionPublishArgs<'a> {
+    /// Dominio del servicio (fija el prefijo canónico `<dominio>_`).
+    kind: crate::domain::naming::ServiceType,
+    /// Nombre base del usuario (sin prefijo).
+    name: &'a str,
+    /// Puerto local del backend (contenedor o servidor).
     backend_port: u16,
+    /// Publicar también HTTPS (`.onion:443`, cert autofirmado).
     ssl: bool,
-    extra_ports: Vec<(u16, u16)>, // (virtual_port, target_port)
-) -> CliResult<(String, u16, Option<u16>)> {
-    use crate::application::deploy_tor_service::{DeployTorService, DeployTorServiceRequest};
-    use crate::ports::service::ServiceManagerPort;
-    use crate::ports::web::{NginxManagerPort, NginxProxyConfigWithSsl};
+    /// Activar client auth Tor (vía `ManageClientAuth`).
+    auth: bool,
+    /// Puertos Tor adicionales `(virtual, local)`, p.ej. SSH.
+    extra_ports: Vec<(u16, u16)>,
+    /// Raíz de ficheros (solo `files create`).
+    root_dir: Option<String>,
+    /// Rango para el puerto Nginx HTTP.
+    http_range: (u16, u16),
+    /// Rango para el puerto Nginx HTTPS.
+    https_range: (u16, u16),
+}
 
-    let tor_adapter = Arc::new(TorConfigAdapter::new());
-    let systemd_adapter: Arc<dyn ServiceManagerPort + Send + Sync> = Arc::new(SystemdAdapter);
+async fn publish_onion(
+    args: OnionPublishArgs<'_>,
+) -> CliResult<crate::application::publish_tor_web_service::PublishTorWebResult> {
+    let OnionPublishArgs {
+        kind,
+        name,
+        backend_port,
+        ssl,
+        auth,
+        extra_ports,
+        root_dir,
+        http_range,
+        https_range,
+    } = args;
+    use crate::application::publish_tor_web_service::{
+        PublishTorWebService, PublishTorWebServiceRequest,
+    };
+    use crate::domain::naming::ServiceName;
+
+    let name_canonical = ServiceName::new(name, kind).tor_config_name();
     let nginx_adapter = Arc::new(NginxAdapter::new());
-    let manifest = Arc::new(FileManifestAdapter::new());
-    use crate::ports::manifest::ManifestPort;
+    let tor_adapter = Arc::new(TorConfigAdapter::new());
 
-    if ssl {
-        // HTTPS mode: Tor → Nginx+SSL → App
-        eprintln!(
-            "   🔐 Creating with SSL (Tor → Nginx+SSL → App:{})...",
-            backend_port
-        );
-        let _ = std::io::Write::flush(&mut std::io::stderr());
-
-        // Find available ports for Nginx
-        let (http_port, _http_port_lock) = nginx_adapter
-            .find_available_port_with_lock(10000, 15000)
+    let (http_port, _http_lock) = nginx_adapter
+        .find_available_port_with_lock(http_range.0, http_range.1)
+        .await
+        .map_err(|e| CliError::Generic(format!("No free HTTP port found: {:?}", e)))?;
+    let (https_port, _https_lock) = if ssl {
+        let (p, lock) = nginx_adapter
+            .find_available_port_with_lock(https_range.0, https_range.1)
             .await
-            .map_err(|e| CliError::Generic(format!("Failed to find HTTP port: {:?}", e)))?;
-        let (https_port, _https_port_lock) = nginx_adapter
-            .find_available_port_with_lock(15001, 20000)
-            .await
-            .map_err(|e| CliError::Generic(format!("Failed to find HTTPS port: {:?}", e)))?;
+            .map_err(|e| CliError::Generic(format!("No free HTTPS port found: {:?}", e)))?;
+        (Some(p), Some(lock))
+    } else {
+        (None, None)
+    };
 
-        eprintln!("   📍 Nginx HTTP port: {}", http_port);
-        eprintln!("   📍 Nginx HTTPS port: {}", https_port);
-        let _ = std::io::Write::flush(&mut std::io::stderr());
-
-        // Generate self-signed certificate
-        let (cert_path, key_path) = nginx_adapter
-            .generate_self_signed_cert(service_name)
-            .await
-            .map_err(|e| {
-                CliError::Generic(format!("Failed to generate SSL certificate: {:?}", e))
-            })?;
-        let _ = manifest.append("ssl_cert", &cert_path);
-        let _ = manifest.append("ssl_key", &key_path);
-
-        eprintln!("   🔑 SSL certificate: {}", cert_path);
-        let _ = std::io::Write::flush(&mut std::io::stderr());
-
-        // Create Nginx config with SSL
-        let ssl_config = NginxProxyConfigWithSsl {
-            service_name: service_name.to_string(),
+    let use_case = PublishTorWebService::new(
+        nginx_adapter,
+        tor_adapter,
+        Arc::new(FileManifestAdapter::new()),
+    );
+    use_case
+        .execute(PublishTorWebServiceRequest {
+            service_kind: kind,
+            name_canonical,
+            backend_port,
             http_port,
             https_port,
-            backend_port,
-            server_name: "localhost".to_string(),
-            ssl_cert_path: cert_path,
-            ssl_key_path: key_path,
-            rate_limit: None,
-        };
+            extra_ports,
+            ssl,
+            auth,
+            root_dir,
+        })
+        .await
+        .map_err(CliError::from)
+        .inspect(|res| {
+            for w in &res.warnings {
+                eprintln!("⚠️  {w}");
+            }
+        })
+}
 
-        nginx_adapter
-            .create_proxy_config_with_ssl(ssl_config)
-            .await
-            .map_err(|e| {
-                CliError::Generic(format!("Failed to create Nginx SSL config: {:?}", e))
-            })?;
-        let _ = manifest.append("nginx_config", &format!("proxy_{}", service_name));
-
-        // Enable site (file is created as proxy_{service_name})
-        let nginx_site_name = format!("proxy_{}", service_name);
-        nginx_adapter
-            .enable_site(&nginx_site_name)
-            .await
-            .map_err(|e| CliError::Generic(format!("Failed to enable site: {:?}", e)))?;
-
-        if !nginx_adapter.validate_config().await.unwrap_or(false) {
-            return Err(CliError::Generic(
-                "Nginx config validation failed".to_string(),
-            ));
-        }
-
-        nginx_adapter
-            .reload()
-            .await
-            .map_err(|e| CliError::Generic(format!("Failed to reload Nginx: {:?}", e)))?;
-
-        eprintln!("   ✓ Nginx configured");
-        let _ = std::io::Write::flush(&mut std::io::stderr());
-
-        // Create Tor hidden service (`proxy_{name}`: el prefijo lo pone
-        // `execute_typed` tras validar el nombre base)
-        let mut tor_ports = vec![(80, http_port), (443, https_port)];
-        // Add extra ports (e.g., SSH)
-        tor_ports.extend(extra_ports);
-
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-        let onion = use_case
-            .execute_typed(
-                crate::domain::naming::ServiceType::Proxy,
-                service_name,
-                tor_ports,
-            )
-            .await
-            .map_err(CliError::from)?;
-
-        Ok((onion, http_port, Some(https_port)))
-    } else {
-        // HTTP only mode: Tor → Nginx → App (or direct if no proxy needed)
-        eprintln!("   🌐 Creating HTTP only (Tor → App:{})...", backend_port);
-        let _ = std::io::Write::flush(&mut std::io::stderr());
-
-        let mut tor_ports = vec![(80, backend_port)];
-        tor_ports.extend(extra_ports);
-
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-        let request = DeployTorServiceRequest {
-            service_name: service_name.to_string(),
-            ports: tor_ports,
-        };
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
-
-        Ok((onion, backend_port, None))
+/// Servicio Tor publicado de `name` en el dominio `kind`, **solo** por su nombre
+/// canónico (lo que crea `publish`): `Ok(Some(nombre))`, `Ok(None)` si no está
+/// publicado, o error accionable si solo existe el de v0.9.0.
+fn published_tor_service(
+    services: &[crate::ports::tor::TorServiceInfo],
+    name: &str,
+    kind: crate::domain::naming::ServiceType,
+) -> CliResult<Option<String>> {
+    use crate::domain::naming::PublishedLookup;
+    let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
+    match crate::domain::naming::find_published(name, kind, &existing) {
+        PublishedLookup::Found(canonical) => Ok(Some(canonical)),
+        PublishedLookup::NotPublished => Ok(None),
+        PublishedLookup::LegacyV09(hint) => Err(CliError::InvalidInput(hint)),
     }
+}
+
+/// `true` si el servicio Tor tiene site Nginx asociado (nomenclatura canónica
+/// `<dominio>_<name>` + fallbacks legacy `proxy_`/`files_`/`fileserver-`).
+fn tor_service_has_nginx(service_name: &str) -> bool {
+    use crate::domain::naming::ServiceName;
+    ServiceName::from_tor_config(service_name)
+        .and_then(|sn| sn.nginx_config_name())
+        .is_some()
+        || service_name.starts_with("proxy_")
+        || service_name.starts_with("files_")
+        || service_name.starts_with("fileserver-")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -379,7 +352,6 @@ pub async fn expose_service_on_tor(
 pub mod tor {
     use super::*;
     use crate::ports::service::ServiceManagerPort;
-    use crate::ports::web::NginxManagerPort;
 
     /// Busca un servicio Tor por el nombre que escribe el usuario (exacto o por
     /// variantes de tipo) sin depender del orden en que Tor lista los servicios.
@@ -423,11 +395,6 @@ pub mod tor {
         target_port: Option<u16>,
         ssl: bool,
     ) -> CliResult<String> {
-        use crate::application::deploy_tor_web_service::{
-            DeployTorWebService, DeployTorWebServiceRequest,
-        };
-        use crate::ports::web::NginxProxyConfigWithSsl;
-
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let systemd_adapter: Arc<dyn ServiceManagerPort + Send + Sync> = Arc::new(SystemdAdapter);
         let nginx_adapter = Arc::new(NginxAdapter::new());
@@ -494,174 +461,38 @@ pub mod tor {
             "web" | "proxy" | "http" => {
                 let backend_port = target_port.unwrap_or(8080);
 
-                if ssl {
-                    // HTTPS mode: Create service with SSL certificate
-                    eprintln!("🔐 Creating WEB service with HTTPS (Tor → Nginx+SSL → App)");
-                    eprintln!(
-                        "   Architecture: .onion:80/443 → Nginx:[auto] → App:{}",
-                        backend_port
-                    );
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
+                let res = publish_onion(OnionPublishArgs {
+                    kind: crate::domain::naming::ServiceType::Proxy,
+                    name,
+                    backend_port,
+                    ssl,
+                    auth: false,
+                    extra_ports: vec![],
+                    root_dir: None,
+                    http_range: (10000, 15000),
+                    https_range: (15001, 20000),
+                })
+                .await?;
 
-                    // Find two available ports for Nginx (HTTP and HTTPS)
-                    let (http_port, _http_port_lock) = nginx_adapter
-                        .find_available_port_with_lock(10000, 15000)
-                        .await
-                        .map_err(|e| {
-                            CliError::Generic(format!("Failed to find HTTP port: {:?}", e))
-                        })?;
-                    let (https_port, _https_port_lock) = nginx_adapter
-                        .find_available_port_with_lock(15001, 20000)
-                        .await
-                        .map_err(|e| {
-                            CliError::Generic(format!("Failed to find HTTPS port: {:?}", e))
-                        })?;
-
-                    eprintln!("   📍 Using Nginx HTTP port: {}", http_port);
-                    eprintln!("   📍 Using Nginx HTTPS port: {}", https_port);
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    // Generate self-signed certificate
-                    eprintln!("   🔑 Generating self-signed SSL certificate...");
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-                    let (cert_path, key_path) = nginx_adapter
-                        .generate_self_signed_cert(name)
-                        .await
-                        .map_err(|e| {
-                            CliError::Generic(format!(
-                                "Failed to generate SSL certificate: {:?}",
-                                e
-                            ))
-                        })?;
-
-                    // Create Nginx config with SSL
-                    eprintln!("   📝 Creating Nginx SSL config...");
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-                    let ssl_config = NginxProxyConfigWithSsl {
-                        service_name: name.to_string(),
-                        http_port,
-                        https_port,
-                        backend_port,
-                        server_name: "localhost".to_string(),
-                        ssl_cert_path: cert_path.clone(),
-                        ssl_key_path: key_path.clone(),
-                        rate_limit: None,
-                    };
-                    nginx_adapter
-                        .create_proxy_config_with_ssl(ssl_config)
-                        .await
-                        .map_err(|e| {
-                            CliError::Generic(format!("Failed to create Nginx SSL config: {:?}", e))
-                        })?;
-                    eprintln!("   ✓ Nginx SSL config created");
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    // Enable site and reload
-                    eprintln!("   🔗 Enabling Nginx site...");
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-                    nginx_adapter
-                        .enable_site(&format!("proxy_{}", name))
-                        .await
-                        .map_err(|e| {
-                            CliError::Generic(format!("Failed to enable site: {:?}", e))
-                        })?;
-
-                    if !nginx_adapter.validate_config().await.unwrap_or(false) {
-                        return Err(CliError::Generic(
-                            "Nginx config validation failed".to_string(),
-                        ));
-                    }
-                    nginx_adapter.reload().await.map_err(|e| {
-                        CliError::Generic(format!("Failed to reload Nginx: {:?}", e))
-                    })?;
-                    eprintln!("   ✓ Nginx reloaded");
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    // Create Tor hidden service with both HTTP and HTTPS ports
-                    eprintln!("   🧅 Deploying Tor hidden service with HTTP+HTTPS...");
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-                    let use_case = DeployTorService::new(
-                        tor_adapter,
-                        systemd_adapter,
-                        Arc::new(FileManifestAdapter::new()),
-                    );
-                    // `proxy_{name}`, como el web sin SSL: el prefijo lo pone
-                    // `execute_typed` tras validar el nombre base.
-                    let onion = use_case
-                        .execute_typed(
-                            crate::domain::naming::ServiceType::Proxy,
-                            name,
-                            vec![
-                                (80, http_port),   // HTTP
-                                (443, https_port), // HTTPS
-                            ],
-                        )
-                        .await
-                        .map_err(CliError::from)?;
-
-                    eprintln!("\n📋 Service Configuration (HTTPS enabled):");
-                    eprintln!("   Nginx config: /etc/nginx/sites-available/proxy_{}", name);
-                    eprintln!("   SSL cert:     {}", cert_path);
-                    eprintln!("   SSL key:      {}", key_path);
-                    eprintln!("   Tor config:   /etc/tor/enola.d/proxy_{}.conf", name);
-                    eprintln!(
-                        "   Flow HTTP:    {}:80 → Nginx:{} → App:{}",
-                        onion, http_port, backend_port
-                    );
-                    eprintln!(
-                        "   Flow HTTPS:   {}:443 → Nginx:{} → App:{}",
-                        onion, https_port, backend_port
-                    );
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    Ok(onion)
-                } else {
-                    // Standard HTTP mode (no SSL)
-                    eprintln!("🌐 Creating WEB service (Tor → Nginx → App)");
-                    eprintln!(
-                        "   Architecture: .onion:80 → Nginx:[auto] → App:{}",
-                        backend_port
-                    );
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    // Find an available port for Nginx using the adapter
-                    let (nginx_port, _nginx_port_lock) = nginx_adapter
-                        .find_available_port_with_lock(10000, 20000)
-                        .await
-                        .map_err(|e| {
-                            CliError::Generic(format!("Failed to find available port: {:?}", e))
-                        })?;
-
-                    eprintln!("   📍 Using Nginx port: {}", nginx_port);
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    let use_case = DeployTorWebService::new(
-                        nginx_adapter,
-                        tor_adapter,
-                        systemd_adapter,
-                        Arc::new(FileManifestAdapter::new()),
-                    );
-
-                    let request = DeployTorWebServiceRequest {
-                        service_name: name.to_string(),
-                        backend_port,
-                        nginx_port,
-                        enable_auth: false,
-                    };
-
-                    let onion = use_case.execute(request).await.map_err(CliError::from)?;
-
-                    eprintln!("\n📋 Service Configuration:");
-                    eprintln!("   Nginx config: /etc/nginx/sites-available/proxy_{}", name);
-                    eprintln!("   Tor config:   /etc/tor/enola.d/proxy_{}.conf", name);
-                    eprintln!(
-                        "   Flow: {} → localhost:{} → localhost:{}",
-                        onion, nginx_port, backend_port
-                    );
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
-
-                    Ok(onion)
+                eprintln!("\n📋 Service Configuration:");
+                eprintln!(
+                    "   Nginx config: /etc/nginx/sites-available/{}",
+                    res.nginx_site
+                );
+                eprintln!(
+                    "   Tor config:   /etc/tor/enola.d/{}.conf",
+                    res.service_name
+                );
+                eprintln!(
+                    "   Flow: {} → localhost:{} → localhost:{}",
+                    res.onion_address, res.http_port, backend_port
+                );
+                if let Some(hp) = res.https_port {
+                    eprintln!("   Flow HTTPS: {}:443 → Nginx:{}", res.onion_address, hp);
                 }
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+
+                Ok(res.onion_address)
             }
 
             // Static website: Tor → Nginx (serving static files)
@@ -778,12 +609,7 @@ pub mod tor {
 
         let (actual_name, has_nginx) = match found_service {
             Some(service) => {
-                let has_nginx = service.name.starts_with("proxy_")
-                    || service.name.starts_with("git_")
-                    || service.name.starts_with("wp_")
-                    || service.name.starts_with("ai_")
-                    || service.name.starts_with("static_")
-                    || service.name.starts_with("files_");
+                let has_nginx = tor_service_has_nginx(&service.name);
                 (service.name.clone(), has_nginx)
             }
             None => {
@@ -866,12 +692,7 @@ pub mod tor {
         let (actual_name, has_nginx) = match found_service {
             Some(service) => {
                 // Determine if this service has Nginx config
-                let has_nginx = service.name.starts_with("proxy_")
-                    || service.name.starts_with("git_")
-                    || service.name.starts_with("wp_")
-                    || service.name.starts_with("ai_")
-                    || service.name.starts_with("static_")
-                    || service.name.starts_with("files_");
+                let has_nginx = tor_service_has_nginx(&service.name);
                 (service.name.clone(), has_nginx)
             }
             None => {
@@ -1018,12 +839,7 @@ pub mod tor {
         let (actual_name, has_nginx, nginx_actual_name) = match found_service {
             Some(service) => {
                 // Detect if there is a Nginx config by name prefix OR by file existence
-                let by_prefix = service.name.starts_with("proxy_")
-                    || service.name.starts_with("git_")
-                    || service.name.starts_with("wp_")
-                    || service.name.starts_with("ai_")
-                    || service.name.starts_with("static_")
-                    || service.name.starts_with("files_");
+                let by_prefix = tor_service_has_nginx(&service.name);
 
                 // Also check by file: proxy_{service_name} may exist even without the prefix
                 let proxy_name = format!("proxy_{}", service.name);
@@ -1630,13 +1446,113 @@ pub mod tor {
         Ok(result)
     }
 
+    /// Enable HTTPS on an existing .onion service (post-hoc SSL, D11).
+    ///
+    /// Resuelve http_port/backend_port (o root_dir en FileServer) leyendo la
+    /// config Nginx existente del servicio canónico, y delega en `TorSsl`.
+    pub async fn ssl(name: &str) -> CliResult<String> {
+        use crate::domain::naming::ServiceName;
+
+        // Resolver site Nginx candidato como en detect_ssl_config
+        let candidates = [
+            format!("/etc/nginx/sites-available/proxy_{}", name),
+            format!("/etc/nginx/sites-available/{}.conf", name),
+            format!("/etc/nginx/sites-available/proxy_{}.conf", name),
+            format!("/etc/nginx/sites-available/{}", name),
+        ];
+        let config_path = candidates
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .cloned();
+        let content = match &config_path {
+            Some(path) => std::fs::read_to_string(path).map_err(|e| {
+                CliError::Generic(format!("Failed to read Nginx config '{}': {}", path, e))
+            })?,
+            None => {
+                return Err(CliError::InvalidInput(format!(
+                    "Service '{}' has no Nginx site to convert to SSL",
+                    name
+                )))
+            }
+        };
+
+        let (http_port, backend_port, root_dir) =
+            crate::application::tor_ssl::parse_site_config(&content);
+        let http_port = http_port.ok_or_else(|| {
+            CliError::Generic(format!(
+                "Could not detect HTTP listen port for service '{}'",
+                name
+            ))
+        })?;
+        let is_fileserver = ServiceName::from_tor_config(name)
+            .map(|sn| sn.service_type == crate::domain::naming::ServiceType::FileServer)
+            .unwrap_or(false);
+        if is_fileserver && root_dir.is_none() {
+            return Err(CliError::Generic(format!(
+                "Could not detect root_dir for file server '{}'",
+                name
+            )));
+        }
+        if !is_fileserver && backend_port.is_none() {
+            return Err(CliError::Generic(format!(
+                "Could not detect backend port (proxy_pass) for service '{}'",
+                name
+            )));
+        }
+
+        let nginx_adapter = Arc::new(NginxAdapter::new());
+        let (https_port, _https_lock) = nginx_adapter
+            .find_available_port_with_lock(15001, 20000)
+            .await
+            .map_err(|e| CliError::Generic(format!("No free HTTPS port found: {:?}", e)))?;
+
+        let use_case = crate::application::tor_ssl::TorSsl::new(
+            nginx_adapter,
+            Arc::new(TorConfigAdapter::new()),
+            Arc::new(FileManifestAdapter::new()),
+        );
+        let res = use_case
+            .execute(crate::application::tor_ssl::TorSslRequest {
+                service_name: name.to_string(),
+                http_port,
+                https_port,
+                backend_port: backend_port.unwrap_or(0),
+                root_dir,
+            })
+            .await
+            .map_err(CliError::from)?;
+        Ok(res.onion_address)
+    }
+
     pub mod auth {
         use super::*;
         use crate::ports::tor::TorManagerPort;
 
-        /// Helper to resolve actual service name (handles proxy_ prefix)
-        async fn resolve_service_name(service: &str) -> CliResult<String> {
+        /// Resuelve el nombre del servicio (D10 — resolución amigable).
+        ///
+        /// - `instance = Some(inst)`: `service` es el dominio →
+        ///   `ServiceName::resolve(domain, instance)` produce el nombre
+        ///   canónico (`tor auth enable ai dev` → `ai_dev`).
+        /// - `instance = None`: `service` es el nombre de servicio tal cual
+        ///   (canónico o legacy) — comportamiento previo, con fallback
+        ///   `proxy_{service}` por compatibilidad.
+        async fn resolve_service_name(service: &str, instance: Option<&str>) -> CliResult<String> {
             let tor_adapter = Arc::new(TorConfigAdapter::new());
+            if let Some(inst) = instance {
+                let canonical = crate::domain::naming::ServiceName::resolve(service, inst)
+                    .ok_or_else(|| {
+                        CliError::InvalidInput(format!(
+                            "Unknown service domain '{}'. Expected one of: git, wp, drupal, ghost, magnolia, strapi, wagtail, files, ai, web, static, raw",
+                            service
+                        ))
+                    })?;
+                // Servicio de v0.9.0 con el nombre anterior: decir cómo migrar.
+                if let Ok(services) = tor_adapter.list_hidden_services().await {
+                    reject_v09_legacy(&canonical, &services)?;
+                }
+                return Ok(canonical);
+            }
+
             let services = tor_adapter
                 .list_hidden_services()
                 .await
@@ -1650,6 +1566,7 @@ pub mod tor {
             {
                 Ok(format!("proxy_{}", service))
             } else {
+                reject_v09_legacy(service, &services)?;
                 Err(CliError::InvalidInput(format!(
                     "Service '{}' not found",
                     service
@@ -1657,9 +1574,23 @@ pub mod tor {
             }
         }
 
+        /// Error accionable si `canonical` no existe pero sí su nombre de v0.9.0.
+        fn reject_v09_legacy(
+            canonical: &str,
+            services: &[crate::ports::tor::TorServiceInfo],
+        ) -> CliResult<()> {
+            let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
+            match crate::domain::naming::find_legacy_v09(canonical, &existing) {
+                Some((legacy, _)) => Err(CliError::InvalidInput(
+                    crate::domain::naming::legacy_v09_hint(canonical, &legacy),
+                )),
+                None => Ok(()),
+            }
+        }
+
         /// List authorized clients for a service
-        pub async fn list(service: &str) -> CliResult<Vec<String>> {
-            let actual_name = resolve_service_name(service).await?;
+        pub async fn list(service: &str, instance: Option<&str>) -> CliResult<Vec<String>> {
+            let actual_name = resolve_service_name(service, instance).await?;
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case
@@ -1669,8 +1600,8 @@ pub mod tor {
         }
 
         /// Enable client authorization
-        pub async fn enable(service: &str) -> CliResult<()> {
-            let actual_name = resolve_service_name(service).await?;
+        pub async fn enable(service: &str, instance: Option<&str>) -> CliResult<()> {
+            let actual_name = resolve_service_name(service, instance).await?;
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case
@@ -1680,8 +1611,8 @@ pub mod tor {
         }
 
         /// Disable client authorization
-        pub async fn disable(service: &str) -> CliResult<()> {
-            let actual_name = resolve_service_name(service).await?;
+        pub async fn disable(service: &str, instance: Option<&str>) -> CliResult<()> {
+            let actual_name = resolve_service_name(service, instance).await?;
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case
@@ -1691,8 +1622,13 @@ pub mod tor {
         }
 
         /// Add authorized client
-        pub async fn add(service: &str, client: &str, pubkey: &str) -> CliResult<()> {
-            let actual_name = resolve_service_name(service).await?;
+        pub async fn add(
+            service: &str,
+            instance: Option<&str>,
+            client: &str,
+            pubkey: &str,
+        ) -> CliResult<()> {
+            let actual_name = resolve_service_name(service, instance).await?;
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case
@@ -1702,8 +1638,8 @@ pub mod tor {
         }
 
         /// Revoke client authorization
-        pub async fn revoke(service: &str, client: &str) -> CliResult<()> {
-            let actual_name = resolve_service_name(service).await?;
+        pub async fn revoke(service: &str, instance: Option<&str>, client: &str) -> CliResult<()> {
+            let actual_name = resolve_service_name(service, instance).await?;
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case
@@ -1725,8 +1661,13 @@ pub mod tor {
         /// and sends the new PUBLIC key to the operator. The operator replaces
         /// the stored public key with this one. The private key never reaches
         /// the operator.
-        pub async fn rotate(service: &str, client: &str, pubkey: &str) -> CliResult<()> {
-            let actual_name = resolve_service_name(service).await?;
+        pub async fn rotate(
+            service: &str,
+            instance: Option<&str>,
+            client: &str,
+            pubkey: &str,
+        ) -> CliResult<()> {
+            let actual_name = resolve_service_name(service, instance).await?;
             let adapter = Arc::new(TorConfigAdapter::new());
             let use_case = ManageClientAuth::new(adapter);
             use_case
@@ -1933,7 +1874,11 @@ pub mod git {
     }
 
     async fn get_git_onion(name: &str) -> Option<String> {
-        let hostname_path = format!("/var/lib/tor/enola_{}/hostname", name);
+        // Directorio canónico `enola_git_<name>` (el que crea `git publish`).
+        let dir =
+            crate::domain::naming::ServiceName::new(name, crate::domain::naming::ServiceType::Git)
+                .tor_dir_name();
+        let hostname_path = format!("/var/lib/tor/{dir}/hostname");
         std::fs::read_to_string(&hostname_path)
             .ok()
             .map(|s| s.trim().to_string())
@@ -2448,7 +2393,11 @@ pub mod git {
 
         // If already published on Tor, read ports from Tor config too (may have HTTPS)
         let services = tor_adapter.list_hidden_services().await.unwrap_or_default();
-        let tor_service = services.iter().find(|s| s.name == name);
+        let tor_name =
+            published_tor_service(&services, name, crate::domain::naming::ServiceType::Git)?;
+        let tor_service = tor_name
+            .as_deref()
+            .and_then(|t| services.iter().find(|s| s.name == t));
         if let Some(service) = tor_service {
             for (virtual_p, target) in &service.ports {
                 let port = target
@@ -2702,7 +2651,9 @@ pub mod git {
                 tor_ports.push((443, hp));
             }
             tor_ports.push((22, new_ssh_port));
-            update_tor_config_ports(name, &tor_ports).await?;
+            if let Some(t) = tor_name.as_deref() {
+                update_tor_config_ports(t, &tor_ports).await?;
+            }
             eprintln!("   ✓ Tor configuration updated");
             let _ = std::io::Write::flush(&mut std::io::stderr());
         }
@@ -2748,12 +2699,7 @@ pub mod git {
     }
 
     /// Publish Git server on Tor — creates Nginx proxy using real Docker mapped port
-    pub async fn publish(name: &str, ssl: bool) -> CliResult<String> {
-        use crate::ports::tor::TorManagerPort;
-        use crate::ports::web::{NginxManagerPort, NginxProxyConfigWithSsl};
-
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let nginx_adapter = Arc::new(NginxAdapter::new());
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         let container_name = format!("enola-git-{}", name);
 
         // Real mapped port for Forgejo HTTP (never hardcode 3000 — that's internal Docker)
@@ -2798,87 +2744,24 @@ pub mod git {
             }
         }
 
-        if ssl {
-            let (http_port, _http_port_lock) = nginx_adapter
-                .find_available_port_with_lock(10000, 15000)
-                .await
-                .map_err(|e| CliError::Generic(format!("No free HTTP port found: {:?}", e)))?;
-            let (https_port, _https_port_lock) = nginx_adapter
-                .find_available_port_with_lock(15001, 20000)
-                .await
-                .map_err(|e| CliError::Generic(format!("No free HTTPS port found: {:?}", e)))?;
-
-            let (cert_path, key_path) = nginx_adapter
-                .generate_self_signed_cert(name)
-                .await
-                .map_err(|e| CliError::Generic(format!("Cert generation failed: {:?}", e)))?;
-
-            let ssl_config = NginxProxyConfigWithSsl {
-                service_name: name.to_string(),
-                http_port,
-                https_port,
-                backend_port: forgejo_host_port,
-                server_name: "localhost".to_string(),
-                ssl_cert_path: cert_path,
-                ssl_key_path: key_path,
-                rate_limit: None,
-            };
-
-            nginx_adapter
-                .create_proxy_config_with_ssl(ssl_config)
-                .await
-                .map_err(CliError::from)?;
-            nginx_adapter
-                .enable_site(&format!("proxy_{}", name))
-                .await
-                .map_err(CliError::from)?;
-            nginx_adapter.reload().await.map_err(CliError::from)?;
-
-            let mut tor_ports = vec![(80u16, http_port), (443u16, https_port)];
-            if ssh_host_port > 0 {
-                tor_ports.push((22, ssh_host_port));
-            }
-            let onion = tor_adapter
-                .deploy_hidden_service(name, tor_ports)
-                .await
-                .map_err(CliError::from)?;
-            tor_adapter.reload_tor().await.map_err(CliError::from)?;
-            Ok(onion)
+        let extra_ports = if ssh_host_port > 0 {
+            vec![(22u16, ssh_host_port)]
         } else {
-            // HTTP-only: Nginx proxy → real Forgejo host port
-            let (http_port, _http_port_lock) = nginx_adapter
-                .find_available_port_with_lock(10000, 15000)
-                .await
-                .map_err(|e| CliError::Generic(format!("No free HTTP port found: {:?}", e)))?;
-
-            use crate::ports::web::NginxProxyConfig;
-            nginx_adapter
-                .create_proxy_config(NginxProxyConfig {
-                    service_name: name.to_string(),
-                    listen_port: http_port,
-                    backend_port: forgejo_host_port,
-                    server_name: "localhost".to_string(),
-                    rate_limit: None,
-                })
-                .await
-                .map_err(CliError::from)?;
-            nginx_adapter
-                .enable_site(&format!("proxy_{}", name))
-                .await
-                .map_err(CliError::from)?;
-            nginx_adapter.reload().await.map_err(CliError::from)?;
-
-            let mut tor_ports = vec![(80u16, http_port)];
-            if ssh_host_port > 0 {
-                tor_ports.push((22, ssh_host_port));
-            }
-            let onion = tor_adapter
-                .deploy_hidden_service(name, tor_ports)
-                .await
-                .map_err(CliError::from)?;
-            tor_adapter.reload_tor().await.map_err(CliError::from)?;
-            Ok(onion)
-        }
+            vec![]
+        };
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::Git,
+            name,
+            backend_port: forgejo_host_port,
+            ssl,
+            auth,
+            extra_ports,
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
+        Ok(res.onion_address)
     }
 
     /// Hide Git server
@@ -2887,7 +2770,11 @@ pub mod git {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter = Arc::new(NginxAdapter::new());
         let use_case = RemoveTorService::new(tor_adapter, Some(nginx_adapter));
-        use_case.execute(name).await.map_err(CliError::from)
+        // Nombre canónico del servicio Tor: `git_<name>` (lo que crea `git publish`).
+        use_case
+            .execute(&format!("git_{}", name))
+            .await
+            .map_err(CliError::from)
     }
 
     /// Run the Git Pipeline Watcher
@@ -3622,7 +3509,13 @@ pub mod wordpress {
     }
 
     async fn get_wp_onion(name: &str) -> Option<String> {
-        let hostname_path = format!("/var/lib/tor/enola_{}/hostname", name);
+        // Directorio canónico `enola_wp_<name>` (el que crea `wp publish`).
+        let dir = crate::domain::naming::ServiceName::new(
+            name,
+            crate::domain::naming::ServiceType::WordPress,
+        )
+        .tor_dir_name();
+        let hostname_path = format!("/var/lib/tor/{dir}/hostname");
         std::fs::read_to_string(&hostname_path)
             .ok()
             .map(|s| s.trim().to_string())
@@ -3735,7 +3628,7 @@ pub mod wordpress {
     }
 
     /// Publish WordPress site on Tor (create hidden service)
-    pub async fn publish(name: &str) -> CliResult<String> {
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         // Get the WordPress container port
         let sites = list().await?;
         let site = sites
@@ -3745,28 +3638,22 @@ pub mod wordpress {
 
         let port = site.port.unwrap_or(80);
 
-        // Create Tor hidden service for this WordPress
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let systemd_adapter = Arc::new(SystemdAdapter);
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-
-        // Tor service name = `name` (NO prefix), consistent with `wp create`
-        // (DeployWordPress) and `wp edit`. Using `wp-{name}` here created a
-        // duplicate Tor service alongside the one from `wp create`.
-        let request = DeployTorServiceRequest {
-            service_name: name.to_string(),
-            ports: vec![(80, port)],
-        };
-
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::WordPress,
+            name,
+            backend_port: port,
+            ssl,
+            auth,
+            extra_ports: vec![],
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
 
         Ok(format!(
             "✅ WordPress '{}' published!\n🧅 Address: {}",
-            name, onion
+            name, res.onion_address
         ))
     }
 
@@ -3777,8 +3664,11 @@ pub mod wordpress {
             None;
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
 
-        // Tor service name = `name` (NO prefix), consistent with `wp create`/`wp edit`.
-        use_case.execute(name).await.map_err(CliError::from)
+        // Nombre canónico del servicio Tor: `wp_<name>` (lo que crea `wp publish`).
+        use_case
+            .execute(&format!("wp_{}", name))
+            .await
+            .map_err(CliError::from)
     }
 
     /// Create a WordPress site
@@ -3906,6 +3796,21 @@ pub mod wordpress {
         let srv_dir = format!("/srv/enola-wordpress/{}", name);
         let _ = std::fs::remove_dir_all(&srv_dir);
 
+        // Retira el .onion publicado + su site Nginx: SOLO el canónico `wp_<name>`.
+        // Nunca se prueban otros nombres (`proxy_<name>`/`<name>` pueden ser
+        // servicios ajenos de `tor create`); uno de v0.9.0 solo se avisa.
+        {
+            use crate::application::remove_tor_service::{RemoveOutcome, RemoveTorService};
+            let tor_adapter = Arc::new(TorConfigAdapter::new());
+            let nginx_adapter = Arc::new(NginxAdapter::new());
+            let use_case = RemoveTorService::new(tor_adapter, Some(nginx_adapter));
+            if let RemoveOutcome::LegacyV09(hint) =
+                use_case.remove_published(&format!("wp_{}", name)).await
+            {
+                eprintln!("⚠️  {hint}");
+            }
+        }
+
         Ok(())
     }
 
@@ -3945,8 +3850,14 @@ pub mod wordpress {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter = Arc::new(NginxAdapter::new());
 
-        let tor_service_name = name.to_string();
-        let nginx_service_name = format!("wp-{}", name);
+        // Nomenclatura canónica: tor `wp_<name>`, site `proxy_wp_<name>`
+        let nginx_service_name = format!("wp_{}", name);
+        // Lookup legacy-aware: el servicio puede existir con nombre antiguo
+        let canonical_tor = crate::domain::naming::ServiceName::new(
+            name,
+            crate::domain::naming::ServiceType::WordPress,
+        )
+        .tor_config_name();
 
         eprintln!("🔧 Editing WordPress site '{}'...", name);
         let _ = std::io::Write::flush(&mut std::io::stderr());
@@ -3956,14 +3867,22 @@ pub mod wordpress {
             .list_hidden_services()
             .await
             .map_err(CliError::from)?;
+        let tor_service_name = published_tor_service(
+            &services,
+            name,
+            crate::domain::naming::ServiceType::WordPress,
+        )?
+        .ok_or_else(|| {
+            CliError::InvalidInput(format!(
+                "WordPress site '{}' is not published on Tor ('{}' not found)",
+                name, canonical_tor
+            ))
+        })?;
         let service = services
             .iter()
             .find(|s| s.name == tor_service_name)
             .ok_or_else(|| {
-                CliError::InvalidInput(format!(
-                    "WordPress site '{}' not found in Tor services",
-                    name
-                ))
+                CliError::InvalidInput(format!("Tor service '{tor_service_name}' not found"))
             })?;
 
         let mut old_http_port = 0u16;
@@ -4137,7 +4056,7 @@ pub mod wordpress {
             let _ = std::io::Write::flush(&mut std::io::stderr());
 
             nginx_adapter
-                .disable_site(&nginx_service_name)
+                .disable_site(&format!("proxy_{}", nginx_service_name))
                 .await
                 .map_err(CliError::from)?;
             eprintln!("   ✓ Nginx SSL config removed");
@@ -4232,26 +4151,24 @@ pub mod drupal {
     ///
     /// Tor service name: `drupal-{name}` (consistente con el contenedor).
     /// Mapping: `.onion:80 → 127.0.0.1:{backend_port}` (Apache del contenedor).
-    pub async fn publish(name: &str) -> CliResult<String> {
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         let port = resolve_backend_port(name).await?;
 
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let systemd_adapter = Arc::new(SystemdAdapter);
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-
-        let request = DeployTorServiceRequest {
-            service_name: format!("drupal-{}", name),
-            ports: vec![(80, port)],
-        };
-
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::Drupal,
+            name,
+            backend_port: port,
+            ssl,
+            auth,
+            extra_ports: vec![],
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
         Ok(format!(
             "✅ Drupal '{}' published!\n🧅 Address: {}",
-            name, onion
+            name, res.onion_address
         ))
     }
 
@@ -4265,8 +4182,9 @@ pub mod drupal {
             None;
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
 
+        // Nombre canónico del servicio Tor: `drupal_<name>`
         use_case
-            .execute(&format!("drupal-{}", name))
+            .execute(&format!("drupal_{}", name))
             .await
             .map_err(CliError::from)
     }
@@ -4420,14 +4338,24 @@ pub mod drupal {
             .list_hidden_services()
             .await
             .map_err(CliError::from)?;
-        let tor_service_name = format!("drupal-{}", name);
+        // Nombre canónico del servicio Tor: `drupal_<name>`
+        let tor_service_name = format!("drupal_{}", name);
         let was_published = services.iter().any(|s| s.name == tor_service_name);
 
         if was_published {
             eprintln!("   ↻ Updating Tor hidden service '{}'...", tor_service_name);
             let _ = std::io::Write::flush(&mut std::io::stderr());
 
-            // Re-publicar = remove + deploy con el nuevo backend port.
+            // Re-publicar = remove + publish_onion con el nuevo backend port
+            // (el site Nginx proxy apuntaba al puerto antiguo).
+            let had_ssl = {
+                use crate::ports::web::NginxManagerPort;
+                let (h, _, _) = NginxAdapter::new()
+                    .detect_ssl_config(&tor_service_name)
+                    .await
+                    .unwrap_or((false, None, None));
+                h
+            };
             let nginx_none: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
                 None;
             let remove_uc = RemoveTorService::new(Arc::new(TorConfigAdapter::new()), nginx_none);
@@ -4436,19 +4364,21 @@ pub mod drupal {
                 .await
                 .map_err(CliError::from)?;
 
-            let deploy_uc = DeployTorService::new(
-                Arc::new(TorConfigAdapter::new()),
-                Arc::new(SystemdAdapter),
-                Arc::new(FileManifestAdapter::new()),
-            );
-            let req = DeployTorServiceRequest {
-                service_name: tor_service_name.clone(),
-                ports: vec![(80, new_port)],
-            };
-            let onion = deploy_uc.execute(req).await.map_err(CliError::from)?;
+            let pub_res = publish_onion(OnionPublishArgs {
+                kind: crate::domain::naming::ServiceType::Drupal,
+                name,
+                backend_port: new_port,
+                ssl: had_ssl,
+                auth: false,
+                extra_ports: vec![],
+                root_dir: None,
+                http_range: (10000, 15000),
+                https_range: (15001, 20000),
+            })
+            .await?;
             return Ok(format!(
                 "✅ Drupal '{}' edited (HTTP {} → {})\n🧅 Tor address (unchanged): {}",
-                name, old_port, new_port, onion
+                name, old_port, new_port, pub_res.onion_address
             ));
         }
 
@@ -4475,12 +4405,11 @@ pub mod drupal {
             // del DrupalCmsAdapter (§13.3). Si alguien cambia uno y olvida
             // el otro, este test rompe el aislamiento Tor⇄Nginx⇄Docker.
             let name = "myblog";
-            let tor_service = format!("drupal-{}", name);
+            // MEGAPLAN-PUBLISH: el servicio Tor usa nombre canónico
+            // `<dominio>_<name>`; el contenedor sigue con guiones.
+            let tor_service = format!("drupal_{}", name);
             let container = format!("drupal-{}", name);
-            assert_eq!(
-                tor_service, container,
-                "Tor service name must match container name (§13.3)"
-            );
+            assert_ne!(tor_service, container);
         }
 
         #[test]
@@ -4488,11 +4417,11 @@ pub mod drupal {
             // wp-{name} y drupal-{name} jamás colisionan: dos sitios con el
             // mismo `name` en WP y Drupal coexisten en el mismo nodo.
             let name = "blog";
-            let wp = format!("wp-{}", name);
-            let drupal = format!("drupal-{}", name);
+            let wp = format!("wp_{}", name);
+            let drupal = format!("drupal_{}", name);
             assert_ne!(wp, drupal);
-            assert!(drupal.starts_with("drupal-"));
-            assert!(!drupal.starts_with("wp-"));
+            assert!(drupal.starts_with("drupal_"));
+            assert!(!drupal.starts_with("wp_"));
         }
 
         // ── DRUPAL-006: drupal edit --http-port (recreación atómica) ──
@@ -4578,26 +4507,24 @@ pub mod ghost {
     ///
     /// Tor service name: `ghost-{name}`.
     /// Mapping: `.onion:80 → 127.0.0.1:{backend_port}` (Node Ghost del contenedor).
-    pub async fn publish(name: &str) -> CliResult<String> {
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         let port = resolve_backend_port(name).await?;
 
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let systemd_adapter = Arc::new(SystemdAdapter);
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-
-        let request = DeployTorServiceRequest {
-            service_name: format!("ghost-{}", name),
-            ports: vec![(80, port)],
-        };
-
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::Ghost,
+            name,
+            backend_port: port,
+            ssl,
+            auth,
+            extra_ports: vec![],
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
         Ok(format!(
             "✅ Ghost '{}' published!\n🧅 Address: {}",
-            name, onion
+            name, res.onion_address
         ))
     }
 
@@ -4608,8 +4535,9 @@ pub mod ghost {
             None;
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
 
+        // Nombre canónico del servicio Tor: `ghost_<name>`
         use_case
-            .execute(&format!("ghost-{}", name))
+            .execute(&format!("ghost_{}", name))
             .await
             .map_err(CliError::from)
     }
@@ -4760,13 +4688,22 @@ pub mod ghost {
             .list_hidden_services()
             .await
             .map_err(CliError::from)?;
-        let tor_service_name = format!("ghost-{}", name);
+        // Nombre canónico del servicio Tor: `ghost_<name>`
+        let tor_service_name = format!("ghost_{}", name);
         let was_published = services.iter().any(|s| s.name == tor_service_name);
 
         if was_published {
             eprintln!("   ↻ Updating Tor hidden service '{}'...", tor_service_name);
             let _ = std::io::Write::flush(&mut std::io::stderr());
 
+            let had_ssl = {
+                use crate::ports::web::NginxManagerPort;
+                let (h, _, _) = NginxAdapter::new()
+                    .detect_ssl_config(&tor_service_name)
+                    .await
+                    .unwrap_or((false, None, None));
+                h
+            };
             let nginx_none: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
                 None;
             let remove_uc = RemoveTorService::new(Arc::new(TorConfigAdapter::new()), nginx_none);
@@ -4775,19 +4712,21 @@ pub mod ghost {
                 .await
                 .map_err(CliError::from)?;
 
-            let deploy_uc = DeployTorService::new(
-                Arc::new(TorConfigAdapter::new()),
-                Arc::new(SystemdAdapter),
-                Arc::new(FileManifestAdapter::new()),
-            );
-            let req = DeployTorServiceRequest {
-                service_name: tor_service_name.clone(),
-                ports: vec![(80, new_port)],
-            };
-            let onion = deploy_uc.execute(req).await.map_err(CliError::from)?;
+            let pub_res = publish_onion(OnionPublishArgs {
+                kind: crate::domain::naming::ServiceType::Ghost,
+                name,
+                backend_port: new_port,
+                ssl: had_ssl,
+                auth: false,
+                extra_ports: vec![],
+                root_dir: None,
+                http_range: (10000, 15000),
+                https_range: (15001, 20000),
+            })
+            .await?;
             return Ok(format!(
                 "✅ Ghost '{}' edited (HTTP {} → {})\n🧅 Tor address (unchanged): {}",
-                name, old_port, new_port, onion
+                name, old_port, new_port, pub_res.onion_address
             ));
         }
 
@@ -4803,11 +4742,11 @@ pub mod ghost {
 
         #[test]
         fn ghost_tor_service_name_matches_container_naming() {
-            // 13.3: el prefijo Tor debe ser idéntico al prefijo del contenedor.
+            // MEGAPLAN-PUBLISH: tor `ghost_<name>` canónico; contenedor con guiones.
             let name = "myblog";
-            let tor_service = format!("ghost-{}", name);
+            let tor_service = format!("ghost_{}", name);
             let container = format!("ghost-{}", name);
-            assert_eq!(tor_service, container);
+            assert_ne!(tor_service, container);
         }
 
         #[test]
@@ -4889,23 +4828,24 @@ pub mod magnolia {
         })
     }
 
-    pub async fn publish(name: &str) -> CliResult<String> {
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         let port = resolve_backend_port(name).await?;
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let systemd_adapter = Arc::new(SystemdAdapter);
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-        let request = DeployTorServiceRequest {
-            service_name: format!("magnolia-{}", name),
-            ports: vec![(80, port)],
-        };
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::Magnolia,
+            name,
+            backend_port: port,
+            ssl,
+            auth,
+            extra_ports: vec![],
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
         Ok(format!(
             "✅ Magnolia '{}' published!\n🧅 Address: {}",
-            name, onion
+            name, res.onion_address
         ))
     }
 
@@ -4914,8 +4854,9 @@ pub mod magnolia {
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
             None;
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
+        // Nombre canónico del servicio Tor: `magnolia_<name>`
         use_case
-            .execute(&format!("magnolia-{}", name))
+            .execute(&format!("magnolia_{}", name))
             .await
             .map_err(CliError::from)
     }
@@ -4944,23 +4885,24 @@ pub mod strapi {
         })
     }
 
-    pub async fn publish(name: &str) -> CliResult<String> {
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         let port = resolve_backend_port(name).await?;
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let systemd_adapter = Arc::new(SystemdAdapter);
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-        let request = DeployTorServiceRequest {
-            service_name: format!("strapi-{}", name),
-            ports: vec![(80, port)],
-        };
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::Strapi,
+            name,
+            backend_port: port,
+            ssl,
+            auth,
+            extra_ports: vec![],
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
         Ok(format!(
             "✅ Strapi '{}' published!\n🧅 Address: {}",
-            name, onion
+            name, res.onion_address
         ))
     }
 
@@ -4969,8 +4911,9 @@ pub mod strapi {
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
             None;
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
+        // Nombre canónico del servicio Tor: `strapi_<name>`
         use_case
-            .execute(&format!("strapi-{}", name))
+            .execute(&format!("strapi_{}", name))
             .await
             .map_err(CliError::from)
     }
@@ -5000,23 +4943,24 @@ pub mod wagtail {
         })
     }
 
-    pub async fn publish(name: &str) -> CliResult<String> {
+    pub async fn publish(name: &str, ssl: bool, auth: bool) -> CliResult<String> {
         let port = resolve_backend_port(name).await?;
-        let tor_adapter = Arc::new(TorConfigAdapter::new());
-        let systemd_adapter = Arc::new(SystemdAdapter);
-        let use_case = DeployTorService::new(
-            tor_adapter,
-            systemd_adapter,
-            Arc::new(FileManifestAdapter::new()),
-        );
-        let request = DeployTorServiceRequest {
-            service_name: format!("wagtail-{}", name),
-            ports: vec![(80, port)],
-        };
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+
+        let res = publish_onion(OnionPublishArgs {
+            kind: crate::domain::naming::ServiceType::Wagtail,
+            name,
+            backend_port: port,
+            ssl,
+            auth,
+            extra_ports: vec![],
+            root_dir: None,
+            http_range: (10000, 15000),
+            https_range: (15001, 20000),
+        })
+        .await?;
         Ok(format!(
             "✅ Wagtail '{}' published!\n🧅 Address: {}",
-            name, onion
+            name, res.onion_address
         ))
     }
 
@@ -5025,8 +4969,9 @@ pub mod wagtail {
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
             None;
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
+        // Nombre canónico del servicio Tor: `wagtail_<name>`
         use_case
-            .execute(&format!("wagtail-{}", name))
+            .execute(&format!("wagtail_{}", name))
             .await
             .map_err(CliError::from)
     }
@@ -5048,16 +4993,9 @@ pub mod files {
         Ok(services
             .into_iter()
             .filter(|s| {
-                // Servicios HTTP creados por DeployFileServer (prefijo fileserver_/fileserver-)
+                // Nomenclatura canónica (MEGAPLAN-PUBLISH): solo `fileserver_<name>`
+                // (+ `fileserver-<name>` legacy en lectura)
                 s.name.starts_with("fileserver_") || s.name.starts_with("fileserver-")
-            // Servicios SSL creados directamente con el nombre del share (sin prefijo)
-            // Se detectan por la existencia de config Nginx con autoindex
-            || {
-                let avail = format!("/etc/nginx/sites-available/{}", s.name);
-                std::fs::read_to_string(&avail)
-                    .map(|c| c.contains("autoindex on"))
-                    .unwrap_or(false)
-            }
             })
             .collect())
     }
@@ -5069,19 +5007,14 @@ pub mod files {
         crate::domain::naming::validate_service_name(name)
             .map_err(|e| CliError::Generic(e.to_string()))?;
 
-        use crate::application::deploy_tor_service::{DeployTorService, DeployTorServiceRequest};
         use crate::ports::file::FileManagerPort;
         use crate::ports::service::ServiceManagerPort;
-        use crate::ports::tor::TorManagerPort;
-        use crate::ports::web::NginxManagerPort;
 
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter = Arc::new(NginxAdapter::new());
         let systemd_adapter: Arc<dyn ServiceManagerPort + Send + Sync> = Arc::new(SystemdAdapter);
         let file_adapter: Arc<dyn FileManagerPort + Send + Sync> =
             Arc::new(EnolaFileAdapter::new());
-        let manifest = Arc::new(FileManifestAdapter::new());
-        use crate::ports::manifest::ManifestPort;
 
         let share_path = format!("/srv/enola-files/{}", name);
         let share_path_buf = std::path::PathBuf::from(&share_path);
@@ -5102,217 +5035,48 @@ pub mod files {
         let _ = file_adapter.set_permissions(&share_path_buf, 0o750).await;
 
         if ssl {
-            // HTTPS mode: Create file server with SSL certificate
+            // HTTPS mode: unified path vía PublishTorWebService (D12/D13)
             eprintln!("🔐 Creating File Server with HTTPS (Tor → Nginx+SSL → Files)");
-            eprintln!("   Architecture: .onion:80/443 → Nginx:[auto] → FileServer");
             let _ = std::io::Write::flush(&mut std::io::stderr());
 
-            // Find two available ports for Nginx (HTTP and HTTPS)
-            let (http_port, _http_port_lock) = nginx_adapter
-                .find_available_port_with_lock(10000, 15000)
-                .await
-                .map_err(|e| CliError::Generic(format!("Failed to find HTTP port: {:?}", e)))?;
-            let (https_port, _https_port_lock) = nginx_adapter
-                .find_available_port_with_lock(15001, 20000)
-                .await
-                .map_err(|e| CliError::Generic(format!("Failed to find HTTPS port: {:?}", e)))?;
-
-            eprintln!("   📍 Using Nginx HTTP port: {}", http_port);
-            eprintln!("   📍 Using Nginx HTTPS port: {}", https_port);
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-
-            // Generate self-signed certificate
-            eprintln!("   🔑 Generating self-signed SSL certificate...");
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-            let (cert_path, key_path) = nginx_adapter
-                .generate_self_signed_cert(name)
-                .await
-                .map_err(|e| {
-                    CliError::Generic(format!("Failed to generate SSL certificate: {:?}", e))
-                })?;
-            let _ = manifest.append("ssl_cert", &cert_path);
-            let _ = manifest.append("ssl_key", &key_path);
-
-            // Create Nginx fileserver config with SSL (HTTP + HTTPS)
-            eprintln!("   📝 Creating Nginx SSL config for file server...");
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-
-            // Create combined HTTP + HTTPS config for file server
-            let pqc_tls_directive = crate::infrastructure::pqc_tls::nginx_pqc_curve_directive();
-            let config_content = format!(
-                r#"
-# Auto-generated by Enola Server (FileServer with SSL)
-
-# HTTP Server
-server {{
-    listen 127.0.0.1:{http_port};
-    server_name localhost;
-
-    root {share_path};
-
-    autoindex on;
-    autoindex_exact_size off;
-    autoindex_localtime on;
-
-    disable_symlinks on;
-
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "no-referrer" always;
-
-    server_tokens off;
-
-    location / {{
-        try_files $uri $uri/ =404;
-    }}
-
-    location ~ /\. {{
-        deny all;
-        return 404;
-    }}
-
-    access_log /var/log/nginx/{name}_http_access.log;
-    error_log /var/log/nginx/{name}_http_error.log;
-}}
-
-# HTTPS Server
-server {{
-    listen 127.0.0.1:{https_port} ssl;
-    server_name localhost;
-
-    ssl_certificate {cert_path};
-    ssl_certificate_key {key_path};
-    ssl_protocols TLSv1.3;
-{pqc_tls_directive}
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
-
-    root {share_path};
-
-    autoindex on;
-    autoindex_exact_size off;
-    autoindex_localtime on;
-
-    disable_symlinks on;
-
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "no-referrer" always;
-    add_header Strict-Transport-Security "max-age=31536000" always;
-
-    server_tokens off;
-
-    location / {{
-        try_files $uri $uri/ =404;
-    }}
-
-    location ~ /\. {{
-        deny all;
-        return 404;
-    }}
-
-    access_log /var/log/nginx/{name}_https_access.log;
-    error_log /var/log/nginx/{name}_https_error.log;
-}}
-"#,
-                http_port = http_port,
-                https_port = https_port,
-                share_path = share_path,
-                cert_path = cert_path,
-                key_path = key_path,
-                name = name,
-                pqc_tls_directive = pqc_tls_directive
-            );
-
-            // Write config file
-            let config_path = format!("/etc/nginx/sites-available/{}", name);
-            let config_path_buf = std::path::PathBuf::from(&config_path);
-            let _nginx_site_lock =
-                crate::infrastructure::shared_artifact_lock::maybe_lock_nginx_site(
-                    &config_path_buf,
-                )
-                .map_err(|e| {
-                    CliError::Generic(format!(
-                        "Failed to acquire lock for shared Nginx artifact '{}': {}",
-                        config_path, e
-                    ))
-                })?;
-            tokio::fs::write(&config_path, config_content)
-                .await
-                .map_err(|e| CliError::Generic(format!("Failed to write Nginx config: {}", e)))?;
-            let _ = manifest.append("nginx_config", name);
-
-            eprintln!("   ✓ Nginx SSL config created");
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-
-            // Enable site and reload
-            eprintln!("   🔗 Enabling Nginx site...");
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-            nginx_adapter
-                .enable_site(name)
-                .await
-                .map_err(|e| CliError::Generic(format!("Failed to enable site: {:?}", e)))?;
-
-            if !nginx_adapter.validate_config().await.unwrap_or(false) {
-                return Err(CliError::Generic(
-                    "Nginx config validation failed".to_string(),
-                ));
-            }
-            nginx_adapter
-                .reload()
-                .await
-                .map_err(|e| CliError::Generic(format!("Failed to reload Nginx: {:?}", e)))?;
-            eprintln!("   ✓ Nginx reloaded");
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-
-            // Create Tor hidden service with both HTTP and HTTPS ports
-            eprintln!("   🧅 Deploying Tor hidden service with HTTP+HTTPS...");
-            let _ = std::io::Write::flush(&mut std::io::stderr());
-            let use_case = DeployTorService::new(
-                tor_adapter.clone(),
-                systemd_adapter,
-                Arc::new(FileManifestAdapter::new()),
-            );
-            let request = DeployTorServiceRequest {
-                service_name: name.to_string(),
-                ports: vec![
-                    (80, http_port),   // HTTP
-                    (443, https_port), // HTTPS
-                ],
-            };
-            let onion = use_case.execute(request).await.map_err(CliError::from)?;
-
-            // Handle Auth (Optional)
-            if auth {
-                tor_adapter
-                    .enable_client_auth(name)
-                    .await
-                    .map_err(CliError::from)?;
-            }
+            let res = publish_onion(OnionPublishArgs {
+                kind: crate::domain::naming::ServiceType::FileServer,
+                name,
+                backend_port: 0,
+                ssl: true,
+                auth,
+                extra_ports: vec![],
+                root_dir: Some(share_path.clone()),
+                http_range: (10000, 15000),
+                https_range: (15001, 20000),
+            })
+            .await?;
 
             eprintln!("\n📋 File Server Configuration (HTTPS enabled):");
             eprintln!("   Shared Path:  {}", share_path);
-            eprintln!("   Nginx config: /etc/nginx/sites-available/{}", name);
-            eprintln!("   SSL cert:     {}", cert_path);
-            eprintln!("   SSL key:      {}", key_path);
-            eprintln!("   Tor config:   /etc/tor/enola.d/{}.conf", name);
+            eprintln!(
+                "   Nginx config: /etc/nginx/sites-available/{}",
+                res.nginx_site
+            );
+            eprintln!(
+                "   Tor config:   /etc/tor/enola.d/{}.conf",
+                res.service_name
+            );
             eprintln!(
                 "   Flow HTTP:    {}:80 → Nginx:{} → Files",
-                onion, http_port
+                res.onion_address, res.http_port
             );
-            eprintln!(
-                "   Flow HTTPS:   {}:443 → Nginx:{} → Files",
-                onion, https_port
-            );
+            if let Some(hp) = res.https_port {
+                eprintln!(
+                    "   Flow HTTPS:   {}:443 → Nginx:{} → Files",
+                    res.onion_address, hp
+                );
+            }
             let _ = std::io::Write::flush(&mut std::io::stderr());
 
             Ok(format!(
                 "File Server Created (HTTPS).\nOnion Address: {}\nShared Path: {}",
-                onion, share_path
+                res.onion_address, share_path
             ))
         } else {
             // Standard HTTP mode (no SSL) - use existing DeployFileServer
@@ -5370,37 +5134,31 @@ server {{
         let adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter = Arc::new(NginxAdapter::new());
         let use_case = RemoveTorService::new(adapter, Some(nginx_adapter));
-        // Try underscore prefix first (created by DeployFileServer)
+        // Nombre canónico (D7): servicio `fileserver_<name>` y cert
+        // `fileserver_<name>.{crt,key}`; fallbacks legacy en lectura/limpieza.
         let result = use_case.execute(&format!("fileserver_{}", name)).await;
         if result.is_ok() {
-            let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", name)).await;
-            let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", name)).await;
+            for prefix in [format!("fileserver_{}", name), name.to_string()] {
+                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", prefix)).await;
+                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", prefix)).await;
+            }
             cleanup_share_dir(&share_path, name);
             return Ok(());
         }
-        // Try hyphen prefix (legacy)
+        // Fallback: servicio legacy `fileserver-{name}` (lectura)
         let adapter2 = Arc::new(TorConfigAdapter::new());
         let nginx_adapter2 = Arc::new(NginxAdapter::new());
         let use_case2 = RemoveTorService::new(adapter2, Some(nginx_adapter2));
         let result2 = use_case2.execute(&format!("fileserver-{}", name)).await;
         if result2.is_ok() {
-            let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", name)).await;
-            let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", name)).await;
+            for prefix in [format!("fileserver-{}", name), name.to_string()] {
+                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", prefix)).await;
+                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", prefix)).await;
+            }
             cleanup_share_dir(&share_path, name);
             return Ok(());
         }
-        // Try direct name (SSL services created without fileserver_ prefix)
-        let adapter3 = Arc::new(TorConfigAdapter::new());
-        let nginx_adapter3 = Arc::new(NginxAdapter::new());
-        let use_case3 = RemoveTorService::new(adapter3, Some(nginx_adapter3));
-        let result3 = use_case3.execute(name).await;
-        if result3.is_ok() {
-            let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", name)).await;
-            let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", name)).await;
-            cleanup_share_dir(&share_path, name);
-            return Ok(());
-        }
-        result3.map_err(CliError::from)
+        result2.map_err(CliError::from)
     }
 
     fn read_share_path(name: &str) -> Option<String> {
@@ -5437,18 +5195,13 @@ server {{
         use crate::application::edit_port_config::EditPortConfig;
         use crate::ports::web::NginxManagerPort;
 
-        // Get current service info.
-        // Supports three naming patterns:
-        //   1. fileserver_{name}  — HTTP services (DeployFileServer)
-        //   2. fileserver-{name}  — legacy hyphen variant
-        //   3. {name}             — SSL services (created directly without prefix)
+        // Get current service info — nombre canónico `fileserver_<name>`
+        // (+ `fileserver-<name>` legacy en lectura)
         let services = list().await?;
         let service = services
             .iter()
             .find(|s| {
-                s.name == format!("fileserver_{}", name)
-                    || s.name == format!("fileserver-{}", name)
-                    || s.name == name
+                s.name == format!("fileserver_{}", name) || s.name == format!("fileserver-{}", name)
             })
             .ok_or_else(|| CliError::InvalidInput(format!("File share '{}' not found", name)))?;
 

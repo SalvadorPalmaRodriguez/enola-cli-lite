@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
-> **Versión:** 2.3 | **Actualizado:** 2026-10-18
+> **Versión:** 2.4 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -178,7 +178,7 @@ sudo enola-cli git edit <NOMBRE> [--http-port <P>] [--https-port <P>] [--ssh-por
 Publica un servidor Git en Tor como hidden service.
 
 ```bash
-sudo enola-cli git publish <NOMBRE> [--ssl]
+sudo enola-cli git publish <NOMBRE> [--ssl] [--auth]
 ```
 
 | Argumento | Tipo | Obligatorio | Descripción |

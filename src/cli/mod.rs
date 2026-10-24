@@ -392,3 +392,35 @@ mod console_json_sync {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Honestidad PQC en la ayuda de la CLI (AGENTS.md §6: sin claims PQC públicos).
+// El check 10 de la auditoría cubre web/src y docs/user; este test cubre los
+// textos de ayuda de clap, que también son públicos.
+// ═══════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod help_claims {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    fn collect_help(cmd: &mut clap::Command, path: &str, out: &mut Vec<(String, String)>) {
+        out.push((path.to_string(), cmd.render_long_help().to_string()));
+        for sub in cmd.get_subcommands_mut() {
+            let p = format!("{path} {}", sub.get_name());
+            collect_help(sub, &p, out);
+        }
+    }
+
+    #[test]
+    fn help_never_claims_pqc_safety() {
+        let mut cmd = Cli::command();
+        let mut helps = Vec::new();
+        collect_help(&mut cmd, "enola-cli", &mut helps);
+        for (path, help) in &helps {
+            assert!(
+                !help.contains("PQC-safe") && !help.contains("PQC safe"),
+                "`{path} --help` afirma seguridad PQC sin respaldo"
+            );
+        }
+    }
+}

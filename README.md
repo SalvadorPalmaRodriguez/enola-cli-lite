@@ -322,8 +322,24 @@ sudo enola-cli tor auth revoke <service> -c <client>
 sudo enola-cli tor auth generate -c <client_name>
 
 # Rotate a client's keys (mitigates harvest-now-decrypt-later)
-sudo enola-cli tor auth rotate <service> -c <client>
+sudo enola-cli tor auth rotate <service> -c <client> -p <new_public_key>
 ```
+
+`<service>` is the canonical Tor service name (`<domain>_<name>`, e.g. `ai_dev`,
+`wp_blog`, `fileserver_docs`). You can also pass the domain and the instance and
+let enola-cli compose it: `tor auth enable ai dev` is the same as
+`tor auth enable ai_dev`. Older names (e.g. `proxy_ai-dev`) still work with a
+single argument.
+
+### HTTPS after publishing
+
+```bash
+# Add HTTPS (self-signed certificate + .onion:443) to a service published over HTTP
+sudo enola-cli tor ssl <service>          # e.g. tor ssl wp_blog
+```
+
+The `.onion` address does not change. It fails with a clear error if the service
+already has SSL.
 
 ---
 
@@ -372,7 +388,7 @@ sudo enola-cli git edit <name> [options]
 
 ```bash
 # Publish on Tor
-sudo enola-cli git publish <name> [--ssl]
+sudo enola-cli git publish <name> [--ssl] [--auth]
 
 # Hide from Tor
 sudo enola-cli git hide <name>
@@ -433,7 +449,7 @@ sudo enola-cli wp config <name>
 
 ```bash
 # Publish on Tor
-sudo enola-cli wp publish <name>
+sudo enola-cli wp publish <name> [--ssl] [--auth]
 
 # Hide from Tor
 sudo enola-cli wp hide <name>
@@ -472,7 +488,7 @@ sudo enola-cli drupal status <name>
 sudo enola-cli drupal delete <name> [--force]
 
 # Tor exposure
-sudo enola-cli drupal publish <name>
+sudo enola-cli drupal publish <name> [--ssl] [--auth]
 sudo enola-cli drupal hide <name>
 
 # Change HTTP port (recreates the web container atomically)
@@ -499,7 +515,7 @@ sudo enola-cli ghost status <name>
 sudo enola-cli ghost delete <name> [--force]
 
 # Tor exposure
-sudo enola-cli ghost publish <name>
+sudo enola-cli ghost publish <name> [--ssl] [--auth]
 sudo enola-cli ghost hide <name>
 
 # Change HTTP port
@@ -526,7 +542,7 @@ sudo enola-cli magnolia status <name>
 sudo enola-cli magnolia delete <name> [--force]
 
 # Tor exposure
-sudo enola-cli magnolia publish <name>
+sudo enola-cli magnolia publish <name> [--ssl] [--auth]
 sudo enola-cli magnolia hide <name>
 ```
 
@@ -553,7 +569,7 @@ sudo enola-cli strapi status <name>
 sudo enola-cli strapi delete <name> [--force]
 
 # Tor exposure
-sudo enola-cli strapi publish <name>
+sudo enola-cli strapi publish <name> [--ssl] [--auth]
 sudo enola-cli strapi hide <name>
 ```
 
@@ -577,7 +593,7 @@ sudo enola-cli wagtail status <name>
 sudo enola-cli wagtail delete <name> [--force]
 
 # Tor exposure
-sudo enola-cli wagtail publish <name>
+sudo enola-cli wagtail publish <name> [--ssl] [--auth]
 sudo enola-cli wagtail hide <name>
 ```
 
