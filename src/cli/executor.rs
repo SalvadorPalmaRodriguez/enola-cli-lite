@@ -123,15 +123,17 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             tor,
         } => {
             execute_ask(
-                prompt,
-                model,
-                endpoint,
-                instance,
-                no_exec,
-                yes,
-                provider,
-                accept_risks,
-                tor,
+                AskArgs {
+                    prompt,
+                    model,
+                    endpoint,
+                    instance,
+                    no_exec,
+                    yes,
+                    provider,
+                    accept_risks,
+                    tor,
+                },
                 cli.format.as_str(),
             )
             .await
@@ -219,9 +221,8 @@ async fn execute_mcp(
     Ok(String::new())
 }
 
-/// Fase 9 (9.5): ejecuta `enola-cli ask` contra un servidor Ollama local (o `.onion`),
-/// compartiendo el `ToolRegistry` con MCP y aplicando el gate interactivo `[s/N]` en TTY.
-async fn execute_ask(
+/// Flags de `enola-cli ask` tal como llegan de `Commands::Ask`.
+struct AskArgs {
     prompt: String,
     model: Option<String>,
     endpoint: Option<String>,
@@ -231,8 +232,22 @@ async fn execute_ask(
     provider: Option<String>,
     accept_risks: bool,
     tor: bool,
-    format: &str,
-) -> CliResult<String> {
+}
+
+/// Fase 9 (9.5): ejecuta `enola-cli ask` contra un servidor Ollama local (o `.onion`),
+/// compartiendo el `ToolRegistry` con MCP y aplicando el gate interactivo `[s/N]` en TTY.
+async fn execute_ask(args: AskArgs, format: &str) -> CliResult<String> {
+    let AskArgs {
+        prompt,
+        model,
+        endpoint,
+        instance,
+        no_exec,
+        yes,
+        provider,
+        accept_risks,
+        tor,
+    } = args;
     use crate::adapters::ai::ollama::OllamaAdapter;
     use crate::adapters::infra::docker::BollardDockerAdapter;
     use crate::application::ai_assistant::{
@@ -4404,7 +4419,7 @@ async fn execute_ai_benchmark(
         ))
     })?;
     let engine: Arc<dyn crate::ports::llm::LlmEngine + Send + Sync> = Arc::new(OllamaAdapter::new(
-        &format!("http://127.0.0.1:{api_port}"),
+        format!("http://127.0.0.1:{api_port}"),
         Duration::from_secs(300),
     ));
     let bench = RunAiBenchmark::new(adapter, engine);
@@ -4461,7 +4476,7 @@ fn build_providers_service(
 
     let via_tor = resolve_provider_tor(use_tor_flag);
     let store: Arc<dyn crate::ports::external_ai::AiProvidersStorePort + Send + Sync> =
-        Arc::new(FsProvidersStore::default().map_err(CliError::from)?);
+        Arc::new(FsProvidersStore::for_invoking_user().map_err(CliError::from)?);
     let client: Arc<dyn ExternalAiPort + Send + Sync> =
         Arc::new(ExternalAiAdapter::new(via_tor).map_err(CliError::from)?);
     Ok(ManageAiProviders::new(store, client, via_tor))
@@ -4691,6 +4706,7 @@ async fn execute_ai_finetune(
                 adapter.clone(),
                 None,
                 base,
+                Arc::new(crate::adapters::ai::finetune_workspace::FsFinetuneWorkspace::new()),
             );
             let fmt_parsed = fmt
                 .as_deref()
@@ -4739,6 +4755,7 @@ async fn execute_ai_finetune(
                 adapter.clone(),
                 None,
                 base,
+                Arc::new(crate::adapters::ai::finetune_workspace::FsFinetuneWorkspace::new()),
             );
             let rep = svc
                 .validate(&dataset, base_model.as_deref())
@@ -4788,6 +4805,7 @@ async fn execute_ai_finetune(
                 adapter.clone(),
                 Some(Arc::new(ReqwestTokenizerDownloader::new())),
                 base,
+                Arc::new(crate::adapters::ai::finetune_workspace::FsFinetuneWorkspace::new()),
             );
             let job = svc
                 .start(
@@ -4825,6 +4843,7 @@ async fn execute_ai_finetune(
                 adapter.clone(),
                 None,
                 base,
+                Arc::new(crate::adapters::ai::finetune_workspace::FsFinetuneWorkspace::new()),
             );
             let jobs = svc.status(&instance).await.map_err(CliError::from)?;
             if format == "json" {
@@ -4875,6 +4894,7 @@ async fn execute_ai_finetune(
                 adapter.clone(),
                 None,
                 base,
+                Arc::new(crate::adapters::ai::finetune_workspace::FsFinetuneWorkspace::new()),
             );
             let job = svc
                 .register(&instance, &job_id)
@@ -4895,6 +4915,17 @@ async fn execute_ai_finetune(
     }
 }
 
+/// `--embedding-fallback <MODE>` de `ai rag ingest|sync`: solo admite `hash` (D6).
+fn parse_embedding_fallback(value: Option<String>) -> CliResult<bool> {
+    match value.as_deref().map(str::trim) {
+        None => Ok(false),
+        Some(v) if v.eq_ignore_ascii_case("hash") => Ok(true),
+        Some(other) => Err(CliError::Generic(format!(
+            "--embedding-fallback '{other}' no válido. Único valor admitido: hash"
+        ))),
+    }
+}
+
 async fn execute_ai_rag(cmd: crate::cli::AiRagCommands, format: &str) -> CliResult<String> {
     use crate::adapters::ai::rag_store::FsRagStoreAdapter;
     use crate::application::ai_rag::ManageAiRag;
@@ -4905,11 +4936,17 @@ async fn execute_ai_rag(cmd: crate::cli::AiRagCommands, format: &str) -> CliResu
     let adapter = build_ai_adapter()?;
     // instance_dir("") == base_dir (/srv/enola-ai) — join de "" no añade segmento.
     let base = adapter.instance_dir("");
+    // D6: en TTY se ofrece reintentar / hash / cancelar si Ollama no responde;
+    // sin TTY (scripts, MCP) el gate cancela → falla cerrado.
     let svc = ManageAiRag::new(
         adapter.clone(),
         Arc::new(FsRagStoreAdapter::new(base)),
         adapter,
-    );
+        Arc::new(crate::adapters::ai::rag_source::FsRagSource::new()),
+    )
+    .with_fallback_gate(Arc::new(
+        crate::application::ai_rag::TtyEmbeddingFallbackGate,
+    ));
 
     match cmd {
         R::Status { instance } => {
@@ -4954,10 +4991,25 @@ async fn execute_ai_rag(cmd: crate::cli::AiRagCommands, format: &str) -> CliResu
             }
             Ok(out)
         }
-        R::Ingest { instance, path } => {
+        R::Ingest {
+            instance,
+            path,
+            embedding_fallback,
+        } => {
+            let svc = svc.with_hash_fallback(parse_embedding_fallback(embedding_fallback)?);
             let n = svc.ingest(&instance, &path).await.map_err(CliError::from)?;
             Ok(format!(
                 "✅ Ingested {n} chunk(s) into instance '{instance}' index"
+            ))
+        }
+        R::IngestDocs {
+            instance,
+            embedding_fallback,
+        } => {
+            let svc = svc.with_hash_fallback(parse_embedding_fallback(embedding_fallback)?);
+            let n = svc.ingest_docs(&instance).await.map_err(CliError::from)?;
+            Ok(format!(
+                "✅ Indexed {n} enola-cli docs chunk(s) into '{instance}' (collection enola_docs)"
             ))
         }
         R::Bind {
@@ -4976,7 +5028,11 @@ async fn execute_ai_rag(cmd: crate::cli::AiRagCommands, format: &str) -> CliResu
                 src.source_type, src.location, src.id
             ))
         }
-        R::Sync { instance } => {
+        R::Sync {
+            instance,
+            embedding_fallback,
+        } => {
+            let svc = svc.with_hash_fallback(parse_embedding_fallback(embedding_fallback)?);
             let n = svc.sync(&instance).await.map_err(CliError::from)?;
             Ok(format!("✅ Synced {n} chunk(s) for instance '{instance}'"))
         }
@@ -5125,15 +5181,15 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
                 source
             );
             let rep = svc
-                .download(
-                    &instance,
-                    &source,
-                    file.as_deref(),
-                    sha256.as_deref(),
-                    name.as_deref(),
-                    cfg.use_tor_for_downloads,
-                    !no_register,
-                )
+                .download(crate::application::ai_models::ModelDownloadArgs {
+                    instance: &instance,
+                    source: &source,
+                    file: file.as_deref(),
+                    expected_sha256: sha256.as_deref(),
+                    name: name.as_deref(),
+                    use_tor: cfg.use_tor_for_downloads,
+                    register: !no_register,
+                })
                 .await
                 .map_err(CliError::from)?;
             if format == "json" {
@@ -5268,9 +5324,17 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
 
 #[cfg(test)]
 mod tests {
-    use super::{license_text, uninstall_script_candidates};
+    use super::{license_text, parse_embedding_fallback, uninstall_script_candidates};
     use crate::cli::{Cli, Commands};
     use clap::Parser;
+
+    #[test]
+    fn embedding_fallback_flag_accepts_only_hash() {
+        assert!(!parse_embedding_fallback(None).unwrap());
+        assert!(parse_embedding_fallback(Some("hash".into())).unwrap());
+        assert!(parse_embedding_fallback(Some(" HASH ".into())).unwrap());
+        assert!(parse_embedding_fallback(Some("ollama".into())).is_err());
+    }
 
     #[test]
     fn license_default_is_the_proprietary_eula() {
@@ -5421,6 +5485,37 @@ mod tests {
                 "failed to parse {args:?}"
             );
         }
+    }
+
+    #[test]
+    fn ai_rag_ingest_docs_parses_instance_and_fallback() {
+        use crate::cli::{AiCommands, AiRagCommands as R, Commands};
+        use clap::Parser;
+
+        let cli =
+            crate::cli::Cli::try_parse_from(["enola", "ai", "rag", "ingest-docs", "dev"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Ai(AiCommands::Rag(R::IngestDocs { ref instance, embedding_fallback: None }))
+                if instance == "dev"
+        ));
+        let cli = crate::cli::Cli::try_parse_from([
+            "enola",
+            "ai",
+            "rag",
+            "ingest-docs",
+            "dev",
+            "--embedding-fallback",
+            "hash",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Ai(AiCommands::Rag(R::IngestDocs { embedding_fallback: Some(ref m), .. }))
+                if m == "hash"
+        ));
+        // Sin instancia → error de clap.
+        assert!(crate::cli::Cli::try_parse_from(["enola", "ai", "rag", "ingest-docs"]).is_err());
     }
 
     #[test]

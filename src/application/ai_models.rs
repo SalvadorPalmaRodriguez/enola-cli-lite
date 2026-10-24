@@ -5,7 +5,7 @@
 // Dos vías de instalación de modelos conviven por instancia:
 // - `ai model download|import|add` (esta capa): fichero `.gguf` en la
 //   biblioteca `<base>/<instance>/ollama/models-gguf/` + registro vía
-//   `/api/create` (Modelfile FROM), o `/api/pull` para tags del registro.
+//   blob + `/api/create`, o `/api/pull` para tags del registro.
 //   Proveniencia completa: fichero auditable + SHA-256 registrado.
 // - Pull desde el panel de Open WebUI (Admin → Models): NO atraviesa esta
 //   capa. El modelo queda solo en el store interno de Ollama y `list()` lo
@@ -56,6 +56,25 @@ pub struct ModelInstallReport {
     pub tokenizer_dir: Option<String>,
     /// Aviso si el tokenizer no pudo descargarse (el GGUF siguió OK).
     pub tokenizer_warning: Option<String>,
+}
+
+/// Parámetros de `ai model download` (ver [`ManageAiModels::download`]).
+#[derive(Debug, Clone, Copy)]
+pub struct ModelDownloadArgs<'a> {
+    /// Instancia destino.
+    pub instance: &'a str,
+    /// Fuente: `org/repo` de HuggingFace o URL directa.
+    pub source: &'a str,
+    /// Fichero `.gguf` dentro del repo HF (`--file`).
+    pub file: Option<&'a str>,
+    /// SHA-256 esperado (`--sha256`); si se da, se verifica.
+    pub expected_sha256: Option<&'a str>,
+    /// Nombre de registro en Ollama (`--name`).
+    pub name: Option<&'a str>,
+    /// Salir por Tor SOCKS5h.
+    pub use_tor: bool,
+    /// Registrar en Ollama tras descargar (`!--no-register`).
+    pub register: bool,
 }
 
 /// Orquestador de `ai model <sub>`: instancias + biblioteca + registro + descarga.
@@ -137,16 +156,16 @@ impl ManageAiModels {
     }
 
     /// `ai model download <instance> <source> [--file] [--sha256] [--name] [--tor] [--no-register]`.
-    pub async fn download(
-        &self,
-        instance: &str,
-        source: &str,
-        file: Option<&str>,
-        expected_sha256: Option<&str>,
-        name: Option<&str>,
-        use_tor: bool,
-        register: bool,
-    ) -> Result<ModelInstallReport> {
+    pub async fn download(&self, args: ModelDownloadArgs<'_>) -> Result<ModelInstallReport> {
+        let ModelDownloadArgs {
+            instance,
+            source,
+            file,
+            expected_sha256,
+            name,
+            use_tor,
+            register,
+        } = args;
         self.require_instance(instance).await?;
         let resolved = ai_model::resolve_download_source(source, file)?;
         let downloader = self.downloader.as_ref().ok_or_else(|| {
@@ -167,9 +186,26 @@ impl ManageAiModels {
             .await?;
 
         // Validar header GGUF real tras la descarga (un HTML de error no es modelo).
-        self.library
+        // El descargador ya lo valida sobre el `.part` antes de publicarlo; si
+        // aun así no se puede leer, el fichero no se queda en la biblioteca
+        // sin proveniencia (borrado best-effort, se devuelve el error original).
+        if let Err(e) = self
+            .library
             .read_gguf_metadata(instance, &resolved.filename)
-            .await?;
+            .await
+        {
+            if let Err(del) = self
+                .library
+                .delete_library_file(instance, &resolved.filename)
+                .await
+            {
+                tracing::warn!(
+                    "No se pudo borrar '{}' tras fallar su validación: {del}",
+                    resolved.filename
+                );
+            }
+            return Err(e);
+        }
 
         // S2: persistir proveniencia (sha256 + origen + hf_repo) en index.json.
         self.library
@@ -518,15 +554,15 @@ mod tests {
 
         let s = svc(insts, lib, reg, dl);
         let out = s
-            .download(
-                "dev",
-                "org/repo",
-                Some("m.gguf"),
-                Some("ab12"),
-                Some("custom:q4"),
-                false,
-                true,
-            )
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "org/repo",
+                file: Some("m.gguf"),
+                expected_sha256: Some("ab12"),
+                name: Some("custom:q4"),
+                use_tor: false,
+                register: true,
+            })
             .await
             .unwrap();
         assert_eq!(out.filename, "m.gguf");
@@ -535,6 +571,58 @@ mod tests {
         // Sin descargador de tokenizer inyectado, se avisa pero no falla.
         assert_eq!(out.tokenizer_dir, None);
         assert!(out.tokenizer_warning.is_some());
+    }
+
+    /// Si la metadata del fichero descargado no se puede leer, no queda en la
+    /// biblioteca: se borra (sin proveniencia ni registro) y se devuelve el
+    /// error original.
+    #[tokio::test]
+    async fn download_removes_file_when_metadata_is_unreadable() {
+        let mut insts = MockAiAdapterPort::new();
+        insts.expect_get_instance().returning(|n| Ok(inst(n)));
+
+        let mut lib = MockAiModelLibraryPort::new();
+        lib.expect_resolve_library_target().returning(|_, f| {
+            Ok(PathBuf::from(format!(
+                "/srv/enola-ai/dev/ollama/models-gguf/{f}"
+            )))
+        });
+        lib.expect_read_gguf_metadata()
+            .returning(|_, _| Err(EnolaError::ValidationError("Header GGUF truncado".into())));
+        lib.expect_delete_library_file()
+            .withf(|i, f| i == "dev" && f == "m.gguf")
+            .times(1)
+            .returning(|_, _| Ok(()));
+        lib.expect_record_download_provenance().times(0);
+
+        let mut reg = MockAiModelRegistryPort::new();
+        reg.expect_register_library_model().times(0);
+
+        let mut dl = MockModelDownloadPort::new();
+        dl.expect_download().times(1).returning(|r| {
+            Ok(ModelDownloadOutcome {
+                destination: r.destination,
+                bytes_written: 128,
+                sha256: "ab12".into(),
+                resumed: false,
+                via_tor: false,
+            })
+        });
+
+        let s = svc(insts, lib, reg, dl);
+        let err = s
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "org/repo",
+                file: Some("m.gguf"),
+                expected_sha256: None,
+                name: None,
+                use_tor: false,
+                register: true,
+            })
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Header GGUF truncado"), "{err}");
     }
 
     #[tokio::test]
@@ -574,15 +662,15 @@ mod tests {
             });
         let s = svc(insts, lib, reg, dl);
         let out = s
-            .download(
-                "dev",
-                "https://h.example/m.gguf",
-                None,
-                None,
-                None,
-                true,
-                false,
-            )
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "https://h.example/m.gguf",
+                file: None,
+                expected_sha256: None,
+                name: None,
+                use_tor: true,
+                register: false,
+            })
             .await
             .unwrap();
         assert!(out.via_tor);
@@ -644,7 +732,15 @@ mod tests {
 
         let s = svc_with_tok(insts, lib, reg, dl, Some(tok));
         let out = s
-            .download("dev", "org/repo", Some("m.gguf"), None, None, false, false)
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "org/repo",
+                file: Some("m.gguf"),
+                expected_sha256: None,
+                name: None,
+                use_tor: false,
+                register: false,
+            })
             .await
             .unwrap();
         assert_eq!(
@@ -693,7 +789,15 @@ mod tests {
 
         let s = svc_with_tok(insts, lib, reg, dl, Some(tok));
         let out = s
-            .download("dev", "org/repo", Some("m.gguf"), None, None, false, false)
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "org/repo",
+                file: Some("m.gguf"),
+                expected_sha256: None,
+                name: None,
+                use_tor: false,
+                register: false,
+            })
             .await
             .unwrap();
         assert_eq!(out.tokenizer_dir, None);
@@ -710,11 +814,27 @@ mod tests {
         dl.expect_download().times(0);
         let s = svc(insts, lib, reg, dl);
         assert!(s
-            .download("dev", "org/repo", None, None, None, false, true)
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "org/repo",
+                file: None,
+                expected_sha256: None,
+                name: None,
+                use_tor: false,
+                register: true,
+            })
             .await
             .is_err());
         assert!(s
-            .download("dev", "ftp://x/m.gguf", None, None, None, false, true)
+            .download(ModelDownloadArgs {
+                instance: "dev",
+                source: "ftp://x/m.gguf",
+                file: None,
+                expected_sha256: None,
+                name: None,
+                use_tor: false,
+                register: true,
+            })
             .await
             .is_err());
     }

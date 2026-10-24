@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ask.md`
-> **Version:** 1.0 | **Updated:** 2026-10-18
+> **Version:** 1.1 | **Updated:** 2026-10-23
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ask.md`](../user/ai/commands-ask.md)
 > **References:** commands.md, commands-mcp.md
@@ -30,7 +30,7 @@ enola-cli ask <PROMPT> [--model MODEL] [--endpoint URL]
 | `--endpoint <URL>` | Ollama HTTP endpoint URL (overrides `ENOLA_AI_ENDPOINT` / `[ai].endpoint`; default: `http://127.0.0.1:11434`). Automatically routes `.onion` endpoints through Tor `socks5h://`. |
 | `--instance <NAME>` | Managed AI instance name (`enola-ai-<NAME>-ollama`); resolves its local host port automatically. |
 | `--no-exec` | Simulation mode: mutating and destructive tool calls run via `try_run` (`ToolRegistry::try_call`), returning the plan or `argv` with zero side effects. |
-| `-y`, `--yes` | Approve mutating/destructive operations without an interactive TTY prompt (for scripts). |
+| `-y`, `--yes` | Approve **mutating** operations without an interactive TTY prompt (for scripts). It does **not** cover destructive operations, which always require interactive confirmation. |
 
 ---
 
@@ -66,9 +66,12 @@ enola-cli config-show --json
 2. **Mutating (`Mutating`) and destructive (`Destructive`) operations**:
    - With `--no-exec`: **never** modify the system; they invoke `try_run` and
      return the simulated plan or exact `argv`.
-   - Without `--no-exec`: require an **interactive terminal (TTY)** (or explicit
-     `--yes`; without a TTY and without `--yes` the command fails closed).
-     Before running, `ask` displays the tool name and secret-redacted arguments
+   - Without `--no-exec`: require an **interactive terminal (TTY)**. `--yes`
+     only authorizes **mutating** operations; **destructive** ones always prompt
+     `[s/N]` on a TTY and, without a TTY, fail closed even with `--yes`. Reason:
+     the model chooses the operation, and content returned by tools (RAG
+     documents, logs, third-party pages) can steer it into proposing actions the
+     user never asked for. Before running, `ask` displays the tool name and secret-redacted arguments
      (`sanitize_args` / `redact_argv`), prints a reinforced warning for
      `Destructive` operations, and prompts `[s/N]`.
 3. **Anti-recursion**: `ask` is in `FORBIDDEN_FAMILIES`, so `enola_run_command`

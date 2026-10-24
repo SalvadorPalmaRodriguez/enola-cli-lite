@@ -676,6 +676,8 @@ mod tests {
         assert_eq!(classify("ai", &["rag", "bind"]), ToolKind::Destructive);
         // Default-deny: el resto es Mutating.
         assert_eq!(classify("ai", &["rag", "ingest"]), ToolKind::Mutating);
+        // H-12: indexa la documentación embebida; no expone nada a la red.
+        assert_eq!(classify("ai", &["rag", "ingest-docs"]), ToolKind::Mutating);
         assert_eq!(classify("ai", &["rag", "sync"]), ToolKind::Mutating);
         assert_eq!(classify("ai", &["rag", "config"]), ToolKind::Mutating);
         assert_eq!(classify("ai", &["rag", "unbind"]), ToolKind::Mutating);

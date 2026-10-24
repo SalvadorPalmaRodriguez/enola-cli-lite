@@ -1,11 +1,12 @@
-//! Fase 12.3 — Embeddings Ollama compartidos por los adapters de vector store.
+//! Fase 12.3 — Embeddings compartidos por los adapters de vector store.
 //!
-//! `POST {ollama}/api/embed {model, input}` → `embeddings[0]`. Si Ollama no
-//! responde o devuelve vectores vacíos, se usa un embedding determinista por
-//! hash (dimensión fija) para que la ingesta nunca quede bloqueada por el
-//! modelo de embeddings — con la precisión semántica reducida que ello implica.
+//! `POST {ollama}/api/embed {model, input}` → `embeddings[0]`. La vía la decide
+//! el caso de uso (D6): con `EmbeddingMode::Ollama`, si Ollama no responde se
+//! devuelve `None` (nunca se cae a hash en silencio); con `EmbeddingMode::Hash`
+//! se usa el embedding determinista por hash, solo por elección explícita.
 
 use crate::domain::error::{EnolaError, Result};
+use crate::domain::rag::EmbeddingMode;
 use serde_json::json;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -68,13 +69,22 @@ pub fn hash_embedding(text: &str) -> Vec<f32> {
     v
 }
 
-/// Genera embeddings para `texts` vía Ollama; por cada texto que falle usa
-/// el fallback por hash (misma dimensión garantizada solo si TODOS usan la
-/// misma vía — si Ollama devuelve dims distintas del fallback se fuerza
-/// fallback global para no mezclar espacios vectoriales).
-pub async fn embed_texts(ollama_port: u16, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+/// Genera embeddings para `texts` por la vía `mode`.
+///
+/// - `Hash`: embedding determinista por hash para todos (sin red).
+/// - `Ollama`: `Some` solo si TODOS los textos obtienen embedding; `None` si
+///   Ollama falla en alguno (no se indexa nada a medias ni se mezcla con hash).
+pub async fn embed_texts(
+    ollama_port: u16,
+    model: &str,
+    texts: &[String],
+    mode: EmbeddingMode,
+) -> Result<Option<Vec<Vec<f32>>>> {
     if texts.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Some(Vec::new()));
+    }
+    if mode == EmbeddingMode::Hash {
+        return Ok(Some(texts.iter().map(|t| hash_embedding(t)).collect()));
     }
     let ollama_base = format!("http://127.0.0.1:{ollama_port}");
     let client = crate::infrastructure::http::http_client_builder(&ollama_base).and_then(|b| {
@@ -84,22 +94,21 @@ pub async fn embed_texts(ollama_port: u16, model: &str, texts: &[String]) -> Res
     })?;
 
     let mut out: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
-    let mut all_ok = true;
     for t in texts {
         match try_embed(&client, ollama_port, model, t).await {
             Some(v) => out.push(v),
-            None => {
-                all_ok = false;
-                break;
-            }
+            None => return Ok(None),
         }
     }
-    if all_ok && out.len() == texts.len() {
-        return Ok(out);
-    }
-    // Fallback global: hash determinista para TODOS (espacio homogéneo).
-    tracing::warn!("Ollama /api/embed no disponible (:{ollama_port}); usando embeddings por hash");
-    Ok(texts.iter().map(|t| hash_embedding(t)).collect())
+    Ok(Some(out))
+}
+
+/// Mensaje accionable cuando Ollama no devuelve embeddings.
+pub fn embeddings_unavailable_detail(ollama_port: u16, model: &str) -> String {
+    format!(
+        "Ollama no devolvió embeddings en 127.0.0.1:{ollama_port} (modelo '{model}'): \
+         instancia parada o modelo de embeddings no descargado"
+    )
 }
 
 #[cfg(test)]
@@ -123,11 +132,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn embed_falls_back_when_ollama_down() {
-        // Puerto sin servidor → fallback por hash.
-        let out = embed_texts(1, "nomic-embed-text", &["hola".to_string()])
-            .await
-            .unwrap();
+    async fn embed_ollama_down_returns_none_instead_of_hash() {
+        // D6: puerto sin servidor → None (sin respaldo silencioso por hash).
+        let out = embed_texts(
+            1,
+            "nomic-embed-text",
+            &["hola".to_string()],
+            EmbeddingMode::Ollama,
+        )
+        .await
+        .unwrap();
+        assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn embed_hash_mode_never_calls_ollama() {
+        let out = embed_texts(
+            1,
+            "nomic-embed-text",
+            &["hola".to_string()],
+            EmbeddingMode::Hash,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].len(), FALLBACK_EMBED_DIM);
     }

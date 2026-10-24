@@ -299,9 +299,71 @@ pub fn records_to_jsonl(records: &[ChatMlRecord]) -> String {
     out
 }
 
+/// Directorios de un job de fine-tuning en el host
+/// (`<base>/<instance>/finetune/<job_id>/`). El contenedor monta `data/`,
+/// `scripts/` y `out/`; con rootfs read-only solo escribe en `out/`, así que
+/// `/tmp` y la caché HF van a `out/tmp` y `out/.hf`. Ruta pura, sin I/O.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinetuneJobLayout {
+    /// Dataset del job (montado en `/data`).
+    pub data_dir: std::path::PathBuf,
+    /// Scripts embebidos (montado en `/opt/finetune`).
+    pub scripts_dir: std::path::PathBuf,
+    /// Salida: adaptador, modelo mergeado y GGUF exportado (montado en `/out`).
+    pub out_dir: std::path::PathBuf,
+    /// `TMPDIR` del contenedor, dentro de `out/`.
+    pub tmp_dir: std::path::PathBuf,
+    /// `HF_HOME` del contenedor, dentro de `out/`.
+    pub hf_home: std::path::PathBuf,
+}
+
+impl FinetuneJobLayout {
+    /// Layout del job `job_id` de `instance` bajo `base`.
+    pub fn new(base: &std::path::Path, instance: &str, job_id: &str) -> Self {
+        let root = base.join(instance).join("finetune").join(job_id);
+        let out_dir = root.join("out");
+        Self {
+            data_dir: root.join("data"),
+            scripts_dir: root.join("scripts"),
+            tmp_dir: out_dir.join("tmp"),
+            hf_home: out_dir.join(".hf"),
+            out_dir,
+        }
+    }
+
+    /// Copia del dataset dentro del job (`data/train.jsonl`).
+    pub fn dataset_file(&self) -> std::path::PathBuf {
+        self.data_dir.join("train.jsonl")
+    }
+
+    /// Todos los directorios que hay que crear antes de lanzar el job.
+    pub fn dirs(&self) -> [&std::path::Path; 5] {
+        [
+            &self.data_dir,
+            &self.scripts_dir,
+            &self.out_dir,
+            &self.tmp_dir,
+            &self.hf_home,
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn job_layout_places_scratch_dirs_inside_out() {
+        let l = FinetuneJobLayout::new(std::path::Path::new("/srv/enola-ai"), "dev", "ft1");
+        let root = std::path::Path::new("/srv/enola-ai/dev/finetune/ft1");
+        assert_eq!(l.data_dir, root.join("data"));
+        assert_eq!(l.scripts_dir, root.join("scripts"));
+        assert_eq!(l.out_dir, root.join("out"));
+        assert_eq!(l.tmp_dir, root.join("out/tmp"));
+        assert_eq!(l.hf_home, root.join("out/.hf"));
+        assert_eq!(l.dataset_file(), root.join("data/train.jsonl"));
+        assert_eq!(l.dirs().len(), 5);
+    }
 
     #[test]
     fn detect_format_recognizes_all_four() {

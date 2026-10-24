@@ -604,13 +604,16 @@ impl AiAdapterPort for EnolaAiAdapter {
         // Borrar TODOS los contenedores de la instancia (ollama, webui,
         // vector store, finetune) — la E2E real mostró huérfanos
         // (`enola-ai-<n>-chromadb`) que bloqueaban el borrado de la red.
-        let prefix = format!("enola-ai-{name}-");
+        // Sufijo exacto, no prefijo: `dev-test` no es de `dev` (H-02).
         let all = self
             .container_manager
             .list_containers(true)
             .await
             .unwrap_or_default();
-        for c in all.iter().filter(|c| c.name.starts_with(&prefix)) {
+        for c in all
+            .iter()
+            .filter(|c| crate::domain::ai::is_instance_container(name, &c.name))
+        {
             let _ = self.container_manager.stop_container(&c.name).await;
             let _ = self.container_manager.remove_container(&c.name).await;
         }
@@ -657,7 +660,8 @@ impl AiAdapterPort for EnolaAiAdapter {
 //
 // La biblioteca vive en `<base>/<instance>/ollama/models-gguf/`, dentro del
 // volumen que Ollama monta en `/root/.ollama`: el contenedor ve los ficheros
-// como `/root/.ollama/models-gguf/<file>` (`domain::ai_model::container_gguf_path`).
+// como `/root/.ollama/models-gguf/<file>`. El registro en Ollama no usa esa
+// ruta: sube el fichero como blob (`LlmEngine::create_model_from_gguf`, H-16).
 // `index.json` (modo 0640) guarda proveniencia (sha256, origen) por fichero.
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -854,19 +858,21 @@ impl crate::ports::ai::AiModelLibraryPort for EnolaAiAdapter {
     ) -> Result<crate::domain::ai_model::GgufMetadata> {
         let path =
             crate::domain::ai_model::resolve_library_path(&self.base_dir, instance, filename)?;
-        let mut file = std::fs::File::open(&path).map_err(|e| {
+        let file = std::fs::File::open(&path).map_err(|e| {
             EnolaError::NotFound(format!(
                 "Fichero '{filename}' no encontrado en la biblioteca de '{instance}': {e}"
             ))
         })?;
         // Leer el header completo (metadata incluida) para extraer
-        // `general.architecture` y `general.file_type`.
-        let mut buf = vec![0u8; crate::domain::ai_model::GGUF_HEADER_READ_LEN];
+        // `general.architecture` y `general.file_type`. `read_to_end` sobre
+        // `take`: un único `read` puede devolver menos bytes de los pedidos.
         use std::io::Read;
-        let n = file.read(&mut buf).map_err(|e| {
-            EnolaError::InfrastructureError(format!("No se pudo leer '{filename}': {e}"))
-        })?;
-        buf.truncate(n);
+        let mut buf = Vec::new();
+        file.take(crate::domain::ai_model::GGUF_HEADER_READ_LEN as u64)
+            .read_to_end(&mut buf)
+            .map_err(|e| {
+                EnolaError::InfrastructureError(format!("No se pudo leer '{filename}': {e}"))
+            })?;
         crate::domain::ai_model::parse_gguf_header(&buf)
     }
 
@@ -1032,11 +1038,9 @@ impl crate::ports::ai::AiModelRegistryPort for EnolaAiAdapter {
         head.truncate(n);
         crate::domain::ai_model::validate_gguf_header(&head)?;
 
-        let container_path = crate::domain::ai_model::container_gguf_path(filename)?;
-        let modelfile = format!("FROM {container_path}");
         let endpoint = self.ollama_endpoint(instance).await?;
         self.ollama_engine(&endpoint)
-            .create_model(name, &modelfile)
+            .create_model_from_gguf(name, &path)
             .await
     }
 
@@ -1296,6 +1300,55 @@ mod tests {
             })
         });
         Arc::new(hw)
+    }
+
+    /// GGUF real con más de 4 MiB de metadata y `general.file_type` DESPUÉS
+    /// del vocabulario: `read_gguf_metadata` debe leer el header completo.
+    #[tokio::test]
+    async fn read_gguf_metadata_handles_metadata_larger_than_4_mib() {
+        fn kv_header(b: &mut Vec<u8>, key: &str, value_type: u32) {
+            b.extend_from_slice(&(key.len() as u64).to_le_bytes());
+            b.extend_from_slice(key.as_bytes());
+            b.extend_from_slice(&value_type.to_le_bytes());
+        }
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes());
+        b.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        b.extend_from_slice(&3u64.to_le_bytes()); // metadata_kv_count
+        kv_header(&mut b, "general.architecture", 8);
+        b.extend_from_slice(&5u64.to_le_bytes());
+        b.extend_from_slice(b"qwen2");
+        kv_header(&mut b, "tokenizer.ggml.tokens", 9);
+        b.extend_from_slice(&8u32.to_le_bytes()); // array de strings
+        let token = b"token-de-relleno";
+        let count = (5 * 1024 * 1024) / (8 + token.len());
+        b.extend_from_slice(&(count as u64).to_le_bytes());
+        for _ in 0..count {
+            b.extend_from_slice(&(token.len() as u64).to_le_bytes());
+            b.extend_from_slice(token);
+        }
+        kv_header(&mut b, "general.file_type", 4);
+        b.extend_from_slice(&15u32.to_le_bytes());
+        assert!(b.len() > 5 * 1024 * 1024);
+
+        let tmp = TempDir::new().unwrap();
+        let lib = crate::domain::ai_model::library_dir_for_instance(tmp.path(), "dev").unwrap();
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("big-vocab.gguf"), &b).unwrap();
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(MockContainerPort::new()),
+            mock_hw_with_nvidia(false),
+            mock_manifest(),
+            tmp.path().to_path_buf(),
+        );
+
+        let meta = adapter
+            .read_gguf_metadata("dev", "big-vocab.gguf")
+            .await
+            .unwrap();
+        assert_eq!(meta.architecture.as_deref(), Some("qwen2"));
+        assert_eq!(meta.file_type, Some(15));
     }
 
     #[tokio::test]
@@ -1612,6 +1665,71 @@ mod tests {
         assert!(adapter.delete_instance("dev", false).await.is_err());
         // delete con --force elimina ambos contenedores y la red
         adapter.delete_instance("dev", true).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_instance_does_not_touch_instances_sharing_name_prefix() {
+        let tmp = TempDir::new().unwrap();
+        let _env_guard = lock_env_dir(&tmp);
+
+        let container = |name: &str| ContainerInfo {
+            id: name.into(),
+            name: name.into(),
+            image: "img".into(),
+            status: "Up 5 minutes".into(),
+            ports: vec![],
+        };
+        let mut docker = MockContainerPort::new();
+        docker.expect_list_containers().returning(move |_| {
+            Ok(vec![
+                container("enola-ai-dev-ollama"),
+                container("enola-ai-dev-webui"),
+                container("enola-ai-dev-chromadb"),
+                container("enola-ai-dev-finetune-ft123"),
+                container("enola-ai-dev-test-ollama"),
+                container("enola-ai-dev-test-webui"),
+                container("enola-ai-dev-test-qdrant"),
+            ])
+        });
+        let removed = Arc::new(Mutex::new(Vec::<String>::new()));
+        let removed_c = removed.clone();
+        docker
+            .expect_stop_container()
+            .withf(|n| !n.starts_with("enola-ai-dev-test-"))
+            .returning(|_| Ok(()));
+        docker
+            .expect_remove_container()
+            .withf(|n| !n.starts_with("enola-ai-dev-test-"))
+            .returning(move |n| {
+                removed_c.lock().unwrap().push(n.to_string());
+                Ok(())
+            });
+        docker
+            .expect_remove_network()
+            .withf(|n| n == "enola_net_ai_dev")
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let adapter = EnolaAiAdapter::new_with_base(
+            Arc::new(docker),
+            mock_hw_with_nvidia(false),
+            mock_manifest(),
+            tmp.path().join("ai_data"),
+        );
+
+        adapter.delete_instance("dev", true).await.unwrap();
+
+        let mut removed = removed.lock().unwrap().clone();
+        removed.sort();
+        assert_eq!(
+            removed,
+            vec![
+                "enola-ai-dev-chromadb",
+                "enola-ai-dev-finetune-ft123",
+                "enola-ai-dev-ollama",
+                "enola-ai-dev-webui",
+            ]
+        );
     }
 
     #[tokio::test]

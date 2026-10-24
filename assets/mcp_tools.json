@@ -3506,7 +3506,7 @@
       "subcommands": []
     },
     {
-      "description": "Connects to a local Ollama endpoint (`[ai].endpoint`, default `http://127.0.0.1:11434`) and reuses the MCP `ToolRegistry`. Read-only tools execute directly; mutating and destructive tools require interactive `[s/N]` confirmation on a TTY (or `--yes`), or `--no-exec` to simulate via `try_run` with zero side effects.",
+      "description": "Connects to a local Ollama endpoint (`[ai].endpoint`, default `http://127.0.0.1:11434`) and reuses the MCP `ToolRegistry`. Read-only tools execute directly; mutating and destructive tools require interactive `[s/N]` confirmation on a TTY (`--yes` covers mutating tools only, never destructive ones), or `--no-exec` to simulate via `try_run` with zero side effects.",
       "flags": [
         {
           "boolean": false,
@@ -4085,9 +4085,40 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "PATH"
+                },
+                {
+                  "boolean": false,
+                  "name": "embedding-fallback",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "MODE"
                 }
               ],
               "name": "ingest",
+              "subcommands": []
+            },
+            {
+              "description": "Index the enola-cli documentation embedded in this binary into the instance's `enola_docs` collection (used by the MCP `docs_lookup` tool)",
+              "flags": [
+                {
+                  "boolean": false,
+                  "name": "instance",
+                  "positional": true,
+                  "possible_values": [],
+                  "required": true,
+                  "value_name": "INSTANCE"
+                },
+                {
+                  "boolean": false,
+                  "name": "embedding-fallback",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "MODE"
+                }
+              ],
+              "name": "ingest-docs",
               "subcommands": []
             },
             {
@@ -4142,6 +4173,14 @@
                   "possible_values": [],
                   "required": true,
                   "value_name": "INSTANCE"
+                },
+                {
+                  "boolean": false,
+                  "name": "embedding-fallback",
+                  "positional": false,
+                  "possible_values": [],
+                  "required": false,
+                  "value_name": "MODE"
                 }
               ],
               "name": "sync",

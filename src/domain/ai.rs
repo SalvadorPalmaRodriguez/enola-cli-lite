@@ -6,6 +6,7 @@
 
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::naming::validate_service_name;
+use crate::domain::rag::VectorStoreBackend;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
@@ -238,6 +239,33 @@ pub fn webui_container_name(name: &str) -> String {
     format!("enola-ai-{name}-webui")
 }
 
+/// Indica si `container` pertenece a la instancia IA `instance`.
+///
+/// Solo acepta los sufijos exactos que crea `enola-cli` tras `enola-ai-<instance>-`:
+/// `ollama`, `webui`, el del vector store (`chromadb`/`qdrant`) y `finetune-ft<dígitos>`.
+/// Un prefijo no basta: `validate_service_name` admite `-`, así que
+/// `enola-ai-dev-test-ollama` es de `dev-test`, no de `dev` (H-02).
+pub fn is_instance_container(instance: &str, container: &str) -> bool {
+    let Some(suffix) = container
+        .strip_prefix("enola-ai-")
+        .and_then(|rest| rest.strip_prefix(instance))
+        .and_then(|rest| rest.strip_prefix('-'))
+    else {
+        return false;
+    };
+    match suffix {
+        "ollama" | "webui" => true,
+        s if s == VectorStoreBackend::Chroma.container_suffix()
+            || s == VectorStoreBackend::Qdrant.container_suffix() =>
+        {
+            true
+        }
+        s => s
+            .strip_prefix("finetune-ft")
+            .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
+    }
+}
+
 /// Nombre canónico de la red Docker aislada para la instancia IA: `enola_net_ai_<name>`.
 pub fn ai_network_name(name: &str) -> String {
     format!("enola_net_ai_{name}")
@@ -320,6 +348,41 @@ mod tests {
         assert_eq!(webui_container_name("dev"), "enola-ai-dev-webui");
         assert_eq!(ai_network_name("dev"), "enola_net_ai_dev");
         assert_eq!(ai_tor_service_name("dev"), "ai-dev");
+    }
+
+    #[test]
+    fn is_instance_container_matches_only_own_exact_suffixes() {
+        // Contenedores propios de `dev`.
+        assert!(is_instance_container("dev", "enola-ai-dev-ollama"));
+        assert!(is_instance_container("dev", "enola-ai-dev-webui"));
+        assert!(is_instance_container("dev", "enola-ai-dev-chromadb"));
+        assert!(is_instance_container("dev", "enola-ai-dev-qdrant"));
+        assert!(is_instance_container(
+            "dev",
+            "enola-ai-dev-finetune-ft1729000000000"
+        ));
+
+        // Instancias cuyo nombre empieza por `dev-` NO son de `dev` (H-02).
+        assert!(!is_instance_container("dev", "enola-ai-dev-test-ollama"));
+        assert!(!is_instance_container("dev", "enola-ai-dev-test-webui"));
+        assert!(!is_instance_container("dev", "enola-ai-dev-test-chromadb"));
+        assert!(!is_instance_container(
+            "dev",
+            "enola-ai-dev-test-finetune-ft1"
+        ));
+        assert!(!is_instance_container(
+            "dev",
+            "enola-ai-dev-finetune-ft1-ollama"
+        ));
+
+        // Sufijos o ids de job no canónicos.
+        assert!(!is_instance_container("dev", "enola-ai-dev-finetune-"));
+        assert!(!is_instance_container("dev", "enola-ai-dev-finetune-ft"));
+        assert!(!is_instance_container("dev", "enola-ai-dev-finetune-ftabc"));
+        assert!(!is_instance_container("dev", "enola-ai-dev-other"));
+        assert!(!is_instance_container("dev", "enola-ai-dev"));
+        assert!(!is_instance_container("dev", "enola-ai-devx-ollama"));
+        assert!(!is_instance_container("dev", "piloto-ollama"));
     }
 
     #[test]

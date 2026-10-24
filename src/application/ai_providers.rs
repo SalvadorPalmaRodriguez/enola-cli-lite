@@ -255,15 +255,13 @@ pub fn resolve_provider_tor(flag_tor: bool) -> bool {
     }
     let env = std::env::var("ENOLA_AI_TOR_PROXY").ok();
     let cfg = crate::infrastructure::config_loader::load_section("ai");
-    for raw in [env, cfg.get("tor_proxy").cloned()] {
-        if let Some(v) = raw {
-            let v = v.trim().to_ascii_lowercase();
-            if matches!(v.as_str(), "1" | "true" | "yes" | "on") {
-                return true;
-            }
-            if matches!(v.as_str(), "0" | "false" | "no" | "off") {
-                return false;
-            }
+    for v in [env, cfg.get("tor_proxy").cloned()].into_iter().flatten() {
+        let v = v.trim().to_ascii_lowercase();
+        if matches!(v.as_str(), "1" | "true" | "yes" | "on") {
+            return true;
+        }
+        if matches!(v.as_str(), "0" | "false" | "no" | "off") {
+            return false;
         }
     }
     false

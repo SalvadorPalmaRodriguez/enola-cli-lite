@@ -535,8 +535,9 @@ pub enum Commands {
     ///
     /// Connects to a local Ollama endpoint (`[ai].endpoint`, default `http://127.0.0.1:11434`)
     /// and reuses the MCP `ToolRegistry`. Read-only tools execute directly; mutating and
-    /// destructive tools require interactive `[s/N]` confirmation on a TTY (or `--yes`),
-    /// or `--no-exec` to simulate via `try_run` with zero side effects.
+    /// destructive tools require interactive `[s/N]` confirmation on a TTY (`--yes` covers
+    /// mutating tools only, never destructive ones), or `--no-exec` to simulate via
+    /// `try_run` with zero side effects.
     ///
     /// Examples:
     ///   enola-cli ask "lista mis servicios tor"
@@ -562,7 +563,8 @@ pub enum Commands {
         #[arg(long)]
         no_exec: bool,
 
-        /// Approve mutating/destructive operations without interactive TTY prompt
+        /// Approve mutating operations without interactive TTY prompt. Destructive
+        /// operations always require interactive confirmation (not covered by --yes)
         #[arg(short = 'y', long)]
         yes: bool,
 
@@ -2685,11 +2687,37 @@ pub enum AiRagCommands {
     /// Examples:
     ///   sudo enola-cli ai rag ingest dev /home/user/docs
     ///   sudo enola-cli ai rag ingest dev ./notes.md
+    ///   sudo enola-cli ai rag ingest dev ./notes.md --embedding-fallback hash
     Ingest {
         /// Instance name
         instance: String,
         /// Path to a file or directory to ingest
         path: String,
+        /// If the instance's Ollama returns no embeddings, index with
+        /// deterministic hash embeddings instead (`hash`; NOT semantic). The
+        /// collection is marked `hash` and cannot be mixed with Ollama
+        /// embeddings. Without it, ingestion fails (a TTY offers retry/hash/cancel)
+        #[arg(long, value_name = "MODE")]
+        embedding_fallback: Option<String>,
+    },
+
+    /// Index the enola-cli documentation embedded in this binary into the
+    /// instance's `enola_docs` collection (used by the MCP `docs_lookup` tool)
+    ///
+    /// Rebuilds the collection on every run (no stale chunks after an
+    /// upgrade). Never touches the user's own index (`ai rag ingest|sync`).
+    ///
+    /// Examples:
+    ///   sudo enola-cli ai rag ingest-docs dev
+    ///   sudo enola-cli ai rag ingest-docs dev --embedding-fallback hash
+    IngestDocs {
+        /// Instance name
+        instance: String,
+        /// If the instance's Ollama returns no embeddings, index with
+        /// deterministic hash embeddings instead (`hash`; NOT semantic).
+        /// Without it, indexing fails (a TTY offers retry/hash/cancel)
+        #[arg(long, value_name = "MODE")]
+        embedding_fallback: Option<String>,
     },
 
     /// Bind an external source (filesystem dir, local git repo, wordpress site)
@@ -2723,6 +2751,12 @@ pub enum AiRagCommands {
     Sync {
         /// Instance name
         instance: String,
+        /// If the instance's Ollama returns no embeddings, index with
+        /// deterministic hash embeddings instead (`hash`; NOT semantic). The
+        /// collection is marked `hash` and cannot be mixed with Ollama
+        /// embeddings. Without it, ingestion fails (a TTY offers retry/hash/cancel)
+        #[arg(long, value_name = "MODE")]
+        embedding_fallback: Option<String>,
     },
 
     /// Show or update the RAG configuration of an instance

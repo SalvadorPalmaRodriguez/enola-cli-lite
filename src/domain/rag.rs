@@ -39,8 +39,9 @@ impl VectorStoreBackend {
     /// Imagen Docker del backend.
     pub fn docker_image(&self) -> &'static str {
         match self {
-            Self::Chroma => "chromadb/chroma:latest",
-            Self::Qdrant => "qdrant/qdrant:latest",
+            // Chroma no publica tags de versión en Docker Hub: digest de la 1.4.4 (API v2).
+            Self::Chroma => "chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6",
+            Self::Qdrant => "qdrant/qdrant:v1.20.0",
         }
     }
 
@@ -86,6 +87,11 @@ pub struct RagConfig {
     pub vector_store: VectorStoreBackend,
     /// Nombre del preset aplicado (informativo).
     pub preset: String,
+    /// Vía de embeddings con que se indexó cada colección (D6), clave
+    /// `<backend>/<colección>` (ver [`embedding_kind_key`]), valor
+    /// `ollama:<modelo>` o `hash`. Impide mezclar espacios vectoriales.
+    #[serde(default)]
+    pub embedding_kinds: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for RagConfig {
@@ -98,6 +104,7 @@ impl Default for RagConfig {
             embedding_model: "nomic-embed-text".to_string(),
             vector_store: VectorStoreBackend::Chroma,
             preset: "docs".to_string(),
+            embedding_kinds: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -614,12 +621,82 @@ pub fn collection_for_instance(instance: &str) -> Result<String> {
     Ok(name)
 }
 
+/// Vía de cálculo de embeddings (D6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbeddingMode {
+    /// `/api/embed` del Ollama de la instancia (semántico).
+    Ollama,
+    /// Hash determinista por palabras: solo por elección explícita del usuario.
+    Hash,
+}
+
+/// Etiqueta persistida de la vía: `ollama:<modelo>` o `hash`.
+pub fn embedding_kind_label(mode: EmbeddingMode, model: &str) -> String {
+    match mode {
+        EmbeddingMode::Ollama => format!("ollama:{model}"),
+        EmbeddingMode::Hash => "hash".to_string(),
+    }
+}
+
+/// Clave de [`RagConfig::embedding_kinds`]: `<backend>/<colección>`
+/// (cambiar de backend empieza con colecciones vacías).
+pub fn embedding_kind_key(backend: VectorStoreBackend, collection: &str) -> String {
+    format!("{}/{collection}", backend.container_suffix())
+}
+
+/// Rechaza indexar en `collection` con una vía distinta de la registrada.
+pub fn check_embedding_compat(stored: Option<&str>, new: &str, collection: &str) -> Result<()> {
+    match stored {
+        Some(s) if s != new => Err(EnolaError::ValidationError(format!(
+            "La colección '{collection}' se indexó con embeddings '{s}' y ahora se usarían \
+             '{new}': no se mezclan espacios vectoriales. Usa la misma vía (o el mismo \
+             modelo de embeddings) o reindexa la colección desde cero."
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// Vía con la que consultar una colección según lo registrado: `hash` → hash;
+/// cualquier otra (o sin registro) → Ollama, que falla si no responde (D6-e).
+pub fn query_mode_for(stored: Option<&str>) -> EmbeddingMode {
+    match stored {
+        Some("hash") => EmbeddingMode::Hash,
+        _ => EmbeddingMode::Ollama,
+    }
+}
+
 /// Nombre de colección para el lookup de documentación (`docs_lookup`).
 pub const DOCS_COLLECTION: &str = "enola_docs";
+
+/// Extensiones admitidas en la ingesta RAG (texto, código, config, web, docs).
+pub const SUPPORTED_RAG_EXTENSIONS: &[&str] = &[
+    "txt", "md", "markdown", "rst", "rtf", "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c",
+    "cpp", "h", "hpp", "rb", "php", "swift", "kt", "scala", "lua", "pl", "pm", "json", "toml",
+    "yml", "yaml", "xml", "ini", "conf", "cfg", "html", "htm", "css", "scss", "sh", "bash", "zsh",
+    "sql", "tex", "csv", "tsv", "jsonl",
+];
+
+/// `true` si `path` tiene una extensión admitida en la ingesta (sin
+/// distinguir mayúsculas). Función pura: no toca el disco.
+pub fn is_supported_rag_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| SUPPORTED_RAG_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supported_rag_file_by_extension_case_insensitive() {
+        assert!(is_supported_rag_file(Path::new("/x/a.md")));
+        assert!(is_supported_rag_file(Path::new("/x/A.MD")));
+        assert!(is_supported_rag_file(Path::new("notes.jsonl")));
+        assert!(!is_supported_rag_file(Path::new("/x/b.bin")));
+        assert!(!is_supported_rag_file(Path::new("/x/sin_extension")));
+    }
 
     // ── VectorStoreBackend ──
 
@@ -642,6 +719,59 @@ mod tests {
         assert_eq!(VectorStoreBackend::Qdrant.container_port(), 6333);
         assert!(VectorStoreBackend::Chroma.docker_image().contains("chroma"));
         assert_eq!(VectorStoreBackend::Chroma.container_suffix(), "chromadb");
+    }
+
+    #[test]
+    fn backend_images_are_pinned_not_rolling() {
+        // H-11: tag de versión o digest, nunca `latest` (reproducibilidad).
+        for b in [VectorStoreBackend::Chroma, VectorStoreBackend::Qdrant] {
+            let img = b.docker_image();
+            assert!(!img.ends_with(":latest"), "{img}");
+            assert!(
+                img.contains("@sha256:") || img.rsplit_once(':').is_some(),
+                "{img}"
+            );
+        }
+    }
+
+    // ── D6: vía de embeddings ──
+
+    #[test]
+    fn embedding_kind_labels_and_keys() {
+        assert_eq!(
+            embedding_kind_label(EmbeddingMode::Ollama, "nomic-embed-text"),
+            "ollama:nomic-embed-text"
+        );
+        assert_eq!(embedding_kind_label(EmbeddingMode::Hash, "ignored"), "hash");
+        assert_eq!(
+            embedding_kind_key(VectorStoreBackend::Qdrant, "rag_dev"),
+            "qdrant/rag_dev"
+        );
+    }
+
+    #[test]
+    fn embedding_compat_rejects_mixing_and_allows_first_or_same() {
+        assert!(check_embedding_compat(None, "hash", "rag_dev").is_ok());
+        assert!(check_embedding_compat(Some("hash"), "hash", "rag_dev").is_ok());
+        assert!(check_embedding_compat(Some("ollama:a"), "hash", "rag_dev").is_err());
+        assert!(check_embedding_compat(Some("hash"), "ollama:a", "rag_dev").is_err());
+        assert!(check_embedding_compat(Some("ollama:a"), "ollama:b", "rag_dev").is_err());
+    }
+
+    #[test]
+    fn query_mode_follows_stored_kind() {
+        assert_eq!(query_mode_for(Some("hash")), EmbeddingMode::Hash);
+        assert_eq!(query_mode_for(Some("ollama:a")), EmbeddingMode::Ollama);
+        assert_eq!(query_mode_for(None), EmbeddingMode::Ollama);
+    }
+
+    #[test]
+    fn rag_config_without_embedding_kinds_still_deserializes() {
+        // `rag_config.json` anteriores a D6 no tienen el campo.
+        let mut v = serde_json::to_value(RagConfig::default()).unwrap();
+        v.as_object_mut().unwrap().remove("embedding_kinds");
+        let cfg: RagConfig = serde_json::from_value(v).unwrap();
+        assert!(cfg.embedding_kinds.is_empty());
     }
 
     // ── RagConfig presets + validate ──

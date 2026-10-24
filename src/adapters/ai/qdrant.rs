@@ -7,7 +7,9 @@
 
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::rag::validate_collection_name;
-use crate::ports::rag::{RagDocument, RagSearchResult, RagVectorStorePort};
+use crate::ports::rag::{
+    AddDocumentsOutcome, EmbeddingMode, RagDocument, RagSearchResult, RagVectorStorePort,
+};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -74,6 +76,74 @@ impl QdrantAdapter {
         h
     }
 
+    /// Dimensión de los vectores de una colección (`None` si no existe).
+    async fn collection_vector_size(&self, name: &str) -> Result<Option<usize>> {
+        let url = format!("{}/{name}", self.collections());
+        let resp =
+            self.client()?.get(&url).send().await.map_err(|e| {
+                EnolaError::InfrastructureError(format!("Qdrant GET collection: {e}"))
+            })?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let body = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(Self::qdrant_err("GET collection", status, &body));
+        }
+        let v: Value = serde_json::from_str(&body).map_err(|e| {
+            EnolaError::InfrastructureError(format!("Qdrant GET collection JSON: {e}"))
+        })?;
+        Ok(v.pointer("/result/config/params/vectors/size")
+            .and_then(Value::as_u64)
+            .map(|d| d as usize))
+    }
+
+    /// Crea la colección con `dim` si no existe; si existe con otra dimensión,
+    /// error claro (otro modelo o vía de embeddings) en vez del rechazo de Qdrant.
+    async fn ensure_collection_with_dim(&self, collection: &str, dim: usize) -> Result<()> {
+        if dim == 0 {
+            return Err(EnolaError::InfrastructureError(
+                "Embeddings vacíos: no se puede crear la colección Qdrant".into(),
+            ));
+        }
+        match self.collection_vector_size(collection).await? {
+            Some(existing) if existing == dim => return Ok(()),
+            Some(existing) => {
+                return Err(EnolaError::ValidationError(format!(
+                    "La colección Qdrant '{collection}' tiene vectores de dimensión {existing} \
+                     y los embeddings actuales son de dimensión {dim} (otro modelo o vía de \
+                     embeddings). Reindexa la colección desde cero."
+                )))
+            }
+            None => {}
+        }
+        let url = format!("{}/{collection}", self.collections());
+        let resp = self
+            .client()?
+            .put(&url)
+            .json(&json!({
+                "vectors": {
+                    "size": dim,
+                    "distance": "Cosine",
+                }
+            }))
+            .send()
+            .await
+            .map_err(|e| {
+                EnolaError::InfrastructureError(format!("Qdrant create collection: {e}"))
+            })?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            // "already exists" (carrera con otra ingesta) es idempotente.
+            if !body.contains("already exists") {
+                return Err(Self::qdrant_err("create collection", status, &body));
+            }
+        }
+        Ok(())
+    }
+
     /// `true` si la colección existe (GET 200).
     async fn collection_exists(&self, name: &str) -> Result<bool> {
         let url = format!("{}/{name}", self.collections());
@@ -96,49 +166,39 @@ impl QdrantAdapter {
 #[async_trait::async_trait]
 impl RagVectorStorePort for QdrantAdapter {
     async fn ensure_collection(&self, collection: &str) -> Result<()> {
-        validate_collection_name(collection)?;
-        if self.collection_exists(collection).await? {
-            return Ok(());
-        }
-        // Dimensión: embeddings de Ollama varían por modelo; fallback usa
-        // FALLBACK_EMBED_DIM. Se crea con la dimensión del primer embedding
-        // real vía `create` perezoso: aquí usamos la dim del fallback y si el
-        // primer upsert real difiere, Qdrant rechazará con error claro.
-        let url = format!("{}/{collection}", self.collections());
-        let resp = self
-            .client()?
-            .put(&url)
-            .json(&json!({
-                "vectors": {
-                    "size": super::embed::FALLBACK_EMBED_DIM,
-                    "distance": "Cosine",
-                }
-            }))
-            .send()
-            .await
-            .map_err(|e| {
-                EnolaError::InfrastructureError(format!("Qdrant create collection: {e}"))
-            })?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            // "already exists" es idempotente.
-            if !body.contains("already exists") {
-                return Err(Self::qdrant_err("create collection", status, &body));
-            }
-        }
-        Ok(())
+        // H-13: Qdrant fija la dimensión al crear la colección y depende del
+        // modelo de embeddings (nomic-embed-text = 768, hash = 384). Se crea
+        // en `add_documents` con la dimensión del primer embedding real.
+        validate_collection_name(collection)
     }
 
-    async fn add_documents(&self, collection: &str, docs: Vec<RagDocument>) -> Result<()> {
+    async fn add_documents(
+        &self,
+        collection: &str,
+        docs: Vec<RagDocument>,
+        mode: EmbeddingMode,
+    ) -> Result<AddDocumentsOutcome> {
         if docs.is_empty() {
-            return Ok(());
+            return Ok(AddDocumentsOutcome::Added);
         }
-        self.ensure_collection(collection).await?;
+        validate_collection_name(collection)?;
 
         let texts: Vec<String> = docs.iter().map(|d| d.content.clone()).collect();
-        let embeddings =
-            super::embed::embed_texts(self.ollama_port, &self.embedding_model, &texts).await?;
+        // D6: sin embeddings no se indexa nada; decide el caso de uso.
+        let Some(embeddings) =
+            super::embed::embed_texts(self.ollama_port, &self.embedding_model, &texts, mode)
+                .await?
+        else {
+            return Ok(AddDocumentsOutcome::EmbeddingsUnavailable(
+                super::embed::embeddings_unavailable_detail(
+                    self.ollama_port,
+                    &self.embedding_model,
+                ),
+            ));
+        };
+
+        let dim = embeddings.first().map(Vec::len).unwrap_or(0);
+        self.ensure_collection_with_dim(collection, dim).await?;
 
         let points: Vec<Value> = docs
             .iter()
@@ -171,7 +231,7 @@ impl RagVectorStorePort for QdrantAdapter {
             let body = resp.text().await.unwrap_or_default();
             return Err(Self::qdrant_err("upsert points", status, &body));
         }
-        Ok(())
+        Ok(AddDocumentsOutcome::Added)
     }
 
     async fn query(
@@ -179,6 +239,7 @@ impl RagVectorStorePort for QdrantAdapter {
         collection: &str,
         query: &str,
         n_results: usize,
+        mode: EmbeddingMode,
     ) -> Result<Vec<RagSearchResult>> {
         validate_collection_name(collection)?;
         if !self.collection_exists(collection).await? {
@@ -186,12 +247,24 @@ impl RagVectorStorePort for QdrantAdapter {
                 "Colección '{collection}' no existe en el índice"
             )));
         }
+        // D6-e: la consulta usa la vía de la colección; si es Ollama y no
+        // responde, falla (nunca se consulta un índice semántico con hash).
         let emb = super::embed::embed_texts(
             self.ollama_port,
             &self.embedding_model,
             &[query.to_string()],
+            mode,
         )
         .await?
+        .ok_or_else(|| {
+            EnolaError::InfrastructureError(format!(
+                "{}. Arranca la instancia (`ai start`) y reintenta la consulta.",
+                super::embed::embeddings_unavailable_detail(
+                    self.ollama_port,
+                    &self.embedding_model
+                )
+            ))
+        })?
         .into_iter()
         .next()
         .ok_or_else(|| EnolaError::InfrastructureError("Sin embedding para la consulta".into()))?;
@@ -304,7 +377,7 @@ impl RagVectorStorePort for QdrantAdapter {
     async fn is_available(&self) -> bool {
         match self.client() {
             Ok(c) => c
-                .get(&self.collections())
+                .get(self.collections())
                 .send()
                 .await
                 .map(|r| r.status().is_success())
@@ -371,10 +444,35 @@ mod tests {
                 content: "texto".into(),
                 metadata: std::collections::HashMap::from([("source".into(), "a.md".into())]),
             }],
+            EmbeddingMode::Hash,
         )
         .await
         .unwrap();
-        let res = a.query("rag_dev", "texto", 5).await.unwrap();
+        // D6: con Ollama caído (puerto 1) no se indexa nada ni se cae a hash.
+        let unavailable = a
+            .add_documents(
+                "rag_dev",
+                vec![RagDocument {
+                    id: "d2".into(),
+                    content: "texto dos".into(),
+                    metadata: std::collections::HashMap::new(),
+                }],
+                EmbeddingMode::Ollama,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            unavailable,
+            AddDocumentsOutcome::EmbeddingsUnavailable(_)
+        ));
+        assert!(a
+            .query("rag_dev", "texto", 5, EmbeddingMode::Ollama)
+            .await
+            .is_err());
+        let res = a
+            .query("rag_dev", "texto", 5, EmbeddingMode::Hash)
+            .await
+            .unwrap();
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].document.id, "d1");
         assert!((res[0].distance - 0.09).abs() < 1e-5); // 1 - 0.91
@@ -398,7 +496,141 @@ mod tests {
             }
         });
         let a = QdrantAdapter::new(port, 1, "m");
-        let err = a.query("rag_dev", "x", 3).await.unwrap_err();
+        let err = a
+            .query("rag_dev", "x", 3, EmbeddingMode::Hash)
+            .await
+            .unwrap_err();
         assert!(matches!(err, EnolaError::NotFound(_)));
+    }
+
+    /// Stub Ollama: `/api/embed` devuelve vectores de dimensión `dim`.
+    async fn spawn_embed_stub(dim: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 16384];
+                    let _ = socket.read(&mut buf).await;
+                    let v: Vec<String> = (0..dim).map(|i| format!("0.{}", i + 1)).collect();
+                    let body = format!(r#"{{"embeddings":[[{}]]}}"#, v.join(","));
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(resp.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        port
+    }
+
+    /// Stub Qdrant con estado: la colección `rag_dev` existe solo tras crearla
+    /// (o si se arranca con `initial_size`) y recuerda su dimensión.
+    async fn spawn_stateful_qdrant(
+        initial_size: Option<usize>,
+    ) -> (u16, std::sync::Arc<std::sync::Mutex<Option<usize>>>) {
+        let size = std::sync::Arc::new(std::sync::Mutex::new(initial_size));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let size_srv = size.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let size = size_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 65536];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let raw = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let first = raw.lines().next().unwrap_or("").to_string();
+                    let body_json = raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+                    let current = *size.lock().unwrap();
+                    let (status, body) = if first.starts_with("GET /collections/rag_dev ") {
+                        match current {
+                            Some(s) => (
+                                "200 OK",
+                                format!(
+                                    r#"{{"result":{{"points_count":0,"config":{{"params":{{"vectors":{{"size":{s},"distance":"Cosine"}}}}}}}}}}"#
+                                ),
+                            ),
+                            None => (
+                                "404 Not Found",
+                                r#"{"status":{"error":"not found"}}"#.to_string(),
+                            ),
+                        }
+                    } else if first.starts_with("PUT /collections/rag_dev/points") {
+                        ("200 OK", r#"{"result":{"status":"completed"}}"#.to_string())
+                    } else if first.starts_with("PUT /collections/rag_dev ") {
+                        let v: Value = serde_json::from_str(&body_json).unwrap_or(Value::Null);
+                        let dim = v["vectors"]["size"].as_u64().map(|d| d as usize);
+                        *size.lock().unwrap() = dim;
+                        ("200 OK", r#"{"result":true}"#.to_string())
+                    } else {
+                        (
+                            "404 Not Found",
+                            r#"{"status":{"error":"not found"}}"#.to_string(),
+                        )
+                    };
+                    let resp = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(resp.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        (port, size)
+    }
+
+    fn one_doc() -> Vec<RagDocument> {
+        vec![RagDocument {
+            id: "d1".into(),
+            content: "texto".into(),
+            metadata: std::collections::HashMap::new(),
+        }]
+    }
+
+    #[tokio::test]
+    async fn qdrant_creates_collection_with_real_embedding_dimension() {
+        // H-13: con Ollama (aquí dim 5) la colección se crea con la dimensión
+        // real del embedding, no con la fija del hash (384).
+        let embed_port = spawn_embed_stub(5).await;
+        let (port, size) = spawn_stateful_qdrant(None).await;
+        let a = QdrantAdapter::new(port, embed_port, "nomic-embed-text");
+        a.ensure_collection("rag_dev").await.unwrap();
+        let out = a
+            .add_documents("rag_dev", one_doc(), EmbeddingMode::Ollama)
+            .await
+            .unwrap();
+        assert_eq!(out, AddDocumentsOutcome::Added);
+        assert_eq!(*size.lock().unwrap(), Some(5));
+    }
+
+    #[tokio::test]
+    async fn qdrant_hash_collection_uses_hash_dimension() {
+        let (port, size) = spawn_stateful_qdrant(None).await;
+        let a = QdrantAdapter::new(port, 1, "nomic-embed-text");
+        a.add_documents("rag_dev", one_doc(), EmbeddingMode::Hash)
+            .await
+            .unwrap();
+        assert_eq!(
+            *size.lock().unwrap(),
+            Some(super::super::embed::FALLBACK_EMBED_DIM)
+        );
+    }
+
+    #[tokio::test]
+    async fn qdrant_rejects_dimension_mismatch_with_clear_error() {
+        // Colección existente de 384 (hash) + embeddings de 5 → error claro.
+        let embed_port = spawn_embed_stub(5).await;
+        let (port, _) = spawn_stateful_qdrant(Some(384)).await;
+        let a = QdrantAdapter::new(port, embed_port, "nomic-embed-text");
+        let err = a
+            .add_documents("rag_dev", one_doc(), EmbeddingMode::Ollama)
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("384") && msg.contains('5'), "{msg}");
     }
 }

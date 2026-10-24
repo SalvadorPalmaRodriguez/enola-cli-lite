@@ -1,5 +1,5 @@
 > **User document:** `docs/en/faq.md`
-> **Version:** 2.0 | **Updated:** 2026-08-08
+> **Version:** 2.2 | **Updated:** 2026-10-24
 > **Status:** ✅ **CURRENT — Frequently Asked Questions**
 > **References:** commands.md, concepts.md
 > **Spanish original:** [`docs/user/general/faq.md`](../user/general/faq.md)
@@ -19,6 +19,41 @@ the same address becomes available again.
 
 **Can I have multiple services on the same server?**
 Yes, with no limit. Each service has its own `.onion` address.
+
+**Should my machine suspend? (24/7 server vs. desktop)**
+While the machine is suspended your `.onion` services are **unreachable**,
+just as if it were powered off. Pick one of these two modes:
+
+- **24/7 server** (services always available): block suspend.
+  ```bash
+  sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+  ```
+  If you also want closing the lid or pressing the power button to do nothing,
+  create a drop-in in `/etc/systemd/logind.conf.d/` with
+  `HandleLidSwitch=ignore`, `HandlePowerKey=ignore`, `HandleSuspendKey=ignore`
+  and `IdleAction=ignore`.
+
+- **Desktop machine** (suspends again as before): revert the above.
+  ```bash
+  sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+  # Move (or delete) the logind drop-in you created and reboot
+  # (or `sudo systemctl restart systemd-logind`, which ends the graphical session)
+  ```
+  Then set the idle timeout in your desktop. XFCE example
+  (3 minutes on AC and on battery, suspend mode):
+  ```bash
+  for p in inactivity-on-ac inactivity-on-battery; do
+    xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$p -n -t uint -s 3
+  done
+  for p in inactivity-sleep-mode-on-ac inactivity-sleep-mode-on-battery; do
+    xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$p -n -t uint -s 1
+  done
+  ```
+  On GNOME: **Settings → Power**.
+
+> ⚠️ If the machine **never** suspends, not even with `systemctl suspend`,
+> check whether the targets are masked: `systemctl status suspend.target`
+> (it shows `Loaded: masked` in that case).
 
 ---
 
@@ -157,6 +192,32 @@ It resists attacks from quantum computers that would break RSA/ECDSA.
 **Is SSH over Tor quantum-resistant?**
 Standard SSH is not. Use `maintenance ssh-harden-pqc` to configure
 hybrid post-quantum algorithms (sntrup761x25519) that are.
+
+---
+
+## Local AI (Ollama)
+
+**`ai rag ingest` fails with "Ollama no devolvió embeddings" (Ollama returned no embeddings) instead of indexing**
+This is intentional: if Ollama returns no embeddings (instance stopped or the
+embedding model missing), enola-cli **indexes nothing** rather than silently
+filling the index with lower-quality vectors. Start the instance
+(`sudo enola-cli ai start <NAME>`) and retry. On an interactive terminal you
+are offered retry / hash / cancel; to index by hash on purpose use
+`--embedding-fallback hash`. A collection never mixes methods: if you created
+it with hash, it stays hash.
+
+**`ask --yes` still asks for confirmation (or fails without a terminal)**
+`--yes` only approves **mutating** operations. **Destructive** ones (delete,
+`--force`) always require a `[s/N]` confirmation on an interactive terminal;
+without a terminal they fail even with `--yes`. Reason: content read by tools
+(RAG documents, logs) could lead the model to request a destructive action.
+See [`commands-ask.md`](commands-ask.md).
+
+**The `docs_lookup` MCP tool returns `results: []`**
+The documentation collection (`enola_docs`) is not indexed yet. Run
+`sudo enola-cli ai rag ingest-docs <NAME>` (and again after updating
+enola-cli), or use `docs_search`, which needs no embeddings. Your own index
+(`ai rag ingest`/`sync`) is never exposed to `docs_lookup`.
 
 ---
 

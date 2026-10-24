@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-ai.md`
-> **Version:** 1.10 | **Updated:** 2026-10-20
+> **Version:** 1.14 | **Updated:** 2026-10-24
 > **Status:** ✅ **CURRENT — User guide**
 > **Spanish original:** [`docs/user/ai/commands-ai.md`](../user/ai/commands-ai.md)
 > **References:** commands-ask.md, commands.md, commands-mcp.md
@@ -42,9 +42,10 @@ sudo enola-cli ai model refresh <NAME>
 
 # RAG index (level 3)
 sudo enola-cli ai rag status <NAME>
-sudo enola-cli ai rag ingest <NAME> <PATH>
+sudo enola-cli ai rag ingest <NAME> <PATH> [--embedding-fallback hash]
+sudo enola-cli ai rag ingest-docs <NAME> [--embedding-fallback hash]
 sudo enola-cli ai rag bind <NAME> --source-type <git|filesystem|wordpress> --path <P> --force
-sudo enola-cli ai rag sync <NAME>
+sudo enola-cli ai rag sync <NAME> [--embedding-fallback hash]
 sudo enola-cli ai rag config <NAME> [--chunk-size N] [--chunk-overlap N]
                                 [--remove-code] [--preset docs|code|faq|large]
                                 [--vector-store chroma|qdrant] [--show]
@@ -85,16 +86,17 @@ enola-cli ai finetune wizard
 | `ai hide <NAME>` | `Destructive` | Removes the `.onion` hidden service and Nginx config while keeping local containers intact. |
 | `ai logs <NAME> [--lines N]` | `ReadOnly` | Displays the last `N` log lines from Ollama and Open WebUI (also available via `enola-cli logs view ai-<NAME>`). |
 | `ai model list [--instance N]` | `ReadOnly` | Lists `.gguf` files in each instance library and models registered in its Ollama (`/api/tags`). |
-| `ai model download <N> <SRC>` | `Mutating` | Downloads a `.gguf` from HuggingFace (`org/repo` + `--file`) or a direct URL, with streaming, `Range` resume and SHA-256 verification; registers it via `/api/create` unless `--no-register`. Defaults to **clearnet**; `--tor` or `[ai].use_tor_for_downloads` routes via SOCKS5h and the egress route is always reported. |
+| `ai model download <N> <SRC>` | `Mutating` | Downloads a `.gguf` from HuggingFace (`org/repo` + `--file`) or a direct URL, streaming to `<file>.part` (resumable with `Range`), with SHA-256 and GGUF header verification before publishing it (a previous model with the same name is left untouched if anything fails); registers it via `/api/create` unless `--no-register`. Defaults to **clearnet**; `--tor` or `[ai].use_tor_for_downloads` routes via SOCKS5h and the egress route is always reported. |
 | `ai model import <N> <PATH>` | `Mutating` | Copies a local `.gguf` into `/srv/enola-ai/<N>/ollama/models-gguf/` after header validation, with `0640` permissions, and registers it unless `--no-register`. |
-| `ai model add <N> <MODEL>` | `Mutating` | If `MODEL` ends in `.gguf` it registers the library file (`/api/create` + `FROM` Modelfile); otherwise it pulls it from the Ollama registry (`/api/pull`, e.g. `llama3.1:8b` or `hf.co/org/repo:tag`). |
+| `ai model add <N> <MODEL>` | `Mutating` | If `MODEL` ends in `.gguf` it registers the library file (uploads the `.gguf` as an Ollama blob and creates it with `/api/create`); otherwise it pulls it from the Ollama registry (`/api/pull`, e.g. `llama3.1:8b` or `hf.co/org/repo:tag`). |
 | `ai model delete <N> <M> --force` | `Destructive` | Removes a `.gguf` from the library (`.gguf` suffix) or a model from the Ollama registry (`DELETE /api/delete`). Requires `--force`. |
 | `ai model validate <N> <F>` | `ReadOnly` | Parses the GGUF header (magic + v2/v3 version + counters) and reports inferred family/quantization. |
 | `ai model refresh <N>` | `Mutating` | Re-scans the instance library and registry. |
 | `ai rag status <N>` | `ReadOnly` | RAG index status: vector store, indexed documents and bound sources. |
-| `ai rag ingest <N> <PATH>` | `Mutating` | Ingests a file or directory into the instance vector index (canonicalizes the path, rejects system dirs, skips dotfiles and symlink escapes). |
+| `ai rag ingest <N> <PATH>` | `Mutating` | Ingests a file or directory into the instance vector index (canonicalizes the path, rejects system dirs, skips dotfiles and symlink escapes). If Ollama returns no embeddings it fails without indexing anything (a TTY offers retry / hash / cancel); `--embedding-fallback hash` indexes with hash embeddings by explicit choice. |
+| `ai rag ingest-docs <N>` | `Mutating` | Indexes the enola-cli documentation embedded in the binary into the instance's `enola_docs` collection (the one `docs_lookup` queries). Rebuilds the collection on every run (nothing stale after an upgrade) and never touches your own index (`ingest`/`sync`). Same embedding policy as `ingest`, including `--embedding-fallback hash`. |
 | `ai rag bind <N> -s <T> -p <P> --force` | `Destructive` | Binds a source (`git`, `filesystem`, `wordpress`) to the index for `sync`. Requires `--force`; paths are canonicalized and system prefixes (`/etc`, `/root`, `/proc`…) are rejected. |
-| `ai rag sync <N>` | `Mutating` | Re-ingests all bound sources (`git pull --ff-only` as the invoking user for git; REST `/wp-json/wp/v2/posts` for wordpress). |
+| `ai rag sync <N>` | `Mutating` | Re-ingests all bound sources (`git pull --ff-only` as the invoking user for git; REST `/wp-json/wp/v2/posts` for wordpress). Accepts `--embedding-fallback hash` like `ingest`. |
 | `ai rag config <N> [--show]` | `Mutating` | Shows or edits `rag_config.json` (chunking, presets `docs|code|faq|large`, backend `chroma|qdrant`). |
 | `ai benchmark <N>` | `Mutating` | Measures tokens/s (Ollama eval_duration), average latency and model size on the instance (`--runs`, `--model`, `--prompt`). |
 | `ai provider list` | `ReadOnly` | Lists BYOK providers and their status (the key only shows as `(set)`/`(not set)`). |
@@ -154,7 +156,9 @@ under the MCP server).
 > datasets) built/available locally — recipe at
 > `assets/finetune/Dockerfile` (`docker build -t enola-finetune:latest -f
 > assets/finetune/Dockerfile assets/finetune`; CPU by default, NVIDIA GPU via
-> `--build-arg TORCH_INDEX=.../cu124`) —, and an NVIDIA GPU with ≥10 GB free
+> `--build-arg TORCH_INDEX=.../cu126`; the recipe pins the base image by
+> digest and every Python dependency, transitive ones included, with
+> `requirements.lock` and, on GPU, `requirements-cu126.lock`) —, and an NVIDIA GPU with ≥10 GB free
 > VRAM (or `--low-memory`). The rest of the pipeline (`prepare`, `validate`,
 > `status`, the `--force`/ChatML gates) works without it. Real end-to-end
 > training verification is manual and slow — see
@@ -196,13 +200,23 @@ via `ContainerPort` on `enola_net_ai_<name>`, bound to `127.0.0.1`, with a
 `/srv/enola-ai/<name>/<backend>/` and calibrated limits (1 GiB, 512 pids).
 
 Embeddings are generated by the instance's Ollama (`/api/embed`,
-`nomic-embed-text` by default); if Ollama does not answer, a deterministic
-hash embedding keeps ingestion unblocked. Per-instance state lives in
+`nomic-embed-text` by default). If Ollama does not answer, ingestion **fails
+without indexing anything**: an interactive terminal offers `[r]etry` (up to 3
+times), `[h]ash` or `[C]ancel`; without a terminal (scripts, MCP) it fails
+directly. Deterministic hash embeddings (**non-semantic** search) are only used
+if you choose them (`h` or `--embedding-fallback hash`). Each collection records
+how it was indexed (`ollama:<model>` or `hash`, in `rag_config.json` →
+`embedding_kinds`) and refuses mixing methods or models; queries use the same
+method and fail if it is Ollama and it does not answer. Per-instance state lives in
 `/srv/enola-ai/<name>/rag_config.json` and `rag_sources.json` (`0640`).
 
-The `docs_lookup` MCP tool offers semantic search over the `enola_docs`
-collection of a RAG-provisioned instance (optional alternative to
-`docs_search`).
+The `docs_lookup` MCP tool offers semantic search over the enola-cli
+documentation (optional alternative to `docs_search`). It only queries the
+`enola_docs` collection, filled by `ai rag ingest-docs <NAME>`, never your own
+documents. If no instance has the docs indexed (or the given instance does
+not), it returns an empty result list with a note suggesting
+`ai rag ingest-docs` or `docs_search`, without an error. After upgrading
+enola-cli, run `ingest-docs` again to reindex.
 
 ---
 
@@ -211,8 +225,11 @@ collection of a RAG-provisioned instance (optional alternative to
 Each instance keeps its library at `/srv/enola-ai/<name>/ollama/models-gguf/`
 (inside the Ollama container's `/root/.ollama` volume, so files appear as
 `/root/.ollama/models-gguf/<file>`). File names are validated against path
-traversal and models are registered in Ollama with a `FROM` Modelfile, so
-`ask --instance <name>` can use them directly.
+traversal; on registration the `.gguf` is uploaded to Ollama as a blob
+(identified by its SHA-256, not re-uploaded if already present) and the model
+is created with `/api/create`, so `ask --instance <name>` can use them
+directly. Ollama keeps its own copy in its blob store, so a registered model
+takes twice the size of the library file on disk.
 
 **Network privacy (R22):** downloads use **clearnet** by default. Use `--tor`
 (or `[ai].use_tor_for_downloads = true` / `ENOLA_AI_USE_TOR_DOWNLOADS`) to force
@@ -250,8 +267,8 @@ equivalent**:
 
 The `ai model` path adds what the panel cannot offer: downloading any `.gguf`
 from HuggingFace or a direct URL (not just models published on ollama.com),
-`--sha256` verification, GGUF header validation after download, `Range`
-resume, optional Tor egress (`--tor`) and `--name` aliases. Each operation is
+`--sha256` verification, GGUF header validation before publishing the file,
+`Range` resume from `<file>.part`, optional Tor egress (`--tor`) and `--name` aliases. Each operation is
 also a scriptable, auditable command (exposed via MCP), rather than a manual
 click.
 

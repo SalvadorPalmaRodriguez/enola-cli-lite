@@ -1,7 +1,8 @@
 //! Fase 13.2 — Adapter `AiProvidersStorePort` sobre disco.
 //!
 //! Persiste `~/.enola/providers.env` (vía `effective_home()` que respeta
-//! `SUDO_USER`), escritura atómica (tmp + rename) y permisos `0600`.
+//! `SUDO_USER`), escritura atómica `0600` sin ventana de permisos
+//! (`infrastructure::atomic_secret_file`).
 //! Las keys solo viven en este fichero y en memoria — jamás en logs.
 
 use crate::domain::ai_providers::{
@@ -20,7 +21,7 @@ pub struct FsProvidersStore {
 
 impl FsProvidersStore {
     /// Store por defecto en `~/.enola/providers.env` (respeta SUDO_USER).
-    pub fn default() -> Result<Self> {
+    pub fn for_invoking_user() -> Result<Self> {
         let home = crate::infrastructure::config_loader::effective_home().ok_or_else(|| {
             EnolaError::InfrastructureError(
                 "No se pudo resolver el home del usuario invocador".into(),
@@ -36,39 +37,34 @@ impl FsProvidersStore {
         Self { path }
     }
 
-    /// Escritura atómica con permisos `0600` (el fichero contiene secretos).
+    /// Escritura atómica con permisos `0600` desde el primer instante
+    /// (`O_EXCL` + temporal con nombre aleatorio + `rename`), vía
+    /// `atomic_secret_file` (MEGAPLAN F13.2.3, H-03). El directorio, si se
+    /// crea aquí, nace `0700`.
     fn write_atomic(&self, content: &str) -> Result<()> {
+        use std::os::unix::fs::DirBuilderExt;
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                EnolaError::InfrastructureError(format!(
-                    "No se pudo crear '{}': {e}",
-                    parent.display()
-                ))
-            })?;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(parent)
+                .map_err(|e| {
+                    EnolaError::InfrastructureError(format!(
+                        "No se pudo crear '{}': {e}",
+                        parent.display()
+                    ))
+                })?;
         }
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, content).map_err(|e| {
-            EnolaError::InfrastructureError(format!("No se pudo escribir '{}': {e}", tmp.display()))
-        })?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| {
+        crate::infrastructure::atomic_secret_file::write_secret_atomically(
+            &self.path,
+            content.as_bytes(),
+        )
+        .map_err(|e| {
             EnolaError::InfrastructureError(format!(
-                "No se pudo renombrar '{}': {e}",
+                "No se pudo escribir '{}': {e}",
                 self.path.display()
             ))
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600)).map_err(
-                |e| {
-                    EnolaError::InfrastructureError(format!(
-                        "No se pudieron fijar permisos 0600 en '{}': {e}",
-                        self.path.display()
-                    ))
-                },
-            )?;
-        }
-        Ok(())
+        })
     }
 }
 
@@ -146,6 +142,51 @@ mod tests {
         assert!(store.remove(ExternalProvider::OpenAi).await.unwrap());
         assert!(!store.remove(ExternalProvider::OpenAi).await.unwrap());
         assert!(store.get(ExternalProvider::OpenAi).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn save_uses_secure_atomic_write_without_predictable_tmp() {
+        // H-03: el temporal no puede tener nombre predecible ni seguir symlinks,
+        // y el directorio nuevo se crea 0700.
+        let dir = tempfile::tempdir().unwrap();
+        let enola_dir = dir.path().join(".enola");
+        let store = FsProvidersStore::at(enola_dir.join("providers.env"));
+
+        // Primer `set`: crea `.enola` con 0700.
+        let entry = ProviderEntry {
+            enabled: true,
+            api_key: Some("test_k1".into()),
+            model: None,
+            endpoint: None,
+        };
+        store
+            .set(ExternalProvider::OpenAi, entry.clone())
+            .await
+            .unwrap();
+        let dir_mode = std::fs::metadata(&enola_dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700, "permisos dir={dir_mode:o}");
+
+        // Un symlink plantado en el antiguo nombre de temporal no se sigue.
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, "intacto").unwrap();
+        std::os::unix::fs::symlink(&victim, enola_dir.join("providers.tmp")).unwrap();
+        store.set(ExternalProvider::Groq, entry).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "intacto");
+
+        // Sin temporales huérfanos y destino 0600.
+        let leftovers: Vec<String> = std::fs::read_dir(&enola_dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        assert!(leftovers.is_empty(), "temporales: {leftovers:?}");
+        let mode = std::fs::metadata(enola_dir.join("providers.env"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "permisos={mode:o}");
     }
 
     #[tokio::test]

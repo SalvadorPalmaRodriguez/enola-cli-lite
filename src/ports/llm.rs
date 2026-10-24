@@ -186,9 +186,11 @@ pub trait LlmEngine: Send + Sync {
     /// Descarga/actualiza un modelo en el motor (`/api/pull`).
     async fn pull_model(&self, model: &str) -> Result<()>;
 
-    /// Crea/registra un modelo en el motor a partir de un Modelfile
-    /// (`/api/create`, `stream: false`).
-    async fn create_model(&self, name: &str, modelfile: &str) -> Result<()>;
+    /// Registra en el motor el GGUF local `gguf` como modelo `name`: sube el
+    /// fichero como blob (`/api/blobs/sha256:<digest>`, solo si no existe) y
+    /// lo crea con `/api/create` + `files` (`stream: false`). Ollama >= 0.5 ya
+    /// no acepta `modelfile` en la API (H-16).
+    async fn create_model_from_gguf(&self, name: &str, gguf: &std::path::Path) -> Result<()>;
 
     /// Elimina un modelo del motor (`DELETE /api/delete`).
     async fn delete_model(&self, name: &str) -> Result<()>;

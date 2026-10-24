@@ -1,11 +1,14 @@
 //! Fase 11.2 — Adapter de descarga de modelos GGUF (`ai model download`).
 //!
 //! - Streaming con `reqwest` + `chunk()` (sin cargar el fichero en memoria).
-//! - Reanudación: si el destino existe con bytes, envía `Range: bytes=<len>-`
-//!   y añade (`206 Partial Content`); si el servidor ignora el rango
-//!   (`200 OK`), reinicia el fichero.
-//! - Verificación SHA-256 incremental durante la escritura; en mismatch se
-//!   elimina el fichero descargado (no queda un modelo corrupto a medio).
+//! - Se descarga a `<destino>.part`. Reanudación solo desde ese `.part`
+//!   (`Range: bytes=<len>-` → `206`); si el servidor ignora el rango
+//!   (`200 OK`), se reinicia el parcial. Un `.gguf` final previo nunca se
+//!   trata como parcial (H-06).
+//! - SHA-256 incremental durante la escritura y validación del header GGUF
+//!   completo (prefijo + metadata) sobre el `.part`; solo si ambos pasan se
+//!   hace `rename` atómico al destino. En fallo se borra el `.part` y el
+//!   modelo previo (si existía) queda intacto.
 //! - Egress: clearnet por defecto (`build_download_client`), Tor SOCKS5h
 //!   forzado con `use_tor` (`build_download_client_via_tor`, R22).
 //! - Permisos restrictivos `0640` sobre el fichero final.
@@ -15,7 +18,7 @@ use crate::ports::ai::{ModelDownloadOutcome, ModelDownloadPort, ModelDownloadReq
 use reqwest::header::RANGE;
 use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 /// Adapter de descarga GGUF sobre HTTP (`reqwest`).
@@ -80,6 +83,39 @@ async fn file_len(path: &Path) -> Result<u64> {
     }
 }
 
+/// Ruta del fichero parcial de una descarga: `<destino>.part` (mismo directorio,
+/// así el `rename` final es atómico).
+fn part_path(destination: &Path) -> PathBuf {
+    let mut name = destination.as_os_str().to_owned();
+    name.push(".part");
+    PathBuf::from(name)
+}
+
+/// Valida el parcial como GGUF completo **antes** de publicarlo: prefijo
+/// (magic + versión + contadores) y metadata hasta `general.architecture` /
+/// `general.file_type`, con la misma lectura que `read_gguf_metadata`. Así un
+/// fichero que luego no se podría leer nunca llega a la biblioteca.
+async fn validate_part_header(part: &Path) -> Result<()> {
+    use tokio::io::AsyncReadExt;
+    let f = tokio::fs::File::open(part).await.map_err(|e| {
+        EnolaError::InfrastructureError(format!("No se pudo leer '{}': {e}", part.display()))
+    })?;
+    let mut buf = Vec::new();
+    f.take(crate::domain::ai_model::GGUF_HEADER_READ_LEN as u64)
+        .read_to_end(&mut buf)
+        .await
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo leer '{}': {e}", part.display()))
+        })?;
+    crate::domain::ai_model::parse_gguf_header(&buf)
+        .map(|_| ())
+        .map_err(|e| {
+            EnolaError::ValidationError(format!(
+                "El fichero descargado no es un modelo GGUF válido ({e}); se descartó."
+            ))
+        })
+}
+
 fn apply_restrictive_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
@@ -111,8 +147,11 @@ impl ModelDownloadPort for ReqwestModelDownloader {
             })?;
         }
 
+        // H-06: el parcial vive en `<fichero>.part`; solo se reanuda desde ahí,
+        // nunca contra un `.gguf` final previo (puede ser otro modelo).
+        let part = part_path(&req.destination);
         let client = self.build_client(&req.url, req.use_tor)?;
-        let existing_len = file_len(&req.destination).await?;
+        let existing_len = file_len(&part).await?;
 
         let mut request = client.get(&req.url);
         if existing_len > 0 {
@@ -130,10 +169,10 @@ impl ModelDownloadPort for ReqwestModelDownloader {
         // Si reanudamos, el hash debe incluir los bytes ya presentes
         // (streaming por bloques: los GGUF pueden pesar varios GiB).
         if resumed {
-            let mut prev = tokio::fs::File::open(&req.destination).await.map_err(|e| {
+            let mut prev = tokio::fs::File::open(&part).await.map_err(|e| {
                 EnolaError::InfrastructureError(format!(
                     "No se pudo reabrir '{}' para reanudar: {e}",
-                    req.destination.display()
+                    part.display()
                 ))
             })?;
             let mut buf = vec![0u8; 65536];
@@ -152,12 +191,12 @@ impl ModelDownloadPort for ReqwestModelDownloader {
         let mut file = if resumed {
             tokio::fs::OpenOptions::new()
                 .append(true)
-                .open(&req.destination)
+                .open(&part)
                 .await
                 .map_err(|e| {
                     EnolaError::InfrastructureError(format!(
                         "No se pudo abrir '{}' en modo append: {e}",
-                        req.destination.display()
+                        part.display()
                     ))
                 })?
         } else {
@@ -172,12 +211,12 @@ impl ModelDownloadPort for ReqwestModelDownloader {
                 .create(true)
                 .write(true)
                 .truncate(true)
-                .open(&req.destination)
+                .open(&part)
                 .await
                 .map_err(|e| {
                     EnolaError::InfrastructureError(format!(
                         "No se pudo crear '{}': {e}",
-                        req.destination.display()
+                        part.display()
                     ))
                 })?
         };
@@ -191,32 +230,46 @@ impl ModelDownloadPort for ReqwestModelDownloader {
             file.write_all(&chunk).await.map_err(|e| {
                 EnolaError::InfrastructureError(format!(
                     "Error de escritura en '{}': {e}",
-                    req.destination.display()
+                    part.display()
                 ))
             })?;
             hasher.update(&chunk);
             written += chunk.len() as u64;
         }
         file.flush().await.map_err(|e| {
-            EnolaError::InfrastructureError(format!(
-                "Error al volcar '{}': {e}",
-                req.destination.display()
-            ))
+            EnolaError::InfrastructureError(format!("Error al volcar '{}': {e}", part.display()))
         })?;
         drop(file);
 
-        apply_restrictive_permissions(&req.destination)?;
+        apply_restrictive_permissions(&part)?;
 
         let sha256 = format!("{:x}", hasher.finalize());
         if let Some(expected) = &req.expected_sha256 {
             let expected = expected.trim();
             if !expected.is_empty() && !sha256.eq_ignore_ascii_case(expected) {
-                let _ = std::fs::remove_file(&req.destination);
+                let _ = std::fs::remove_file(&part);
                 return Err(EnolaError::ValidationError(format!(
-                    "SHA-256 mismatch: esperado {expected}, obtenido {sha256}. El fichero descargado se eliminó."
+                    "SHA-256 mismatch: esperado {expected}, obtenido {sha256}. \
+                     La descarga se descartó; el modelo previo (si existía) no se tocó."
                 )));
             }
         }
+
+        // Un HTML de error no es un modelo: validar el header antes de publicar.
+        if let Err(e) = validate_part_header(&part).await {
+            let _ = std::fs::remove_file(&part);
+            return Err(e);
+        }
+
+        tokio::fs::rename(&part, &req.destination)
+            .await
+            .map_err(|e| {
+                EnolaError::InfrastructureError(format!(
+                    "No se pudo mover '{}' a '{}': {e}",
+                    part.display(),
+                    req.destination.display()
+                ))
+            })?;
 
         Ok(ModelDownloadOutcome {
             destination: req.destination,
@@ -233,6 +286,16 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    /// Cuerpo con prefijo GGUF válido (magic + v3 + 0 tensores + 0 kv) + `payload`.
+    fn gguf_body(payload: &[u8]) -> Vec<u8> {
+        let mut b = b"GGUF".to_vec();
+        b.extend_from_slice(&3u32.to_le_bytes());
+        b.extend_from_slice(&0u64.to_le_bytes());
+        b.extend_from_slice(&0u64.to_le_bytes());
+        b.extend_from_slice(payload);
+        b
+    }
 
     /// Servidor HTTP mínimo con soporte de `Range` para tests de descarga.
     async fn spawn_download_server(body: Vec<u8>, status_full: &'static str) -> String {
@@ -272,7 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn download_writes_stream_and_reports_sha256() {
-        let body = b"GGUF fake model bytes for test".to_vec();
+        let body = gguf_body(b"fake model bytes for test");
         let url = spawn_download_server(body.clone(), "HTTP/1.1 200 OK").await;
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("model.gguf");
@@ -304,7 +367,7 @@ mod tests {
 
     #[tokio::test]
     async fn download_verifies_sha256_and_rejects_mismatch() {
-        let body = b"GGUF payload".to_vec();
+        let body = gguf_body(b"payload");
         let url = spawn_download_server(body.clone(), "HTTP/1.1 200 OK").await;
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("model.gguf");
@@ -330,16 +393,19 @@ mod tests {
             })
             .await;
         assert!(bad.is_err());
-        assert!(!dest.exists(), "fichero con hash inválido debe eliminarse");
+        // H-06: el modelo previo válido sigue intacto; solo se descarta el `.part`.
+        assert_eq!(std::fs::read(&dest).unwrap(), body);
+        assert!(!dir.path().join("model.gguf.part").exists());
     }
 
     #[tokio::test]
     async fn download_resumes_partial_file_with_range() {
-        let body = b"0123456789abcdef".to_vec();
+        let body = gguf_body(b"0123456789abcdef");
         let url = spawn_download_server(body.clone(), "HTTP/1.1 200 OK").await;
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("partial.gguf");
-        std::fs::write(&dest, &body[..8]).unwrap();
+        let part = dir.path().join("partial.gguf.part");
+        std::fs::write(&part, &body[..30]).unwrap();
 
         let d = ReqwestModelDownloader::new();
         let out = d
@@ -354,6 +420,7 @@ mod tests {
 
         assert!(out.resumed, "must resume via Range/206");
         assert_eq!(std::fs::read(&dest).unwrap(), body);
+        assert!(!part.exists(), "el .part se renombra al destino final");
         assert_eq!(out.bytes_written as usize, body.len());
     }
 
@@ -394,5 +461,89 @@ mod tests {
             msg.contains("clearnet") || msg.contains("conectar"),
             "error accionable: {msg}"
         );
+    }
+
+    #[tokio::test]
+    async fn download_never_resumes_against_existing_final_file() {
+        // H-06: un `.gguf` previo con el mismo nombre (otro modelo) no es un
+        // parcial: no se envía `Range` ni se le pega la cola del nuevo.
+        let body = gguf_body(b"new model with a longer payload");
+        let url = spawn_download_server(body.clone(), "HTTP/1.1 200 OK").await;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("model.gguf");
+        std::fs::write(&dest, gguf_body(b"old")).unwrap();
+
+        let d = ReqwestModelDownloader::new();
+        let out = d
+            .download(ModelDownloadRequest {
+                url,
+                destination: dest.clone(),
+                expected_sha256: None,
+                use_tor: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(!out.resumed);
+        assert_eq!(std::fs::read(&dest).unwrap(), body);
+        assert_eq!(out.sha256, format!("{:x}", Sha256::digest(&body)));
+    }
+
+    #[tokio::test]
+    async fn download_rejects_non_gguf_without_touching_previous_model() {
+        // Una página de error HTML no reemplaza el modelo previo.
+        let html = b"<html>404 rate limited</html>".to_vec();
+        let url = spawn_download_server(html, "HTTP/1.1 200 OK").await;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("model.gguf");
+        let previous = gguf_body(b"previous valid model");
+        std::fs::write(&dest, &previous).unwrap();
+
+        let d = ReqwestModelDownloader::new();
+        let err = d
+            .download(ModelDownloadRequest {
+                url,
+                destination: dest.clone(),
+                expected_sha256: None,
+                use_tor: false,
+            })
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("GGUF"), "{err}");
+        assert_eq!(std::fs::read(&dest).unwrap(), previous);
+        assert!(!dir.path().join("model.gguf.part").exists());
+    }
+
+    #[tokio::test]
+    async fn download_rejects_unparseable_metadata_before_publishing() {
+        // Prefijo GGUF válido que declara 41 entradas de metadata ausentes:
+        // la validación completa debe ocurrir sobre el `.part`, antes del
+        // `rename`, para no dejar en la biblioteca un fichero que luego no
+        // se puede leer (ni pisar el modelo previo).
+        let mut body = b"GGUF".to_vec();
+        body.extend_from_slice(&3u32.to_le_bytes());
+        body.extend_from_slice(&0u64.to_le_bytes());
+        body.extend_from_slice(&41u64.to_le_bytes());
+        let url = spawn_download_server(body, "HTTP/1.1 200 OK").await;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("model.gguf");
+        let previous = gguf_body(b"previous valid model");
+        std::fs::write(&dest, &previous).unwrap();
+
+        let d = ReqwestModelDownloader::new();
+        let err = d
+            .download(ModelDownloadRequest {
+                url,
+                destination: dest.clone(),
+                expected_sha256: None,
+                use_tor: false,
+            })
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("GGUF"), "{err}");
+        assert_eq!(std::fs::read(&dest).unwrap(), previous);
+        assert!(!dir.path().join("model.gguf.part").exists());
     }
 }

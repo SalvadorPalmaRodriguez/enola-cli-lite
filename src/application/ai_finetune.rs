@@ -1,13 +1,14 @@
 // Fase 14 — Casos de uso `ai finetune` (prepare/validate/start/status).
 //
 // Hexagonal: ports (`AiAdapterPort`, `HardwareProbePort`, `ContainerPort`,
-// `AiFinetuneJobsPort`) + dominio puro (`ai_finetune`). El script LoRA
+// `AiFinetuneJobsPort`, `FinetuneWorkspacePort` para los ficheros del host)
+// + dominio puro (`ai_finetune`). El script LoRA
 // embebido corre DENTRO del contenedor de entrenamiento — nunca en el host.
 
 use crate::domain::ai::validate_ai_instance_name;
 use crate::domain::ai_finetune::{
     finetune_warnings, records_to_jsonl, split_dataset, validate_dataset, DatasetFormat,
-    FinetuneJob, FinetuneJobStatus,
+    FinetuneJob, FinetuneJobLayout, FinetuneJobStatus,
 };
 use crate::domain::ai_model;
 use crate::domain::error::{EnolaError, Result};
@@ -16,7 +17,7 @@ use crate::ports::ai::{
     TokenizerDownloadRequest,
 };
 use crate::ports::container::{ContainerConfig, ContainerPort};
-use crate::ports::finetune::AiFinetuneJobsPort;
+use crate::ports::finetune::{AiFinetuneJobsPort, FinetuneWorkspacePort};
 use crate::ports::hardware::HardwareProbePort;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -88,6 +89,8 @@ pub struct ManageFinetune {
     registry: Arc<dyn AiModelRegistryPort + Send + Sync>,
     /// Descarga bajo demanda del tokenizer HF (`--tokenizer`), host-side.
     tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
+    /// Ficheros del host: datasets, workspace del job y GGUF exportado (H-09).
+    workspace: Arc<dyn FinetuneWorkspacePort + Send + Sync>,
     /// Directorio base de instancias (`/srv/enola-ai`) — datasets y scripts.
     base_dir: PathBuf,
 }
@@ -104,6 +107,7 @@ impl ManageFinetune {
         registry: Arc<dyn AiModelRegistryPort + Send + Sync>,
         tokenizer: Option<Arc<dyn TokenizerDownloadPort + Send + Sync>>,
         base_dir: PathBuf,
+        workspace: Arc<dyn FinetuneWorkspacePort + Send + Sync>,
     ) -> Self {
         Self {
             instances,
@@ -113,6 +117,7 @@ impl ManageFinetune {
             library,
             registry,
             tokenizer,
+            workspace,
             base_dir,
         }
     }
@@ -126,7 +131,7 @@ impl ManageFinetune {
         out_dir: Option<&str>,
         val_ratio: usize,
     ) -> Result<FinetunePrepareReport> {
-        let content = read_limited(dataset)?;
+        let content = self.read_dataset(dataset).await?;
         let (detected, records) = match format {
             Some(f) => {
                 // Formato forzado: convertir cada línea con ese formato.
@@ -166,23 +171,10 @@ impl ManageFinetune {
                 .unwrap_or(Path::new("."))
                 .to_path_buf()
         });
-        std::fs::create_dir_all(&out).map_err(|e| {
-            EnolaError::InfrastructureError(format!("No se pudo crear '{}': {e}", out.display()))
-        })?;
-        let train_path = out.join("train.jsonl");
-        let val_path = out.join("val.jsonl");
-        std::fs::write(&train_path, records_to_jsonl(&train)).map_err(|e| {
-            EnolaError::InfrastructureError(format!(
-                "No se pudo escribir '{}': {e}",
-                train_path.display()
-            ))
-        })?;
-        std::fs::write(&val_path, records_to_jsonl(&val)).map_err(|e| {
-            EnolaError::InfrastructureError(format!(
-                "No se pudo escribir '{}': {e}",
-                val_path.display()
-            ))
-        })?;
+        let (train_path, val_path) = self
+            .workspace
+            .write_split(&out, &records_to_jsonl(&train), &records_to_jsonl(&val))
+            .await?;
         Ok(FinetunePrepareReport {
             format: detected.format,
             valid_records: detected.valid_records,
@@ -201,7 +193,7 @@ impl ManageFinetune {
         dataset: &str,
         base_model: Option<&str>,
     ) -> Result<FinetuneValidateReport> {
-        let content = read_limited(dataset)?;
+        let content = self.read_dataset(dataset).await?;
         let (stats, records) = validate_dataset(&content)?;
         let mut checks = Vec::new();
         checks.push(FinetuneCheck {
@@ -287,7 +279,7 @@ impl ManageFinetune {
 
         // El dataset debe estar en formato ChatML preparado (fail-fast barato:
         // antes de resolver el modelo o descargar tokenizer).
-        let content = read_limited(dataset)?;
+        let content = self.read_dataset(dataset).await?;
         let (stats, _records) = validate_dataset(&content)?;
         if stats.format != DatasetFormat::ChatML {
             return Err(EnolaError::ValidationError(format!(
@@ -332,7 +324,11 @@ impl ManageFinetune {
         let tokenizer_dir = match repo {
             Some(repo) => {
                 let dir = self.library.resolve_tokenizer_dir(instance, &repo).await?;
-                if !dir.join("tokenizer_config.json").is_file() {
+                if !self
+                    .workspace
+                    .is_file(&dir.join("tokenizer_config.json"))
+                    .await
+                {
                     let downloader = self.tokenizer.as_ref().ok_or_else(|| {
                         EnolaError::ValidationError(format!(
                             "El tokenizer de '{repo}' no está descargado y la descarga no está disponible — descárgalo con `ai model download {instance} {repo}`"
@@ -375,25 +371,13 @@ impl ManageFinetune {
                 .unwrap_or(0)
         );
         let container_name = format!("enola-ai-{instance}-finetune-{job_id}");
-        let ft_dir = self.base_dir.join(instance).join("finetune").join(&job_id);
-        let data_dir = ft_dir.join("data");
-        let scripts_dir = ft_dir.join("scripts");
-        let out_dir = ft_dir.join("out");
         // El contenedor monta el rootfs en read-only (SEC-019) y solo escribe
         // en /out: /tmp y la caché HF van a subdirectorios de ese volumen.
-        let tmp_dir = out_dir.join("tmp");
-        let hf_home = out_dir.join(".hf");
-        for d in [&data_dir, &scripts_dir, &out_dir, &tmp_dir, &hf_home] {
-            std::fs::create_dir_all(d).map_err(|e| {
-                EnolaError::InfrastructureError(format!("mkdir '{}': {e}", d.display()))
-            })?;
-        }
-        // Dataset copiado al volumen del job (aislado del origen).
-        std::fs::copy(dataset, data_dir.join("train.jsonl")).map_err(|e| {
-            EnolaError::InfrastructureError(format!("copiar dataset a '{dataset}': {e}"))
-        })?;
-        // Script LoRA embebido → runtime dir root-owned (no /tmp — SEC-001).
-        crate::infrastructure::finetune_scripts::ensure_finetune_scripts(&scripts_dir)?;
+        let layout = FinetuneJobLayout::new(&self.base_dir, instance, &job_id);
+        // Directorios + scripts embebidos (nunca /tmp, SEC-001) + copia del dataset.
+        self.workspace
+            .prepare_job_workspace(&layout, Path::new(dataset))
+            .await?;
 
         let mut env = HashMap::new();
         env.insert("LOW_MEMORY".into(), low_memory.to_string());
@@ -407,10 +391,15 @@ impl ManageFinetune {
         // El rootfs es read-only: directorios de escritura dentro del volumen /out.
         env.insert("TMPDIR".into(), "/out/tmp".to_string());
         env.insert("HF_HOME".into(), "/out/.hf".to_string());
-        // Sin red (`network: None`): fallar rápido si se pide un modelo remoto,
+        // Sin red (`network_mode: none`): fallar rápido si se pide un modelo remoto,
         // en vez de colgarse en un timeout de red.
         env.insert("HF_HUB_OFFLINE".into(), "1".to_string());
         env.insert("TRANSFORMERS_OFFLINE".into(), "1".to_string());
+        // H-17: torch >= 2.14 enruta ops en modo eager (p.ej. el `bmm` del RoPE)
+        // a kernels Triton que compilan C en runtime y cachean en `$HOME`: con
+        // rootfs read-only (y sin compilador en la imagen) el job falla. Con
+        // esto torch usa sus kernels CUDA precompilados.
+        env.insert("TORCH_DISABLE_NATIVE_JIT".into(), "1".to_string());
         let mut args = vec![
             "python3".to_string(),
             "/opt/finetune/train_lora.py".to_string(),
@@ -427,12 +416,18 @@ impl ManageFinetune {
             args.push("--low-memory".to_string());
         }
         let mut volumes = HashMap::new();
-        volumes.insert(data_dir.to_string_lossy().to_string(), "/data".to_string());
         volumes.insert(
-            scripts_dir.to_string_lossy().to_string(),
+            layout.data_dir.to_string_lossy().to_string(),
+            "/data".to_string(),
+        );
+        volumes.insert(
+            layout.scripts_dir.to_string_lossy().to_string(),
             "/opt/finetune".to_string(),
         );
-        volumes.insert(out_dir.to_string_lossy().to_string(), "/out".to_string());
+        volumes.insert(
+            layout.out_dir.to_string_lossy().to_string(),
+            "/out".to_string(),
+        );
         // GGUF (single-file bind) + tokenizer (directorio) montados read-only de facto.
         volumes.insert(
             gguf_host.to_string_lossy().to_string(),
@@ -454,7 +449,8 @@ impl ManageFinetune {
             env,
             ports: HashMap::new(), // sin puertos: solo cómputo
             volumes,
-            network: None, // sin red: entrenamiento aislado del stack
+            // Sin red real (`network_mode: none`): `None` sería el bridge por defecto (H-04).
+            network: Some("none".to_string()),
             restart_policy: Some("no".to_string()),
             gpu_support: gpu,
             auto_remove: false,
@@ -547,14 +543,10 @@ impl ManageFinetune {
 
         // El GGUF exportado vive en `<base>/<instance>/finetune/<job>/out/`.
         let filename = format!("{result_name}-{job_id}.gguf");
-        let gguf_path = self
-            .base_dir
-            .join(instance)
-            .join("finetune")
-            .join(&job_id)
-            .join("out")
+        let gguf_path = FinetuneJobLayout::new(&self.base_dir, instance, job_id)
+            .out_dir
             .join(&filename);
-        if !gguf_path.is_file() {
+        if !self.workspace.is_file(&gguf_path).await {
             return Err(EnolaError::NotFound(format!(
                 "no se encontró '{}' en la salida del job — el entrenamiento debe exportar el GGUF (¿falló la conversión?)",
                 gguf_path.display()
@@ -562,7 +554,7 @@ impl ManageFinetune {
         }
 
         // Importa a la biblioteca (copia + SHA-256 + validación de header) y
-        // registra en Ollama vía Modelfile `FROM models-gguf/<filename>`.
+        // registra en Ollama (blob + `/api/create`, H-16).
         let model = self
             .library
             .import_library_file(instance, &gguf_path)
@@ -576,6 +568,13 @@ impl ManageFinetune {
         updated.registered = true;
         self.jobs.update_job(instance, &updated).await?;
         Ok(updated)
+    }
+
+    /// Lee el dataset con el límite defensivo de tamaño (`MAX_DATASET_BYTES`).
+    async fn read_dataset(&self, dataset: &str) -> Result<String> {
+        self.workspace
+            .read_dataset(Path::new(dataset), MAX_DATASET_BYTES)
+            .await
     }
 
     /// Reconcilia un job `Running` con el estado real de su contenedor.
@@ -617,20 +616,6 @@ fn now_iso8601() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-/// Lee un fichero JSONL con límite defensivo de tamaño.
-fn read_limited(path: &str) -> Result<String> {
-    let meta = std::fs::metadata(path)
-        .map_err(|e| EnolaError::ValidationError(format!("No se pudo leer '{path}': {e}")))?;
-    if meta.len() > MAX_DATASET_BYTES {
-        return Err(EnolaError::ValidationError(format!(
-            "Dataset '{path}' excede el máximo de {} MiB",
-            MAX_DATASET_BYTES / (1024 * 1024)
-        )));
-    }
-    std::fs::read_to_string(path)
-        .map_err(|e| EnolaError::ValidationError(format!("No se pudo leer '{path}': {e}")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,6 +628,106 @@ mod tests {
     use crate::ports::container::MockContainerPort;
     use crate::ports::finetune::MockAiFinetuneJobsPort;
     use crate::ports::hardware::{GpuInfo, MockHardwareProbePort, SystemHardwareSpecs};
+
+    /// Sistema de ficheros en memoria para los tests (sin disco): implementa
+    /// `FinetuneWorkspacePort` con la misma semántica que `FsFinetuneWorkspace`.
+    #[derive(Default)]
+    struct FakeWorkspace {
+        files: std::sync::Mutex<HashMap<PathBuf, String>>,
+    }
+
+    impl FakeWorkspace {
+        fn write(&self, path: impl AsRef<Path>, content: impl AsRef<[u8]>) -> std::io::Result<()> {
+            self.files.lock().unwrap().insert(
+                path.as_ref().to_path_buf(),
+                String::from_utf8_lossy(content.as_ref()).to_string(),
+            );
+            Ok(())
+        }
+
+        fn mkdir(&self, _path: impl AsRef<Path>) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn read(&self, path: impl AsRef<Path>) -> std::io::Result<String> {
+            self.files
+                .lock()
+                .unwrap()
+                .get(path.as_ref())
+                .cloned()
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
+        }
+
+        fn contains(&self, path: impl AsRef<Path>) -> bool {
+            self.files.lock().unwrap().contains_key(path.as_ref())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FinetuneWorkspacePort for FakeWorkspace {
+        async fn read_dataset(&self, path: &Path, max_bytes: u64) -> Result<String> {
+            let content = self.read(path).map_err(|e| {
+                EnolaError::ValidationError(format!("No se pudo leer '{}': {e}", path.display()))
+            })?;
+            if content.len() as u64 > max_bytes {
+                return Err(EnolaError::ValidationError(format!(
+                    "Dataset '{}' excede el máximo",
+                    path.display()
+                )));
+            }
+            Ok(content)
+        }
+
+        async fn write_split(
+            &self,
+            out_dir: &Path,
+            train_jsonl: &str,
+            val_jsonl: &str,
+        ) -> Result<(PathBuf, PathBuf)> {
+            let (t, v) = (out_dir.join("train.jsonl"), out_dir.join("val.jsonl"));
+            let _ = self.write(&t, train_jsonl);
+            let _ = self.write(&v, val_jsonl);
+            Ok((t, v))
+        }
+
+        async fn prepare_job_workspace(
+            &self,
+            layout: &FinetuneJobLayout,
+            dataset: &Path,
+        ) -> Result<()> {
+            let content = self.read(dataset).map_err(|e| {
+                EnolaError::InfrastructureError(format!(
+                    "copiar dataset a '{}': {e}",
+                    dataset.display()
+                ))
+            })?;
+            let _ = self.write(layout.dataset_file(), content);
+            Ok(())
+        }
+
+        async fn is_file(&self, path: &Path) -> bool {
+            self.contains(path)
+        }
+    }
+
+    /// Raíz ficticia (`/fake/enola-ai`) + su workspace en memoria.
+    struct FakeDir {
+        root: PathBuf,
+        ws: Arc<FakeWorkspace>,
+    }
+
+    impl FakeDir {
+        fn new() -> Self {
+            Self {
+                root: PathBuf::from("/fake/enola-ai"),
+                ws: Arc::new(FakeWorkspace::default()),
+            }
+        }
+
+        fn path(&self) -> &Path {
+            &self.root
+        }
+    }
 
     fn inst() -> AiInstance {
         AiInstance {
@@ -673,7 +758,7 @@ mod tests {
     }
 
     /// Mock de biblioteca con un GGUF `llama3.1:8b` → `m.gguf` (repo `org/repo`)
-    /// y header GGUF soportado (llama + Q4_K = file_type 12).
+    /// y header GGUF soportado (llama + Q4_K_M = file_type 15).
     fn library_with_base_model(base: &Path) -> MockAiModelLibraryPort {
         let base = base.to_path_buf();
         let mut lib = MockAiModelLibraryPort::new();
@@ -687,7 +772,7 @@ mod tests {
                     tensor_count: 1,
                     metadata_kv_count: 2,
                     architecture: Some("llama".into()),
-                    file_type: Some(12),
+                    file_type: Some(15),
                 })
             });
         lib.expect_resolve_tokenizer_dir()
@@ -725,16 +810,17 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_converts_and_splits() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let src = dir.path().join("in.jsonl");
-        std::fs::write(
-            &src,
-            (0..10)
-                .map(|i| format!("{{\"instruction\":\"q{i}\",\"output\":\"a{i}\"}}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &src,
+                (0..10)
+                    .map(|i| format!("{{\"instruction\":\"q{i}\",\"output\":\"a{i}\"}}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .unwrap();
         let svc = ManageFinetune::new(
             Arc::new(MockAiAdapterPort::new()),
             Arc::new(MockHardwareProbePort::new()),
@@ -744,6 +830,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let rep = svc
             .prepare(src.to_str().unwrap(), None, None, 20)
@@ -752,21 +839,22 @@ mod tests {
         assert_eq!(rep.format, DatasetFormat::Alpaca);
         assert_eq!(rep.valid_records, 10);
         assert_eq!(rep.train_records + rep.val_records, 10);
-        assert!(Path::new(&rep.train_path).exists());
+        assert!(dir.ws.contains(&rep.train_path));
         // El train.jsonl es ChatML válido
-        let back = std::fs::read_to_string(&rep.train_path).unwrap();
+        let back = dir.ws.read(&rep.train_path).unwrap();
         assert!(back.contains("\"role\":\"user\""));
     }
 
     #[tokio::test]
     async fn validate_reports_gpu_and_schema() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let src = dir.path().join("in.jsonl");
-        std::fs::write(
-            &src,
-            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &src,
+                "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+            )
+            .unwrap();
         let mut hw = MockHardwareProbePort::new();
         hw.expect_probe().returning(|| Ok(specs_gpu()));
         let svc = ManageFinetune::new(
@@ -778,6 +866,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let rep = svc
             .validate(src.to_str().unwrap(), Some("llama3.1:8b"))
@@ -790,19 +879,22 @@ mod tests {
 
     #[tokio::test]
     async fn start_requires_force_and_creates_container_and_job() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let ds = dir.path().join("train.jsonl");
-        std::fs::write(
-            &ds,
-            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &ds,
+                "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+            )
+            .unwrap();
         // El tokenizer debe existir en el host (S3) para montarse.
         let tok_dir = dir
             .path()
             .join("dev/ollama/models-gguf/tokenizer/org__repo");
-        std::fs::create_dir_all(&tok_dir).unwrap();
-        std::fs::write(tok_dir.join("tokenizer_config.json"), "{}").unwrap();
+        dir.ws.mkdir(&tok_dir).unwrap();
+        dir.ws
+            .write(tok_dir.join("tokenizer_config.json"), "{}")
+            .unwrap();
 
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
@@ -819,9 +911,14 @@ mod tests {
                     .windows(2)
                     .any(|w| w[0] == "--tokenizer" && w[1] == "/tokenizer");
                 cfg.name.starts_with("enola-ai-dev-finetune-")
+                    // H-04: sin red real (`none`), no el bridge por defecto.
+                    && cfg.network.as_deref() == Some("none")
                     && cfg.gpu_support
                     && cfg.memory_limit == Some(TRAIN_MEMORY_BYTES)
                     && cfg.read_only_rootfs
+                    // H-17: sin JIT nativo de torch (Triton compila C en runtime
+                    // y escribe en $HOME, incompatible con rootfs read-only).
+                    && cfg.env.get("TORCH_DISABLE_NATIVE_JIT").map(String::as_str) == Some("1")
                     && has_gguf_arg
                     && has_tokenizer_arg
                     && cfg.volumes.values().any(|v| v == "/model.gguf")
@@ -841,6 +938,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         // Sin --force → rechazo.
         assert!(svc
@@ -859,18 +957,21 @@ mod tests {
 
     #[tokio::test]
     async fn start_errors_when_base_model_unsupported_gguf() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let ds = dir.path().join("train.jsonl");
-        std::fs::write(
-            &ds,
-            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &ds,
+                "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+            )
+            .unwrap();
         let tok_dir = dir
             .path()
             .join("dev/ollama/models-gguf/tokenizer/org__repo");
-        std::fs::create_dir_all(&tok_dir).unwrap();
-        std::fs::write(tok_dir.join("tokenizer_config.json"), "{}").unwrap();
+        dir.ws.mkdir(&tok_dir).unwrap();
+        dir.ws
+            .write(tok_dir.join("tokenizer_config.json"), "{}")
+            .unwrap();
 
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
@@ -893,7 +994,7 @@ mod tests {
                 tensor_count: 1,
                 metadata_kv_count: 2,
                 architecture: Some("falcon".into()),
-                file_type: Some(12),
+                file_type: Some(15),
             })
         });
 
@@ -906,6 +1007,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let err = svc
             .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
@@ -918,13 +1020,14 @@ mod tests {
 
     #[tokio::test]
     async fn start_downloads_tokenizer_on_demand_when_missing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let ds = dir.path().join("train.jsonl");
-        std::fs::write(
-            &ds,
-            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &ds,
+                "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+            )
+            .unwrap();
         // No creamos tokenizer_config.json → dispara la descarga bajo demanda.
 
         let mut insts = MockAiAdapterPort::new();
@@ -957,6 +1060,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             Some(Arc::new(tok)),
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let job = svc
             .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
@@ -967,13 +1071,14 @@ mod tests {
 
     #[tokio::test]
     async fn start_errors_without_tokenizer_repo_or_override() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let ds = dir.path().join("train.jsonl");
-        std::fs::write(
-            &ds,
-            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &ds,
+                "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+            )
+            .unwrap();
 
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
@@ -995,7 +1100,7 @@ mod tests {
                 tensor_count: 1,
                 metadata_kv_count: 2,
                 architecture: Some("llama".into()),
-                file_type: Some(12),
+                file_type: Some(15),
             })
         });
 
@@ -1008,6 +1113,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let err = svc
             .start("dev", ds.to_str().unwrap(), None, None, false, false, true)
@@ -1018,13 +1124,14 @@ mod tests {
 
     #[tokio::test]
     async fn start_tokenizer_override_repo_takes_precedence() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let ds = dir.path().join("train.jsonl");
-        std::fs::write(
-            &ds,
-            "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
-        )
-        .unwrap();
+        dir.ws
+            .write(
+                &ds,
+                "{\"messages\":[{\"role\":\"user\",\"content\":\"h\"}]}\n",
+            )
+            .unwrap();
 
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
@@ -1046,7 +1153,7 @@ mod tests {
                 tensor_count: 1,
                 metadata_kv_count: 2,
                 architecture: Some("llama".into()),
-                file_type: Some(12),
+                file_type: Some(15),
             })
         });
         lib.expect_resolve_tokenizer_dir()
@@ -1074,6 +1181,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             Some(Arc::new(tok)),
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let job = svc
             .start(
@@ -1092,7 +1200,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_errors_on_nonexistent_instance() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|name| {
             Err(EnolaError::ValidationError(format!(
@@ -1108,13 +1216,14 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         assert!(svc.status("inexistente-xyz").await.is_err());
     }
 
     #[tokio::test]
     async fn status_lists_jobs_of_existing_instance() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1128,6 +1237,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         assert!(svc.status("dev").await.is_ok());
     }
@@ -1158,7 +1268,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_reconciles_exit_zero_to_completed() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1187,6 +1297,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let jobs = svc.status("dev").await.unwrap();
         assert_eq!(jobs[0].status, FinetuneJobStatus::Completed);
@@ -1194,7 +1305,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_reconciles_nonzero_exit_to_failed() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1221,6 +1332,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let jobs = svc.status("dev").await.unwrap();
         assert_eq!(jobs[0].status, FinetuneJobStatus::Failed);
@@ -1228,7 +1340,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_keeps_running_while_container_up() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1248,6 +1360,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let jobs = svc.status("dev").await.unwrap();
         assert_eq!(jobs[0].status, FinetuneJobStatus::Running);
@@ -1257,7 +1370,7 @@ mod tests {
     async fn status_keeps_running_when_inspect_fails() {
         // Daemon caído o contenedor borrado: no se puede distinguir transitorio
         // de desaparecido — el job se queda Running (conservador).
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1276,6 +1389,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let jobs = svc.status("dev").await.unwrap();
         assert_eq!(jobs[0].status, FinetuneJobStatus::Running);
@@ -1300,11 +1414,13 @@ mod tests {
 
     #[tokio::test]
     async fn register_imports_and_registers_completed_job() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         // GGUF exportado por el entrenamiento en /out.
         let out = dir.path().join("dev/finetune/ft1/out");
-        std::fs::create_dir_all(&out).unwrap();
-        std::fs::write(out.join("dev-ft-ft1.gguf"), b"not-a-real-gguf").unwrap();
+        dir.ws.mkdir(&out).unwrap();
+        dir.ws
+            .write(out.join("dev-ft-ft1.gguf"), b"not-a-real-gguf")
+            .unwrap();
 
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
@@ -1331,6 +1447,7 @@ mod tests {
             Arc::new(reg),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let job = svc.register("dev", "ft1").await.unwrap();
         assert_eq!(job.result_model.as_deref(), Some("dev-ft"));
@@ -1339,7 +1456,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_rejects_job_launched_with_no_register() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1354,6 +1471,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let err = svc.register("dev", "ft2").await.unwrap_err();
         assert!(err.to_string().contains("--no-register"));
@@ -1361,7 +1479,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_rejects_missing_exported_gguf() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1376,6 +1494,7 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let err = svc.register("dev", "ft3").await.unwrap_err();
         assert!(err.to_string().contains("no se encontró"));
@@ -1383,7 +1502,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_rejects_unfinished_job() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FakeDir::new();
         let mut insts = MockAiAdapterPort::new();
         insts.expect_get_instance().returning(|_| Ok(inst()));
         let mut jobs = MockAiFinetuneJobsPort::new();
@@ -1402,8 +1521,116 @@ mod tests {
             Arc::new(MockAiModelRegistryPort::new()),
             None,
             dir.path().to_path_buf(),
+            dir.ws.clone(),
         );
         let err = svc.register("dev", "ft4").await.unwrap_err();
         assert!(err.to_string().contains("no está completado"));
+    }
+
+    #[test]
+    fn finetune_dockerfile_pins_base_image_and_every_package() {
+        // H-05: base por digest y cada paquete pip con `==` (reproducibilidad).
+        let dockerfile = include_str!("../../assets/finetune/Dockerfile");
+        let from = dockerfile
+            .lines()
+            .find(|l| l.starts_with("FROM "))
+            .unwrap_or_default();
+        assert!(from.contains("@sha256:"), "FROM sin digest: {from}");
+        for line in dockerfile.lines().filter(|l| l.contains("pip install")) {
+            // Argumentos de `pip install` hasta el siguiente separador de
+            // shell; las rutas (`-r /tmp/<lock>`) las cubre el test del lock.
+            let pkgs = line
+                .split_whitespace()
+                .skip_while(|t| *t != "install")
+                .skip(1)
+                .take_while(|t| !matches!(*t, "&&" | ";" | ";;" | "\\"))
+                .map(|t| t.trim_matches('"'))
+                .filter(|t| !t.starts_with('-') && !t.starts_with("${"))
+                .filter(|t| !t.starts_with("http") && !t.starts_with('/'));
+            for pkg in pkgs {
+                let pkg = pkg.trim_matches('"');
+                assert!(pkg.contains("=="), "paquete sin pinear: {pkg}");
+            }
+        }
+    }
+
+    #[test]
+    fn finetune_dockerfile_locks_every_transitive_dependency() {
+        // Lock completo (también transitivas), sacado del `pip freeze` de la
+        // imagen validada en el E2E real: común + CUDA (solo build cu126).
+        let dockerfile = include_str!("../../assets/finetune/Dockerfile");
+        let common = include_str!("../../assets/finetune/requirements.lock");
+        let cuda = include_str!("../../assets/finetune/requirements-cu126.lock");
+        let entries = |lock: &'static str| {
+            lock.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(|l| {
+                    let (name, ver) = l.split_once("==").unwrap_or_else(|| panic!("sin ==: {l}"));
+                    assert!(
+                        !ver.is_empty() && !ver.contains(['<', '>', '*', ' ']),
+                        "{l}"
+                    );
+                    (name.to_ascii_lowercase().replace('_', "-"), ver.to_string())
+                })
+                .collect::<Vec<_>>()
+        };
+        let common = entries(common);
+        let cuda = entries(cuda);
+        assert!(common.len() > 40 && !cuda.is_empty());
+        // torch lo fija su propia línea (variante CPU/cu126 según el índice).
+        assert!(common.iter().chain(&cuda).all(|(n, _)| n != "torch"));
+        assert!(cuda
+            .iter()
+            .all(|(n, _)| n.starts_with("nvidia-") || n.starts_with("cuda-") || n == "triton"));
+        assert!(common
+            .iter()
+            .all(|(n, _)| !n.starts_with("nvidia-") && !n.starts_with("cuda-") && n != "triton"));
+        // Se instala exactamente el lock y se verifica la coherencia.
+        assert!(dockerfile.contains("--no-deps -r /tmp/requirements.lock"));
+        assert!(dockerfile.contains("--no-deps -r /tmp/requirements-cu126.lock"));
+        assert!(dockerfile.contains("pip check"));
+        // Los pins directos del Dockerfile coinciden con el lock.
+        let code = dockerfile
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'));
+        for tok in code
+            .flat_map(str::split_whitespace)
+            .filter(|t| t.contains("=="))
+        {
+            let (name, ver) = tok.split_once("==").unwrap_or_default();
+            let name = name.to_ascii_lowercase().replace('_', "-");
+            if name == "torch" {
+                continue;
+            }
+            let locked = common.iter().find(|(n, _)| *n == name);
+            assert_eq!(
+                locked.map(|(_, v)| v.as_str()),
+                Some(ver),
+                "{name} difiere del lock"
+            );
+        }
+    }
+
+    #[test]
+    fn finetune_dockerfile_pins_are_mutually_installable() {
+        // H-18: gguf 0.16.0 de PyPI no tiene `MODEL_ARCH.GEMMA3`, que el
+        // conversor b4879 usa al importarse; 0.16.2 es la primera versión
+        // publicada que sí (verificado: conversión Qwen2 completa). Exige
+        // `sentencepiece>=0.1.98,<=0.2.0`; otro pin rompe el `pip install`.
+        let dockerfile = include_str!("../../assets/finetune/Dockerfile");
+        let pin = |name: &str| {
+            dockerfile
+                .split_whitespace()
+                .find_map(|t| t.strip_prefix(&format!("{name}==")))
+                .map(str::to_owned)
+        };
+        assert_eq!(pin("gguf").as_deref(), Some("0.16.2"));
+        let sp = pin("sentencepiece").unwrap_or_default();
+        let parts: Vec<u32> = sp.split('.').filter_map(|p| p.parse().ok()).collect();
+        assert!(
+            parts.as_slice() >= [0, 1, 98].as_slice() && parts.as_slice() <= [0, 2, 0].as_slice(),
+            "sentencepiece=={sp} incompatible con gguf==0.16.2 (<=0.2.0)"
+        );
     }
 }

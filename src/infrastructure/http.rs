@@ -249,9 +249,61 @@ pub fn http_client_builder(target_url: &str) -> Result<reqwest::ClientBuilder> {
     Ok(builder)
 }
 
+/// Cliente HTTP **bloqueante** con la misma política de proxy que
+/// `build_http_client` (SOCKS5h para `.onion`, guard `socks5h://`).
+///
+/// Para subir ficheros grandes en streaming (`reqwest::blocking::Body::sized`)
+/// sin cargarlos en memoria ni activar la feature `stream` de reqwest. Debe
+/// construirse y usarse dentro de `tokio::task::spawn_blocking`: el cliente
+/// bloqueante no puede vivir en un hilo del runtime async.
+pub fn build_blocking_http_client(
+    target_url: &str,
+    timeout: Duration,
+) -> Result<reqwest::blocking::Client> {
+    let mut builder = reqwest::blocking::Client::builder().timeout(timeout);
+    if is_onion_url(target_url) {
+        let proxy_url = resolve_tor_socks_proxy();
+        ensure_socks5h_for_onion(&proxy_url)?;
+        let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "{} ({}): {}",
+                obfstr!("Invalid Tor SOCKS proxy URL"),
+                proxy_url,
+                e
+            ))
+        })?;
+        builder = builder.proxy(proxy);
+    }
+    builder.build().map_err(|e| {
+        EnolaError::InfrastructureError(format!("{}: {}", obfstr!("HTTP client error"), e))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blocking_client_rejects_onion_without_socks5h() {
+        let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
+        let old = std::env::var("ENOLA_TOR_SOCKS_PROXY").ok();
+        std::env::set_var("ENOLA_TOR_SOCKS_PROXY", "socks5://127.0.0.1:9050");
+        let onion = build_blocking_http_client(
+            "http://abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz234567.onion",
+            Duration::from_secs(5),
+        );
+        match old {
+            Some(v) => std::env::set_var("ENOLA_TOR_SOCKS_PROXY", v),
+            None => std::env::remove_var("ENOLA_TOR_SOCKS_PROXY"),
+        }
+        assert!(
+            onion.is_err(),
+            "socks5:// sin h debe rechazarse para .onion"
+        );
+        assert!(
+            build_blocking_http_client("http://127.0.0.1:11434", Duration::from_secs(5)).is_ok()
+        );
+    }
 
     #[test]
     fn is_onion_url_detects_v3_hash() {

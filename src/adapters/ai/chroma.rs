@@ -6,7 +6,9 @@
 
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::rag::validate_collection_name;
-use crate::ports::rag::{RagDocument, RagSearchResult, RagVectorStorePort};
+use crate::ports::rag::{
+    AddDocumentsOutcome, EmbeddingMode, RagDocument, RagSearchResult, RagVectorStorePort,
+};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -123,9 +125,14 @@ impl RagVectorStorePort for ChromaAdapter {
         Ok(())
     }
 
-    async fn add_documents(&self, collection: &str, docs: Vec<RagDocument>) -> Result<()> {
+    async fn add_documents(
+        &self,
+        collection: &str,
+        docs: Vec<RagDocument>,
+        mode: EmbeddingMode,
+    ) -> Result<AddDocumentsOutcome> {
         if docs.is_empty() {
-            return Ok(());
+            return Ok(AddDocumentsOutcome::Added);
         }
         self.ensure_collection(collection).await?;
         let id = self.collection_id(collection).await?.ok_or_else(|| {
@@ -135,8 +142,18 @@ impl RagVectorStorePort for ChromaAdapter {
         })?;
 
         let texts: Vec<String> = docs.iter().map(|d| d.content.clone()).collect();
-        let embeddings =
-            super::embed::embed_texts(self.ollama_port, &self.embedding_model, &texts).await?;
+        // D6: sin embeddings no se indexa nada; decide el caso de uso.
+        let Some(embeddings) =
+            super::embed::embed_texts(self.ollama_port, &self.embedding_model, &texts, mode)
+                .await?
+        else {
+            return Ok(AddDocumentsOutcome::EmbeddingsUnavailable(
+                super::embed::embeddings_unavailable_detail(
+                    self.ollama_port,
+                    &self.embedding_model,
+                ),
+            ));
+        };
 
         let ids: Vec<&str> = docs.iter().map(|d| d.id.as_str()).collect();
         let metadatas: Vec<&std::collections::HashMap<String, String>> =
@@ -160,7 +177,7 @@ impl RagVectorStorePort for ChromaAdapter {
             let body = resp.text().await.unwrap_or_default();
             return Err(Self::chroma_err("add", status, &body));
         }
-        Ok(())
+        Ok(AddDocumentsOutcome::Added)
     }
 
     async fn query(
@@ -168,18 +185,31 @@ impl RagVectorStorePort for ChromaAdapter {
         collection: &str,
         query: &str,
         n_results: usize,
+        mode: EmbeddingMode,
     ) -> Result<Vec<RagSearchResult>> {
         validate_collection_name(collection)?;
         let id = self.collection_id(collection).await?.ok_or_else(|| {
             EnolaError::NotFound(format!("Colección '{collection}' no existe en el índice"))
         })?;
 
+        // D6-e: la consulta usa la vía de la colección; si es Ollama y no
+        // responde, falla (nunca se consulta un índice semántico con hash).
         let emb = super::embed::embed_texts(
             self.ollama_port,
             &self.embedding_model,
             &[query.to_string()],
+            mode,
         )
         .await?
+        .ok_or_else(|| {
+            EnolaError::InfrastructureError(format!(
+                "{}. Arranca la instancia (`ai start`) y reintenta la consulta.",
+                super::embed::embeddings_unavailable_detail(
+                    self.ollama_port,
+                    &self.embedding_model
+                )
+            ))
+        })?
         .into_iter()
         .next()
         .ok_or_else(|| EnolaError::InfrastructureError("Sin embedding para la consulta".into()))?;
@@ -351,7 +381,7 @@ mod tests {
     }
 
     fn adapter_for(port: u16) -> ChromaAdapter {
-        // ollama_port=1 → fallback por hash en embeddings (server ausente)
+        // ollama_port=1 → Ollama ausente (la vía Hash no lo necesita)
         ChromaAdapter::new(port, 1, "nomic-embed-text")
     }
 
@@ -371,10 +401,35 @@ mod tests {
                 content: "texto uno".into(),
                 metadata: std::collections::HashMap::from([("source".into(), "a.md".into())]),
             }],
+            EmbeddingMode::Hash,
         )
         .await
         .unwrap();
-        let res = a.query("rag_dev", "texto", 5).await.unwrap();
+        // D6: con Ollama caído (puerto 1) no se indexa nada ni se cae a hash.
+        let unavailable = a
+            .add_documents(
+                "rag_dev",
+                vec![RagDocument {
+                    id: "d2".into(),
+                    content: "texto dos".into(),
+                    metadata: std::collections::HashMap::new(),
+                }],
+                EmbeddingMode::Ollama,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            unavailable,
+            AddDocumentsOutcome::EmbeddingsUnavailable(_)
+        ));
+        assert!(a
+            .query("rag_dev", "texto", 5, EmbeddingMode::Ollama)
+            .await
+            .is_err());
+        let res = a
+            .query("rag_dev", "texto", 5, EmbeddingMode::Hash)
+            .await
+            .unwrap();
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].document.id, "d1");
         assert!((res[0].distance - 0.42).abs() < 1e-6);
@@ -399,7 +454,10 @@ mod tests {
             }
         });
         let a = adapter_for(port);
-        let err = a.query("rag_dev", "x", 3).await.unwrap_err();
+        let err = a
+            .query("rag_dev", "x", 3, EmbeddingMode::Hash)
+            .await
+            .unwrap_err();
         assert!(matches!(err, EnolaError::NotFound(_)), "got {err}");
     }
 }

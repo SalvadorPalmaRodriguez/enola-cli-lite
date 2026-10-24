@@ -129,8 +129,8 @@ pub trait AiModelRegistryPort: Send + Sync {
     /// Descarga un modelo del registro Ollama (`/api/pull`, p.ej. `llama3.1:8b`).
     async fn pull_registry_model(&self, instance: &str, model: &str) -> Result<()>;
 
-    /// Registra un `.gguf` de la biblioteca en Ollama vía `/api/create`
-    /// (Modelfile `FROM /root/.ollama/models-gguf/<filename>`).
+    /// Registra un `.gguf` de la biblioteca en Ollama: sube el fichero como
+    /// blob y lo crea con `/api/create` + `files` (H-16).
     async fn register_library_model(
         &self,
         instance: &str,

@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ai/commands-ask.md`
-> **Versión:** 1.0 | **Actualizado:** 2026-10-18
+> **Versión:** 1.1 | **Actualizado:** 2026-10-23
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** ../general/commands.md, ../general/config-reference.md, ../mcp/commands-mcp.md
 
@@ -29,7 +29,7 @@ enola-cli ask <PROMPT> [--model MODEL] [--endpoint URL]
 | `--endpoint <URL>` | URL HTTP del servidor Ollama (override de `ENOLA_AI_ENDPOINT` / `[ai].endpoint`; por defecto: `http://127.0.0.1:11434`). Soporta direcciones `.onion` vía SOCKS5h automáticamente. |
 | `--instance <NAME>` | Nombre de instancia IA gestionada (`enola-ai-<NAME>-ollama`); resuelve su puerto local automáticamente. |
 | `--no-exec` | Modo simulación: las llamadas mutantes o destructivas se ejecutan con `try_run` (`ToolRegistry::try_call`), mostrando el plan o `argv` sin efectos secundarios. |
-| `-y`, `--yes` | Aprueba operaciones mutantes/destructivas sin preguntar en TTY (para scripts automatizados). |
+| `-y`, `--yes` | Aprueba operaciones **mutantes** sin preguntar en TTY (para scripts automatizados). **No** cubre las destructivas, que siempre exigen confirmación interactiva. |
 
 ---
 
@@ -65,8 +65,12 @@ enola-cli config-show --json
 2. **Operaciones mutantes (`Mutating`) y destructivas (`Destructive`)**:
    - Con `--no-exec`: **nunca** modifican el sistema; invocan `try_run` y
      devuelven el plan o `argv` exacto que se ejecutaría.
-   - Sin `--no-exec`: exigen una **terminal interactiva (TTY)** (o `--yes`
-     explícito; sin TTY y sin `--yes` falla cerrado). Antes de ejecutar,
+   - Sin `--no-exec`: exigen una **terminal interactiva (TTY)**. `--yes`
+     autoriza solo las **mutantes**; las **destructivas** piden siempre `[s/N]`
+     en TTY y, sin TTY, fallan cerrado aunque se pase `--yes`. Motivo: es el
+     modelo quien elige la operación, y el contenido que devuelven las
+     herramientas (documentos RAG, logs, páginas de terceros) puede inducirle
+     a proponer acciones que el usuario no pidió. Antes de ejecutar,
      muestran el nombre de la tool y los argumentos con secretos redactados
      (`sanitize_args` / `redact_argv`), añaden una advertencia reforzada si la
      operación es `Destructive`, y piden confirmación `[s/N]`.

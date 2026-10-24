@@ -9,8 +9,9 @@
 //! - `Mutating` / `Destructive`:
 //!   - Con `no_exec: true` (`--no-exec`): simula mediante `registry.try_call` sin
 //!     efectos secundarios y devuelve el plan/argv.
-//!   - Con `no_exec: false`: exige TTY interactivo o `--yes` (fallando cerrado sin
-//!     TTY igual que `N-08`), muestra argumentos saneados (`sanitize_args` /
+//!   - Con `no_exec: false`: exige TTY interactivo; `--yes` solo autoriza
+//!     `Mutating`, nunca `Destructive` (D7). Sin TTY falla cerrado igual que
+//!     `N-08`. Muestra argumentos saneados (`sanitize_args` /
 //!     `redact_argv`) con aviso reforzado si es `Destructive`, y pide `[s/N]`.
 //!   - Tras la aprobación humana, ejecuta en un único turno del modelo, emitiendo
 //!     y adjuntando internamente el `confirm_token` del `ConfirmationStore` cuando
@@ -271,7 +272,7 @@ pub(crate) enum GateDecision {
     Approved,
     /// Operación rechazada por el usuario en el prompt `[s/N]`.
     RejectedByUser,
-    /// Sin TTY interactivo y sin `--yes` (falla cerrado, N-08).
+    /// Sin TTY interactivo (y sin `--yes` si es `Mutating`): falla cerrado (N-08, D7).
     NoTty,
 }
 
@@ -285,7 +286,7 @@ pub(crate) trait ConfirmationGate: Send + Sync {
 /// Gate de confirmación real sobre TTY (`stdin` / `stderr`).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TtyConfirmationGate {
-    /// Si es `true` (`--yes`), aprueba sin preguntar en TTY.
+    /// Si es `true` (`--yes`), aprueba `Mutating` sin preguntar (nunca `Destructive`, D7).
     pub(crate) assume_yes: bool,
 }
 
@@ -303,15 +304,31 @@ pub(crate) fn parse_confirmation_answer(input: &str) -> bool {
     )
 }
 
+/// Decisión del gate que no necesita preguntar (o `None` si hay que mostrar
+/// el prompt `[s/N]`).
+///
+/// D7: `--yes` solo aprueba `Mutating`. Una `Destructive` la elige el modelo y
+/// puede venir inducida por contenido de herramientas (RAG, logs): exige
+/// siempre la confirmación humana en TTY, con o sin `--yes`.
+pub(crate) fn decide_without_prompt(
+    assume_yes: bool,
+    kind: ToolKind,
+    is_tty: bool,
+) -> Option<GateDecision> {
+    match kind {
+        ToolKind::ReadOnly => Some(GateDecision::Approved),
+        ToolKind::Mutating if assume_yes => Some(GateDecision::Approved),
+        _ if !is_tty => Some(GateDecision::NoTty),
+        _ => None,
+    }
+}
+
 impl ConfirmationGate for TtyConfirmationGate {
     fn confirm(&self, display_tool: &str, kind: ToolKind, sanitized_summary: &str) -> GateDecision {
-        if self.assume_yes {
-            return GateDecision::Approved;
-        }
         #[allow(unsafe_code)]
         let is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) != 0 };
-        if !is_tty {
-            return GateDecision::NoTty;
+        if let Some(decision) = decide_without_prompt(self.assume_yes, kind, is_tty) {
+            return decision;
         }
         match kind {
             ToolKind::Destructive => {
@@ -522,11 +539,16 @@ impl AiAssistant {
                             .confirm(&display_tool, effective_kind, &sanitized_summary)
                         {
                             GateDecision::NoTty => {
+                                let hint = if effective_kind == ToolKind::Destructive {
+                                    "Es destructiva: --yes no la cubre. Ejecuta en una terminal \
+                                     interactiva o usa --no-exec para simular."
+                                } else {
+                                    "Ejecuta en una terminal interactiva, pasa --yes para \
+                                     autorizar explícitamente o usa --no-exec para simular."
+                                };
                                 return Err(EnolaError::SecurityError(format!(
-                                    "La operación '{}' modifica el sistema y requiere confirmación \
-                                     interactiva (TTY). Ejecuta en una terminal interactiva, pasa \
-                                     --yes para autorizar explícitamente o usa --no-exec para simular.",
-                                    display_tool
+                                    "La operación '{display_tool}' modifica el sistema y requiere \
+                                     confirmación interactiva (TTY). {hint}"
                                 )));
                             }
                             GateDecision::RejectedByUser => {
@@ -594,6 +616,34 @@ mod tests {
     use crate::ports::process_runner::{MockProcessRunnerPort, ProcessOutput};
     use serde_json::{json, Value};
     use std::sync::Mutex;
+
+    #[test]
+    fn yes_approves_mutating_but_never_destructive() {
+        // D7: `--yes` solo cubre `Mutating`; `Destructive` exige siempre TTY.
+        assert_eq!(
+            decide_without_prompt(true, ToolKind::Mutating, false),
+            Some(GateDecision::Approved)
+        );
+        assert_eq!(
+            decide_without_prompt(true, ToolKind::Destructive, false),
+            Some(GateDecision::NoTty)
+        );
+        // Con TTY, `--yes` no salta el prompt de una destructiva.
+        assert_eq!(
+            decide_without_prompt(true, ToolKind::Destructive, true),
+            None
+        );
+        // ReadOnly nunca pregunta; sin `--yes` y sin TTY, falla cerrado.
+        assert_eq!(
+            decide_without_prompt(false, ToolKind::ReadOnly, false),
+            Some(GateDecision::Approved)
+        );
+        assert_eq!(
+            decide_without_prompt(false, ToolKind::Mutating, false),
+            Some(GateDecision::NoTty)
+        );
+        assert_eq!(decide_without_prompt(false, ToolKind::Mutating, true), None);
+    }
 
     struct FixedGate {
         decision: GateDecision,

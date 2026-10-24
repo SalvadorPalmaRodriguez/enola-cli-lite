@@ -7,11 +7,16 @@
 //   `rag_config.json` bajo `/srv/enola-ai/<name>/`).
 // - `AiVectorStorePort`: aprovisiona el contenedor del vector store vía
 //   `ContainerPort` (NUNCA docker compose / CLI docker).
+// - `RagSourcePort`: lectura de las fuentes a indexar (ficheros locales,
+//   `git pull` de repos ligados, REST de WordPress) — H-09.
 
 use crate::domain::error::Result;
-pub use crate::domain::rag::{AiSource, AiSourceType, RagConfig, VectorStoreBackend};
+pub use crate::domain::rag::{
+    AiSource, AiSourceType, EmbeddingMode, RagConfig, VectorStoreBackend,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Documento a indexar en el vector store.
@@ -34,6 +39,16 @@ pub struct RagSearchResult {
     pub distance: f32,
 }
 
+/// Resultado de [`RagVectorStorePort::add_documents`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum AddDocumentsOutcome {
+    /// Documentos indexados.
+    Added,
+    /// Ollama no devolvió embeddings (vía `Ollama`): no se indexó nada.
+    /// La decisión (reintentar / hash / cancelar) es del caso de uso (D6).
+    EmbeddingsUnavailable(String),
+}
+
 /// Puerto del vector store de una instancia (Chroma/Qdrant vía HTTP local).
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
@@ -41,15 +56,24 @@ pub trait RagVectorStorePort: Send + Sync {
     /// Crea la colección si no existe (idempotente).
     async fn ensure_collection(&self, collection: &str) -> Result<()>;
 
-    /// Añade documentos a una colección (genera embeddings internamente).
-    async fn add_documents(&self, collection: &str, docs: Vec<RagDocument>) -> Result<()>;
+    /// Añade documentos a una colección generando los embeddings por `mode`.
+    /// Con `Ollama`, si no hay embeddings devuelve `EmbeddingsUnavailable`
+    /// sin indexar nada (nunca cae a hash por su cuenta).
+    async fn add_documents(
+        &self,
+        collection: &str,
+        docs: Vec<RagDocument>,
+        mode: EmbeddingMode,
+    ) -> Result<AddDocumentsOutcome>;
 
-    /// Consulta semántica: devuelve los `n_results` más cercanos a `query`.
+    /// Consulta semántica: devuelve los `n_results` más cercanos a `query`,
+    /// embebida por `mode` (la vía con que se indexó la colección).
     async fn query(
         &self,
         collection: &str,
         query: &str,
         n_results: usize,
+        mode: EmbeddingMode,
     ) -> Result<Vec<RagSearchResult>>;
 
     /// Elimina una colección completa.
@@ -125,6 +149,48 @@ pub trait AiRagStorePort: Send + Sync {
     ) -> Result<()>;
 }
 
+/// Fichero de texto leído de una fuente RAG local.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RagSourceFile {
+    /// Ruta canónica del fichero (bajo el root de la ingesta).
+    pub path: PathBuf,
+    /// Contenido UTF-8.
+    pub content: String,
+}
+
+/// Entrada publicada de un WordPress, leída vía REST.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WordpressPost {
+    /// Título renderizado.
+    pub title: String,
+    /// Cuerpo renderizado (HTML).
+    pub body: String,
+}
+
+/// Puerto de lectura de las fuentes RAG. La política (rutas permitidas,
+/// extensiones, chunking) vive en `domain::rag`; aquí solo el I/O.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait RagSourcePort: Send + Sync {
+    /// Resuelve `location` a su ruta canónica (sigue symlinks).
+    async fn canonicalize(&self, location: &str) -> Result<PathBuf>;
+
+    /// `true` si `path` es la raíz de un repositorio git (`.git` presente).
+    async fn is_git_repo(&self, path: &Path) -> bool;
+
+    /// Recorre `root` (canónico) y devuelve los ficheros admitidos
+    /// (`domain::rag::is_supported_rag_file`): omite dotfiles, entradas que
+    /// escapan de `root` (symlinks) y ficheros ilegibles o de más de
+    /// `max_file_bytes`. `root` puede ser un fichero.
+    async fn read_tree(&self, root: &Path, max_file_bytes: u64) -> Result<Vec<RagSourceFile>>;
+
+    /// `git pull --ff-only` en `repo`, como usuario invocador (nunca root).
+    async fn git_pull(&self, repo: &str) -> Result<()>;
+
+    /// Entradas de un WordPress (`<base_url>/wp-json/wp/v2/posts`).
+    async fn fetch_wordpress_posts(&self, base_url: &str) -> Result<Vec<WordpressPost>>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,8 +199,9 @@ mod tests {
     async fn mock_vector_store_contract() {
         let mut mock = MockRagVectorStorePort::new();
         mock.expect_ensure_collection().returning(|_| Ok(()));
-        mock.expect_add_documents().returning(|_, _| Ok(()));
-        mock.expect_query().returning(|_, _, _| Ok(vec![]));
+        mock.expect_add_documents()
+            .returning(|_, _, _| Ok(AddDocumentsOutcome::Added));
+        mock.expect_query().returning(|_, _, _, _| Ok(vec![]));
         mock.expect_count().returning(|_| Ok(7));
         mock.expect_is_available().returning(|| true);
 
@@ -146,10 +213,15 @@ mod tests {
                 content: "hola".into(),
                 metadata: HashMap::new(),
             }],
+            EmbeddingMode::Ollama,
         )
         .await
         .unwrap();
-        assert!(mock.query("rag_dev", "hola", 3).await.unwrap().is_empty());
+        assert!(mock
+            .query("rag_dev", "hola", 3, EmbeddingMode::Ollama)
+            .await
+            .unwrap()
+            .is_empty());
         assert_eq!(mock.count("rag_dev").await.unwrap(), 7);
         assert!(mock.is_available().await);
     }

@@ -18,10 +18,13 @@ pub const GGUF_MAGIC: [u8; 4] = *b"GGUF";
 pub const GGUF_MIN_HEADER_LEN: usize = 24;
 
 /// Bytes de cabecera que se leen para validar un GGUF y extraer su metadata
-/// (`general.architecture`, `general.file_type`). Los GGUF reales tienen
-/// headers de unos pocos KiB; 4 MiB es una cota defensiva contra ficheros
-/// malformados.
-pub const GGUF_HEADER_READ_LEN: usize = 4 * 1024 * 1024;
+/// (`general.architecture`, `general.file_type`). La metadata incluye el
+/// vocabulario del tokenizer: Qwen2.5 ocupa 5.66 MiB (151k tokens + merges)
+/// y los modelos con vocabularios de 256k tokens rondan los 10 MiB. 32 MiB
+/// cubre esos casos y sigue siendo una cota defensiva contra ficheros
+/// malformados. Normalmente basta mucho menos: `parse_gguf_header` para en
+/// cuanto tiene las dos claves, que los conversores escriben al principio.
+pub const GGUF_HEADER_READ_LEN: usize = 32 * 1024 * 1024;
 
 /// Tipos de valor del bloque de metadatos GGUF (gguf_value_type).
 const GGUF_T_UINT8: u32 = 0;
@@ -47,9 +50,6 @@ pub const MAX_GGUF_COUNT: u64 = 1_000_000;
 /// Subdirectorio de la biblioteca GGUF dentro del volumen Ollama de la
 /// instancia (`<base>/<instance>/ollama/models-gguf`).
 pub const GGUF_LIBRARY_DIR: &str = "models-gguf";
-
-/// Ruta de la biblioteca DENTRO del contenedor Ollama (volumen `/root/.ollama`).
-pub const CONTAINER_MODELS_DIR: &str = "/root/.ollama/models-gguf";
 
 /// Base URL de HuggingFace para resolver `org/repo` + `--file`.
 /// Servicio público de terceros (no dominio del proyecto).
@@ -273,6 +273,11 @@ pub fn parse_gguf_header(bytes: &[u8]) -> Result<GgufMetadata> {
                 pos = skip_gguf_value(bytes, pos, value_type)?;
             }
         }
+        // Lo que sigue (vocabulario, merges...) no se necesita y puede
+        // ocupar varios MiB: no se exige leerlo.
+        if architecture.is_some() && file_type.is_some() {
+            break;
+        }
     }
     Ok(GgufMetadata {
         version,
@@ -356,13 +361,6 @@ pub fn resolve_library_path(base: &Path, instance: &str, filename: &str) -> Resu
     Ok(joined)
 }
 
-/// Ruta del fichero `.gguf` DENTRO del contenedor Ollama
-/// (`/root/.ollama/models-gguf/<filename>`), usable en `FROM` de Modelfile.
-pub fn container_gguf_path(filename: &str) -> Result<String> {
-    validate_gguf_filename(filename)?;
-    Ok(format!("{CONTAINER_MODELS_DIR}/{filename}"))
-}
-
 /// Nombre de registro por defecto: filename sin `.gguf`, minúsculas, con los
 /// caracteres no admitidos sustituidos por `-`.
 pub fn default_registry_name(filename: &str) -> Result<String> {
@@ -430,16 +428,18 @@ const GGUF_SUPPORTED_ARCHITECTURES: &[&str] =
     &["llama", "mistral", "gemma", "gemma2", "qwen2", "phi3"];
 
 /// Cuantizaciones (`general.file_type` del header GGUF) que `transformers`
-/// puede descuantizar al cargar un GGUF. El header reporta la familia base
-/// (`Q4_K`/`Q5_K`), que cubre las variantes `_M`/`_S` indistinguibles a este
-/// nivel.
+/// puede descuantizar al cargar un GGUF.
 ///
-/// Valores: 0 F32, 1 F16, 2 Q4_0, 8 Q8_0, 12 Q4_K, 13 Q5_K, 14 Q6_K.
-const GGUF_SUPPORTED_FILE_TYPES: &[u32] = &[0, 1, 2, 8, 12, 13, 14];
+/// `general.file_type` usa la numeración `LlamaFileType` de llama.cpp, que
+/// distingue `_S`/`_M` y NO coincide con los tipos de tensor GGML (H-14).
+/// Valores: 0 F32, 1 F16, 2 Q4_0, 7 Q8_0, 14 Q4_K_S, 15 Q4_K_M, 16 Q5_K_S,
+/// 17 Q5_K_M, 18 Q6_K.
+const GGUF_SUPPORTED_FILE_TYPES: &[u32] = &[0, 1, 2, 7, 14, 15, 16, 17, 18];
 
 /// Cuantizaciones soportadas (legibles) para el hint de error de
 /// `ai finetune start`.
-pub const GGUF_SUPPORTED_QUANT_HINT: &str = "F16, F32, Q4_0, Q4_K_M, Q5_K_M, Q6_K, Q8_0";
+pub const GGUF_SUPPORTED_QUANT_HINT: &str =
+    "F16, F32, Q4_0, Q4_K_S, Q4_K_M, Q5_K_S, Q5_K_M, Q6_K, Q8_0";
 
 /// Pre-validación de `ai finetune start`: ¿puede `transformers` cargar este
 /// GGUF nativo (`gguf_file`) con la arquitectura y el `general.file_type`
@@ -448,8 +448,8 @@ pub const GGUF_SUPPORTED_QUANT_HINT: &str = "F16, F32, Q4_0, Q4_K_M, Q5_K_M, Q6_
 /// El contenedor de entrenamiento no tiene red, así que esta comprobación
 /// evita lanzar un job que fallará al descuantizar/mapear un GGUF no soportado.
 pub fn gguf_load_supported(architecture: Option<&str>, file_type: Option<u32>) -> bool {
-    let arch_ok = architecture.map_or(false, |a| GGUF_SUPPORTED_ARCHITECTURES.contains(&a));
-    let quant_ok = file_type.map_or(false, |t| GGUF_SUPPORTED_FILE_TYPES.contains(&t));
+    let arch_ok = architecture.is_some_and(|a| GGUF_SUPPORTED_ARCHITECTURES.contains(&a));
+    let quant_ok = file_type.is_some_and(|t| GGUF_SUPPORTED_FILE_TYPES.contains(&t));
     arch_ok && quant_ok
 }
 
@@ -688,6 +688,32 @@ mod tests {
         assert_eq!(meta.file_type, Some(1));
     }
 
+    /// Modelos con vocabulario grande (Qwen2.5: 151k tokens + merges, 5.66 MiB
+    /// de metadata) no caben en el buffer leído; las claves que se necesitan
+    /// van al principio, así que el parseo no debe exigir llegar al final.
+    #[test]
+    fn gguf_header_stops_once_architecture_and_file_type_are_known() {
+        let mut vocab = Vec::new();
+        vocab.extend_from_slice(&(b"tokenizer.ggml.tokens".len() as u64).to_le_bytes());
+        vocab.extend_from_slice(b"tokenizer.ggml.tokens");
+        vocab.extend_from_slice(&GGUF_T_ARRAY.to_le_bytes());
+        vocab.extend_from_slice(&GGUF_T_STRING.to_le_bytes());
+        vocab.extend_from_slice(&151_936u64.to_le_bytes()); // declarado, no incluido
+        let bytes = gguf_with_metadata(
+            3,
+            vec![
+                kv_string("general.architecture", "qwen2"),
+                kv_u32("general.file_type", 2),
+                vocab,
+                kv_u32("general.quantization_version", 2),
+            ],
+        );
+        let meta = parse_gguf_header(&bytes).unwrap();
+        assert_eq!(meta.architecture.as_deref(), Some("qwen2"));
+        assert_eq!(meta.file_type, Some(2));
+        assert_eq!(meta.metadata_kv_count, 4);
+    }
+
     #[test]
     fn gguf_header_parses_without_metadata() {
         let meta = parse_gguf_header(&gguf_prefix(2, 10, 0)).unwrap();
@@ -716,19 +742,32 @@ mod tests {
 
     #[test]
     fn gguf_load_supported_accepts_common_models() {
-        assert!(gguf_load_supported(Some("llama"), Some(12))); // Q4_K
-        assert!(gguf_load_supported(Some("mistral"), Some(8))); // Q8_0
+        assert!(gguf_load_supported(Some("llama"), Some(15))); // Q4_K_M
+        assert!(gguf_load_supported(Some("mistral"), Some(7))); // Q8_0
         assert!(gguf_load_supported(Some("gemma"), Some(1))); // F16
         assert!(gguf_load_supported(Some("qwen2"), Some(2))); // Q4_0
-        assert!(gguf_load_supported(Some("phi3"), Some(13))); // Q5_K
+        assert!(gguf_load_supported(Some("phi3"), Some(17))); // Q5_K_M
+        assert!(gguf_load_supported(Some("llama"), Some(18))); // Q6_K
     }
 
     #[test]
     fn gguf_load_supported_rejects_unknown_or_unsupported() {
-        assert!(!gguf_load_supported(None, Some(12)));
+        assert!(!gguf_load_supported(None, Some(15)));
         assert!(!gguf_load_supported(Some("llama"), None));
         assert!(!gguf_load_supported(Some("llama"), Some(10))); // Q2_K
-        assert!(!gguf_load_supported(Some("falcon"), Some(8)));
+        assert!(!gguf_load_supported(Some("falcon"), Some(7)));
+    }
+
+    /// H-14: `general.file_type` usa la numeración `LlamaFileType`, no la de
+    /// tipos de tensor GGML. Valores leídos de headers reales de
+    /// `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (q4_k_m → 15, q8_0 → 7, q5_0 → 8).
+    #[test]
+    fn gguf_load_supported_uses_real_llama_file_type_values() {
+        assert!(gguf_load_supported(Some("qwen2"), Some(15))); // Q4_K_M real
+        assert!(gguf_load_supported(Some("qwen2"), Some(7))); // Q8_0 real
+        assert!(!gguf_load_supported(Some("qwen2"), Some(8))); // Q5_0 real: fuera de la lista
+        assert!(!gguf_load_supported(Some("qwen2"), Some(12))); // Q3_K_M real
+        assert!(!gguf_load_supported(Some("qwen2"), Some(13))); // Q3_K_L real
     }
 
     #[test]
@@ -813,13 +852,6 @@ mod tests {
         assert!(resolve_library_path(base, "dev", "../escape.gguf").is_err());
         assert!(resolve_library_path(base, "dev", "sub/dir.gguf").is_err());
         assert!(resolve_library_path(base, "Bad_Name", "m.gguf").is_err());
-    }
-
-    #[test]
-    fn container_path_maps_inside_ollama_volume() {
-        let p = container_gguf_path("m.gguf").unwrap();
-        assert_eq!(p, "/root/.ollama/models-gguf/m.gguf");
-        assert!(container_gguf_path("../m.gguf").is_err());
     }
 
     #[test]

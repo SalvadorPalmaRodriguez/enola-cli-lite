@@ -45,7 +45,7 @@ pub struct BenchmarkReport {
 /// Estimación aproximada de tokens cuando el motor no reporta `eval_count`.
 /// Heurística: ~4 caracteres por token (promedio de tokenizadores BPE latinos).
 pub fn estimate_tokens(text: &str) -> u64 {
-    (text.len() as u64 + 3) / 4
+    (text.len() as u64).div_ceil(4)
 }
 
 /// Agrega muestras en un informe. Lógica pura y determinista.

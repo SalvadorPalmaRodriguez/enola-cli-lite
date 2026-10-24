@@ -3,6 +3,7 @@
 //! Persiste bajo `<base>/<instance>/`:
 //! - `rag_config.json`  → `RagConfig` (presets, chunking, backend).
 //! - `rag_sources.json` → `Vec<AiSource>` (fuentes ligadas).
+//!
 //! Escritura atómica (tmp + rename) y permisos `0640`.
 
 use crate::domain::ai::validate_ai_instance_name;

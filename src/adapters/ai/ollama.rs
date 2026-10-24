@@ -1,4 +1,5 @@
-//! Fase 9 (9.2) — Adapter HTTP para Ollama (`/api/chat`, `/api/tags`, `/api/pull`).
+//! Fase 9 (9.2) — Adapter HTTP para Ollama (`/api/chat`, `/api/tags`, `/api/pull`,
+//! `/api/blobs` + `/api/create`).
 //!
 //! Construye su cliente a través de `crate::infrastructure::http::http_client_builder`,
 //! soportando tanto endpoints locales (`http://127.0.0.1:11434`) como endpoints
@@ -70,6 +71,21 @@ impl OllamaAdapter {
         })
     }
 
+    /// Sube `path` al almacén de blobs de Ollama y devuelve su digest
+    /// (`sha256:<hex>`). Calcula el SHA-256 en streaming y, si el blob ya
+    /// existe (`HEAD` 200), no lo vuelve a subir. Cliente bloqueante en
+    /// `spawn_blocking`: el GGUF puede pesar varios GiB y no se carga en memoria.
+    async fn push_blob(&self, path: &std::path::Path) -> Result<String> {
+        let endpoint = self.endpoint.clone();
+        let timeout = self.timeout;
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || push_blob_blocking(&endpoint, timeout, &path))
+            .await
+            .map_err(|e| {
+                EnolaError::InfrastructureError(format!("Subida del blob a Ollama abortada: {e}"))
+            })?
+    }
+
     fn map_reqwest_error(&self, op: &str, err: &reqwest::Error) -> EnolaError {
         if err.is_timeout() {
             return EnolaError::Timeout(format!(
@@ -136,6 +152,73 @@ fn serialize_tool(def: &LlmToolDefinition) -> Value {
 }
 
 /// Extrae el mensaje de error si el cuerpo JSON (o línea NDJSON) de Ollama incluye `"error"`.
+/// SHA-256 en streaming de `path`, como digest de blob Ollama (`sha256:<hex>`).
+fn blob_digest(path: &std::path::Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| {
+        EnolaError::InfrastructureError(format!("No se pudo abrir '{}': {e}", path.display()))
+    })?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo leer '{}': {e}", path.display()))
+        })?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+/// Cuerpo síncrono de `OllamaAdapter::push_blob` (ver allí).
+fn push_blob_blocking(endpoint: &str, timeout: Duration, path: &std::path::Path) -> Result<String> {
+    let digest = blob_digest(path)?;
+    let client = crate::infrastructure::http::build_blocking_http_client(endpoint, timeout)?;
+    let url = format!("{endpoint}/api/blobs/{digest}");
+    let http_err = |op: &str, e: reqwest::Error| {
+        EnolaError::InfrastructureError(format!(
+            "Error HTTP en Ollama ({op} contra {endpoint}): {e}"
+        ))
+    };
+
+    let head = client
+        .head(&url)
+        .send()
+        .map_err(|e| http_err("HEAD /api/blobs", e))?;
+    if head.status().is_success() {
+        return Ok(digest);
+    }
+
+    let file = std::fs::File::open(path).map_err(|e| {
+        EnolaError::InfrastructureError(format!("No se pudo abrir '{}': {e}", path.display()))
+    })?;
+    let len = file
+        .metadata()
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!("No se pudo leer '{}': {e}", path.display()))
+        })?
+        .len();
+    let resp = client
+        .post(&url)
+        .body(reqwest::blocking::Body::sized(file, len))
+        .send()
+        .map_err(|e| http_err("POST /api/blobs", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().unwrap_or_default();
+        let detail = extract_ollama_error(&body).unwrap_or_else(|| body.trim().to_string());
+        return Err(EnolaError::InfrastructureError(format!(
+            "Ollama /api/blobs devolvió HTTP {}: {}",
+            status.as_u16(),
+            detail
+        )));
+    }
+    Ok(digest)
+}
+
 fn extract_ollama_error(body: &str) -> Option<String> {
     if let Ok(v) = serde_json::from_str::<Value>(body) {
         if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
@@ -405,13 +488,25 @@ impl LlmEngine for OllamaAdapter {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, modelfile), fields(endpoint = %self.endpoint, model = %name))]
-    async fn create_model(&self, name: &str, modelfile: &str) -> Result<()> {
+    #[tracing::instrument(skip(self), fields(endpoint = %self.endpoint, model = %name))]
+    async fn create_model_from_gguf(&self, name: &str, gguf: &std::path::Path) -> Result<()> {
+        let filename = gguf
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or_else(|| {
+                EnolaError::ValidationError(format!(
+                    "Ruta GGUF sin nombre de fichero válido: '{}'",
+                    gguf.display()
+                ))
+            })?
+            .to_string();
+        let digest = self.push_blob(gguf).await?;
+
         let client = self.build_client()?;
         let url = format!("{}/api/create", self.endpoint);
         let payload = json!({
-            "name": name,
-            "modelfile": modelfile,
+            "model": name,
+            "files": { filename: digest },
             "stream": false,
         });
 
@@ -747,6 +842,219 @@ mod tests {
         };
         assert_eq!(proxy_val, "http://ollamaabcdef.onion:11434");
         assert!(res.is_err(), "socks5:// sin h debe rechazarse para .onion");
+    }
+
+    /// Petición capturada por `spawn_routed_http`: método, ruta y cuerpo crudo.
+    #[derive(Debug, Clone)]
+    struct CapturedRequest {
+        method: String,
+        path: String,
+        body: Vec<u8>,
+    }
+
+    /// Servidor HTTP efímero que atiende `routes.len()` conexiones en orden
+    /// (una petición por conexión, `Connection: close`). Cada ruta es
+    /// `(status_line, body)` y responde a la petición de esa posición.
+    async fn spawn_routed_http(
+        routes: Vec<(&'static str, String)>,
+    ) -> (String, tokio::task::JoinHandle<Vec<CapturedRequest>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let handle = tokio::spawn(async move {
+            let mut captured = Vec::new();
+            for (status_line, body) in routes {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut raw: Vec<u8> = Vec::new();
+                let mut buf = vec![0u8; 65536];
+                let (header_end, content_len) = loop {
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    assert!(n > 0, "conexión cerrada antes de las cabeceras");
+                    raw.extend_from_slice(&buf[..n]);
+                    if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&raw[..pos]).to_string();
+                        let len = head
+                            .lines()
+                            .filter_map(|l| l.split_once(':'))
+                            .find(|(k, _)| k.trim().eq_ignore_ascii_case("content-length"))
+                            .and_then(|(_, v)| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        break (pos + 4, len);
+                    }
+                };
+                while raw.len() < header_end + content_len {
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    raw.extend_from_slice(&buf[..n]);
+                }
+                let head = String::from_utf8_lossy(&raw[..header_end]).to_string();
+                let mut first = head.lines().next().unwrap_or("").split_whitespace();
+                captured.push(CapturedRequest {
+                    method: first.next().unwrap_or("").to_string(),
+                    path: first.next().unwrap_or("").to_string(),
+                    body: raw[header_end..].to_vec(),
+                });
+                let resp = format!(
+                    "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+            captured
+        });
+        (url, handle)
+    }
+
+    fn write_fake_gguf(dir: &std::path::Path, name: &str) -> (std::path::PathBuf, Vec<u8>, String) {
+        use sha2::{Digest, Sha256};
+        let bytes = b"GGUF\x03\x00\x00\x00 fake model bytes".repeat(1000);
+        let path = dir.join(name);
+        std::fs::write(&path, &bytes).unwrap();
+        let digest = format!("sha256:{:x}", Sha256::digest(&bytes));
+        (path, bytes, digest)
+    }
+
+    #[tokio::test]
+    async fn create_model_from_gguf_uploads_blob_then_creates_with_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, bytes, digest) = write_fake_gguf(dir.path(), "m.gguf");
+        let (url, handle) = spawn_routed_http(vec![
+            ("404 Not Found", String::new()),
+            ("201 Created", String::new()),
+            ("200 OK", json!({"status": "success"}).to_string()),
+        ])
+        .await;
+        let adapter = OllamaAdapter::new(url, Duration::from_secs(10));
+        adapter
+            .create_model_from_gguf("dev-ft", &path)
+            .await
+            .expect("registro vía blob + files");
+
+        let reqs = handle.await.unwrap();
+        let blob_path = format!("/api/blobs/{digest}");
+        assert_eq!(
+            (reqs[0].method.as_str(), reqs[0].path.as_str()),
+            ("HEAD", blob_path.as_str())
+        );
+        assert_eq!(
+            (reqs[1].method.as_str(), reqs[1].path.as_str()),
+            ("POST", blob_path.as_str())
+        );
+        assert_eq!(
+            reqs[1].body, bytes,
+            "el blob subido debe ser el fichero íntegro"
+        );
+        assert_eq!(
+            (reqs[2].method.as_str(), reqs[2].path.as_str()),
+            ("POST", "/api/create")
+        );
+        let payload: Value = serde_json::from_slice(&reqs[2].body).unwrap();
+        assert_eq!(payload["model"], "dev-ft");
+        assert_eq!(payload["files"], json!({ "m.gguf": digest }));
+        assert_eq!(payload["stream"], false);
+        assert!(
+            payload.get("modelfile").is_none(),
+            "Ollama >= 0.5 rechaza `modelfile` (H-16)"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_model_from_gguf_skips_upload_when_blob_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _bytes, digest) = write_fake_gguf(dir.path(), "m.gguf");
+        let (url, handle) = spawn_routed_http(vec![
+            ("200 OK", String::new()),
+            ("200 OK", json!({"status": "success"}).to_string()),
+        ])
+        .await;
+        let adapter = OllamaAdapter::new(url, Duration::from_secs(10));
+        adapter
+            .create_model_from_gguf("dev-ft", &path)
+            .await
+            .unwrap();
+
+        let reqs = handle.await.unwrap();
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0].method, "HEAD");
+        assert_eq!(reqs[0].path, format!("/api/blobs/{digest}"));
+        assert_eq!(reqs[1].path, "/api/create");
+    }
+
+    #[tokio::test]
+    async fn create_model_from_gguf_surfaces_ollama_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _bytes, _digest) = write_fake_gguf(dir.path(), "m.gguf");
+        let (url, _handle) = spawn_routed_http(vec![
+            ("200 OK", String::new()),
+            (
+                "400 Bad Request",
+                json!({"error": "invalid model"}).to_string(),
+            ),
+        ])
+        .await;
+        let adapter = OllamaAdapter::new(url, Duration::from_secs(10));
+        let err = adapter
+            .create_model_from_gguf("dev-ft", &path)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("HTTP 400") && err.contains("invalid model"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_model_from_gguf_fails_on_blob_upload_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _bytes, _digest) = write_fake_gguf(dir.path(), "m.gguf");
+        let (url, handle) = spawn_routed_http(vec![
+            ("404 Not Found", String::new()),
+            (
+                "400 Bad Request",
+                json!({"error": "digest mismatch"}).to_string(),
+            ),
+        ])
+        .await;
+        let adapter = OllamaAdapter::new(url, Duration::from_secs(10));
+        let err = adapter
+            .create_model_from_gguf("dev-ft", &path)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("digest mismatch"), "{err}");
+        assert_eq!(
+            handle.await.unwrap().len(),
+            2,
+            "no debe llamar a /api/create"
+        );
+    }
+
+    /// Integración contra un Ollama real (H-16): `ENOLA_TEST_OLLAMA_ENDPOINT`
+    /// (p.ej. `http://127.0.0.1:11999`) y `ENOLA_TEST_GGUF` (GGUF válido).
+    #[tokio::test]
+    #[ignore = "requires real Ollama + GGUF (ENOLA_TEST_OLLAMA_ENDPOINT, ENOLA_TEST_GGUF)"]
+    async fn create_model_from_gguf_against_real_ollama() {
+        let endpoint = std::env::var("ENOLA_TEST_OLLAMA_ENDPOINT").unwrap();
+        let gguf = std::path::PathBuf::from(std::env::var("ENOLA_TEST_GGUF").unwrap());
+        let adapter = OllamaAdapter::new(endpoint, Duration::from_secs(120));
+        adapter
+            .create_model_from_gguf("enola-h16-test", &gguf)
+            .await
+            .expect("registro real vía blob + files");
+        // Idempotente: la segunda vez el blob ya existe y no se re-sube.
+        adapter
+            .create_model_from_gguf("enola-h16-test", &gguf)
+            .await
+            .expect("re-registro con blob existente");
+        let models = adapter.list_models().await.unwrap();
+        assert!(
+            models.iter().any(|m| m.name.starts_with("enola-h16-test")),
+            "{models:?}"
+        );
     }
 
     #[test]

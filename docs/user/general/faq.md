@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/faq.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-08-08
+> **Versión:** 2.2 | **Actualizado:** 2026-10-24
 > **Estado:** ✅ **VIGENTE — Preguntas frecuentes**
 > **Referencias:** commands.md, concepts.md
 > **English:** [`docs/en/faq.md`](../../en/faq.md)
@@ -19,6 +19,41 @@ la misma dirección vuelve a estar disponible.
 
 **¿Puedo tener múltiples servicios en el mismo servidor?**
 Sí, sin límite. Cada servicio tiene su propia dirección `.onion`.
+
+**¿Mi equipo debe suspenderse? (servidor 24/7 vs. equipo de escritorio)**
+Mientras el equipo está suspendido, tus servicios `.onion` **no están
+accesibles**, igual que si estuviera apagado. Elige uno de estos dos modos:
+
+- **Servidor 24/7** (los servicios siempre disponibles): bloquea la suspensión.
+  ```bash
+  sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+  ```
+  Si además quieres que cerrar la tapa o pulsar el botón de encendido no haga
+  nada, crea un drop-in en `/etc/systemd/logind.conf.d/` con
+  `HandleLidSwitch=ignore`, `HandlePowerKey=ignore`, `HandleSuspendKey=ignore`
+  e `IdleAction=ignore`.
+
+- **Equipo de escritorio** (vuelve a suspenderse como antes): revierte lo anterior.
+  ```bash
+  sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+  # Mueve (o borra) el drop-in de logind que creaste y reinicia el equipo
+  # (o `sudo systemctl restart systemd-logind`, que cierra la sesión gráfica)
+  ```
+  Después configura el tiempo de inactividad en tu escritorio. Ejemplo en
+  XFCE (3 minutos con corriente y con batería, modo suspender):
+  ```bash
+  for p in inactivity-on-ac inactivity-on-battery; do
+    xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$p -n -t uint -s 3
+  done
+  for p in inactivity-sleep-mode-on-ac inactivity-sleep-mode-on-battery; do
+    xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$p -n -t uint -s 1
+  done
+  ```
+  En GNOME: **Configuración → Energía**.
+
+> ⚠️ Si el equipo **nunca** se suspende, y tampoco lo hace con
+> `systemctl suspend`, comprueba si los targets están enmascarados:
+> `systemctl status suspend.target` (en ese caso muestra `Loaded: masked`).
 
 ---
 
@@ -158,6 +193,32 @@ Resiste ataques de ordenadores cuánticos que romperían RSA/ECDSA.
 **¿SSH sobre Tor es resistente a ordenadores cuánticos?**
 SSH estándar no. Usa `maintenance ssh-harden-pqc` para configurar algoritmos
 híbridos post-cuánticos (sntrup761x25519) que sí lo son.
+
+---
+
+## IA local (Ollama)
+
+**`ai rag ingest` falla con «Ollama no devolvió embeddings» en vez de indexar**
+Es intencionado: si Ollama no devuelve embeddings (instancia parada o sin el
+modelo de embeddings), enola-cli **no indexa nada** antes que llenar el índice
+con vectores de peor calidad sin avisar. Arranca la instancia
+(`sudo enola-cli ai start <NAME>`) y reintenta. En una terminal interactiva se
+ofrece reintentar / hash / cancelar; para indexar por hash a propósito usa
+`--embedding-fallback hash`. Una colección no mezcla vías: si la creaste por
+hash, sigue siendo hash.
+
+**`ask --yes` me sigue pidiendo confirmación (o falla sin terminal)**
+`--yes` solo aprueba operaciones **mutantes**. Las **destructivas** (borrar,
+`--force`) siempre exigen confirmar `[s/N]` en una terminal interactiva; sin
+terminal fallan aunque pases `--yes`. Motivo: el contenido que leen las
+herramientas (documentos RAG, logs) podría inducir al modelo a pedir una
+acción destructiva. Ver [`commands-ask.md`](../ai/commands-ask.md).
+
+**La tool MCP `docs_lookup` devuelve `results: []`**
+La colección de documentación (`enola_docs`) aún no está indexada. Ejecuta
+`sudo enola-cli ai rag ingest-docs <NAME>` (y de nuevo tras actualizar
+enola-cli) o usa `docs_search`, que no necesita embeddings. Tu índice propio
+(`ai rag ingest`/`sync`) nunca se expone a `docs_lookup`.
 
 ---
 
