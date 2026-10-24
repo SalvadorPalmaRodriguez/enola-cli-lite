@@ -328,8 +328,8 @@ pub async fn expose_service_on_tor(
         eprintln!("   ✓ Nginx configured");
         let _ = std::io::Write::flush(&mut std::io::stderr());
 
-        // Create Tor hidden service (use proxy_ prefix for consistency)
-        let tor_service_name = format!("proxy_{}", service_name);
+        // Create Tor hidden service (`proxy_{name}`: el prefijo lo pone
+        // `execute_typed` tras validar el nombre base)
         let mut tor_ports = vec![(80, http_port), (443, https_port)];
         // Add extra ports (e.g., SSH)
         tor_ports.extend(extra_ports);
@@ -339,11 +339,14 @@ pub async fn expose_service_on_tor(
             systemd_adapter,
             Arc::new(FileManifestAdapter::new()),
         );
-        let request = DeployTorServiceRequest {
-            service_name: tor_service_name,
-            ports: tor_ports,
-        };
-        let onion = use_case.execute(request).await.map_err(CliError::from)?;
+        let onion = use_case
+            .execute_typed(
+                crate::domain::naming::ServiceType::Proxy,
+                service_name,
+                tor_ports,
+            )
+            .await
+            .map_err(CliError::from)?;
 
         Ok((onion, http_port, Some(https_port)))
     } else {
@@ -582,14 +585,19 @@ pub mod tor {
                         systemd_adapter,
                         Arc::new(FileManifestAdapter::new()),
                     );
-                    let request = DeployTorServiceRequest {
-                        service_name: format!("proxy_{}", name),
-                        ports: vec![
-                            (80, http_port),   // HTTP
-                            (443, https_port), // HTTPS
-                        ],
-                    };
-                    let onion = use_case.execute(request).await.map_err(CliError::from)?;
+                    // `proxy_{name}`, como el web sin SSL: el prefijo lo pone
+                    // `execute_typed` tras validar el nombre base.
+                    let onion = use_case
+                        .execute_typed(
+                            crate::domain::naming::ServiceType::Proxy,
+                            name,
+                            vec![
+                                (80, http_port),   // HTTP
+                                (443, https_port), // HTTPS
+                            ],
+                        )
+                        .await
+                        .map_err(CliError::from)?;
 
                     eprintln!("\n📋 Service Configuration (HTTPS enabled):");
                     eprintln!("   Nginx config: /etc/nginx/sites-available/proxy_{}", name);

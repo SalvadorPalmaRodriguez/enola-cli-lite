@@ -1,4 +1,5 @@
 use crate::domain::error::{EnolaError, Result};
+use crate::domain::naming::ServiceType;
 use crate::ports::manifest::ManifestPort;
 use crate::ports::service::ServiceManagerPort;
 use crate::ports::tor::TorManagerPort;
@@ -35,7 +36,25 @@ impl DeployTorService {
         // (`{name}.conf`, HiddenServiceDir) y en su contenido: debe ser un
         // nombre de servicio válido, no solo no-vacío (R-12).
         crate::domain::naming::validate_service_name(&request.service_name)?;
-        if request.ports.is_empty() {
+        self.deploy(&request.service_name, request.ports).await
+    }
+
+    /// Despliega un servicio con el prefijo Tor de su tipo (`proxy_{name}`,
+    /// `git_{name}`, ...). Valida el nombre **base**: el prefijo lo pone el
+    /// dominio y no pasa por `validate_service_name` (que rechaza `_`).
+    pub async fn execute_typed(
+        &self,
+        service_type: ServiceType,
+        base_name: &str,
+        ports: Vec<(u16, u16)>,
+    ) -> Result<String> {
+        crate::domain::naming::validate_service_name(base_name)?;
+        let name = format!("{}{}", service_type.tor_config_prefix(), base_name);
+        self.deploy(&name, ports).await
+    }
+
+    async fn deploy(&self, service_name: &str, ports: Vec<(u16, u16)>) -> Result<String> {
+        if ports.is_empty() {
             return Err(EnolaError::ValidationError(
                 "At least one port mapping is required".to_string(),
             ));
@@ -51,9 +70,9 @@ impl DeployTorService {
         // 3. Deploy Hidden Service Config
         let onion_address = self
             .tor_manager
-            .deploy_hidden_service(&request.service_name, request.ports)
+            .deploy_hidden_service(service_name, ports)
             .await?;
-        let _ = self.manifest.append("tor_service", &request.service_name);
+        let _ = self.manifest.append("tor_service", service_name);
 
         Ok(onion_address)
     }
@@ -76,6 +95,7 @@ mod tests {
 
     struct MockTorManager {
         deploy_called: AtomicBool,
+        deployed_name: std::sync::Mutex<String>,
         should_fail: bool,
     }
 
@@ -83,6 +103,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 deploy_called: AtomicBool::new(false),
+                deployed_name: std::sync::Mutex::new(String::new()),
                 should_fail: false,
             }
         }
@@ -90,6 +111,7 @@ mod tests {
         fn failing() -> Self {
             Self {
                 deploy_called: AtomicBool::new(false),
+                deployed_name: std::sync::Mutex::new(String::new()),
                 should_fail: true,
             }
         }
@@ -100,8 +122,11 @@ mod tests {
         async fn list_hidden_services(&self) -> Result<Vec<TorServiceInfo>> {
             Ok(vec![])
         }
-        async fn deploy_hidden_service(&self, _: &str, _: Vec<(u16, u16)>) -> Result<String> {
+        async fn deploy_hidden_service(&self, name: &str, _: Vec<(u16, u16)>) -> Result<String> {
             self.deploy_called.store(true, Ordering::SeqCst);
+            if let Ok(mut n) = self.deployed_name.lock() {
+                *n = name.to_owned();
+            }
             if self.should_fail {
                 Err(EnolaError::InfrastructureError("Deploy failed".into()))
             } else {
@@ -315,6 +340,53 @@ mod tests {
             assert!(
                 !called.deploy_called.load(Ordering::SeqCst),
                 "deploy no debe invocarse con name {name:?}"
+            );
+        }
+    }
+
+    /// `tor create --ssl` (web): el servicio Tor se llama `proxy_{name}`
+    /// (como el web sin SSL) y el `_` del prefijo no debe rechazarse.
+    #[tokio::test]
+    async fn execute_typed_deploys_prefixed_name_after_validating_base() {
+        let tor = Arc::new(MockTorManager::new());
+        let svc = Arc::new(MockServiceManager::active());
+        let use_case = DeployTorService::new(tor.clone(), svc, Arc::new(mock_manifest()));
+
+        let onion = use_case
+            .execute_typed(ServiceType::Proxy, "my-site", vec![(80, 8080), (443, 8443)])
+            .await;
+
+        assert_eq!(onion.ok().as_deref(), Some("abc123xyz.onion"));
+        let name = tor
+            .deployed_name
+            .lock()
+            .map(|n| n.clone())
+            .unwrap_or_default();
+        assert_eq!(name, "proxy_my-site");
+    }
+
+    #[tokio::test]
+    async fn execute_typed_rejects_unsafe_base_names_and_empty_ports() {
+        for (name, ports) in [
+            ("../etc/x", vec![(80, 8080)]),
+            ("a_b", vec![(80, 8080)]),
+            ("Bad", vec![(80, 8080)]),
+            ("", vec![(80, 8080)]),
+            ("ok", vec![]),
+        ] {
+            let tor = Arc::new(MockTorManager::new());
+            let svc = Arc::new(MockServiceManager::active());
+            let use_case = DeployTorService::new(tor.clone(), svc, Arc::new(mock_manifest()));
+            let result = use_case
+                .execute_typed(ServiceType::Proxy, name, ports)
+                .await;
+            assert!(
+                matches!(result, Err(EnolaError::ValidationError(_))),
+                "{name:?} debe rechazarse"
+            );
+            assert!(
+                !tor.deploy_called.load(Ordering::SeqCst),
+                "deploy con {name:?}"
             );
         }
     }
