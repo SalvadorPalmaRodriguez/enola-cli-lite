@@ -36,15 +36,26 @@
     }
 
     // ── API helpers ────────────────────────────────────────────────────────
+    // A25-06: el token caduca (12 h por defecto) y se reescribe en
+    // ~/.enola/web-token; ante un 401 ya conectados se vuelve a pedir.
+    function handleExpiredToken(res) {
+        if (res.status === 401 && app.style.display === 'block') {
+            app.style.display = 'none';
+            overlay.style.display = 'flex';
+            tokenInput.value = '';
+            tokenError.textContent = 'Token expired or rotated — read ~/.enola/web-token again.';
+        }
+        return res;
+    }
     async function apiGet(url) {
-        return fetch(url, { headers: { 'Authorization': TOKEN } });
+        return handleExpiredToken(await fetch(url, { headers: { 'Authorization': TOKEN } }));
     }
     async function apiPost(url, body) {
-        return fetch(url, {
+        return handleExpiredToken(await fetch(url, {
             method: 'POST',
             headers: { 'Authorization': TOKEN, 'Content-Type': 'application/json' },
             body: body ? JSON.stringify(body) : undefined,
-        });
+        }));
     }
 
     async function apiGetJson(url) {
@@ -1413,6 +1424,17 @@
                 const data = await apiPostJson('/api/uninstall', { yes, keep_data, remove_deps, force, only, confirm: 'uninstall' });
                 document.getElementById('system-output').textContent = 'EXIT ' + data.exit_code + '\n=== STDOUT ===\n' + data.stdout + '\n=== STDERR ===\n' + data.stderr;
                 toast('Uninstall completed');
+            } catch (e) { toast(e.message, true); }
+        });
+    };
+
+    // A25-06: rotación manual del token (el nuevo también queda en ~/.enola/web-token).
+    window.sysRotateToken = async function () {
+        showConfirm('Rotate token', 'Issue a new dashboard token? The current one stops working.', async () => {
+            try {
+                const data = await apiPostJson('/api/token/rotate');
+                TOKEN = data.token;
+                toast('Token rotated (also written to ~/.enola/web-token)');
             } catch (e) { toast(e.message, true); }
         });
     };

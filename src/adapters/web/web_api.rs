@@ -202,6 +202,8 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/update/verify-feed", post(api_update_verify_feed))
         // Doctor security
         .route("/doctor/security", get(api_doctor_security))
+        // A25-06 (P5.2): rotación manual del token (autenticada).
+        .route("/token/rotate", post(api_token_rotate))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::adapters::web::web_server::auth_middleware,
@@ -224,6 +226,28 @@ fn strict_json<T>(
         error: format!("Invalid request body: {}", e.body_text()),
         code: 400,
     })
+}
+
+#[derive(Serialize)]
+struct TokenRotateResponse {
+    token: String,
+    ttl_secs: u64,
+}
+
+/// `POST /api/token/rotate` — A25-06: emite un token nuevo, lo re-persiste en
+/// `~/.enola/web-token` y lo devuelve a quien ya estaba autenticado (la UI
+/// sigue sin pedirlo). El anterior deja de valer.
+async fn api_token_rotate(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> ApiResult<TokenRotateResponse> {
+    let token = state.rotate_token().ok_or_else(|| ApiError {
+        error: "Could not persist the new token; the current one is kept".to_string(),
+        code: 500,
+    })?;
+    Ok(Json(TokenRotateResponse {
+        token,
+        ttl_secs: state.token_ttl.as_secs(),
+    }))
 }
 
 // ── Status ───────────────────────────────────────────────────────────────────
@@ -3284,15 +3308,11 @@ mod tests {
     use axum::response::IntoResponse;
 
     fn state() -> Arc<AppState> {
-        Arc::new(AppState {
-            token: "t".repeat(32),
-            auth_failures: std::sync::atomic::AtomicU64::new(0),
-            console_slots: tokio::sync::Semaphore::new(
-                crate::adapters::web::web_server::CONSOLE_MAX_CONCURRENT,
-            ),
-            pqc_job: std::sync::Mutex::new(None),
-            sse_tickets: Default::default(),
-        })
+        Arc::new(AppState::new(
+            "t".repeat(32),
+            std::time::Duration::from_secs(3600),
+            Arc::new(|_t: &str| true),
+        ))
     }
 
     async fn console(args: &[&str], confirm: Option<&str>, timeout: Option<u64>) -> StatusCode {

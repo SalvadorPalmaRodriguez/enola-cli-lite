@@ -281,6 +281,41 @@ pub(crate) trait ConfirmationGate: Send + Sync {
     /// Solicita confirmación al operador para ejecutar `display_tool` de clase `kind`
     /// con el resumen saneado `sanitized_summary`.
     fn confirm(&self, display_tool: &str, kind: ToolKind, sanitized_summary: &str) -> GateDecision;
+
+    /// A25-10 (P5.3): confirmación de una lectura sensible cuando el endpoint
+    /// LLM no es local. Por defecto falla cerrado (rechaza).
+    fn confirm_sensitive_read(
+        &self,
+        _display_tool: &str,
+        _sanitized_summary: &str,
+    ) -> GateDecision {
+        GateDecision::RejectedByUser
+    }
+}
+
+/// A25-10 (P5.3, SD-8c): tools ReadOnly que NO revelan nada del host ni de sus
+/// servicios (default-deny: todo lo demás es sensible). Con un endpoint LLM no
+/// local, las sensibles piden `[s/N]` porque su salida viaja a ese servidor.
+const NON_SENSITIVE_READ_TOOLS: &[&str] = &["docs_search", "docs_lookup", "enola_list_commands"];
+const NON_SENSITIVE_READ_PREFIXES: &[&str] = &["plan_"];
+const NON_SENSITIVE_READ_SCOPES: &[&str] = &["test:list", "test:results"];
+
+/// `true` si la lectura puede revelar identidad/estado del host (`.onion`,
+/// logs, config, red) — `scope` es `family:sub` en `enola_run_command`.
+pub(crate) fn readonly_is_sensitive(tool: &str, scope: Option<&str>) -> bool {
+    match scope {
+        Some(sc) => {
+            !(sc.starts_with("docs")
+                || sc.starts_with("plan")
+                || NON_SENSITIVE_READ_SCOPES.contains(&sc))
+        }
+        None => {
+            !(NON_SENSITIVE_READ_TOOLS.contains(&tool)
+                || NON_SENSITIVE_READ_PREFIXES
+                    .iter()
+                    .any(|p| tool.starts_with(p)))
+        }
+    }
 }
 
 /// Gate de confirmación real sobre TTY (`stdin` / `stderr`).
@@ -354,6 +389,29 @@ impl ConfirmationGate for TtyConfirmationGate {
             GateDecision::RejectedByUser
         }
     }
+
+    fn confirm_sensitive_read(&self, display_tool: &str, sanitized_summary: &str) -> GateDecision {
+        if self.assume_yes {
+            return GateDecision::Approved;
+        }
+        #[allow(unsafe_code)]
+        let is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) != 0 };
+        if !is_tty {
+            return GateDecision::NoTty;
+        }
+        eprintln!(
+            "\n👁️  [LECTURA SENSIBLE] El asistente quiere leer `{display_tool}` y el endpoint LLM \
+             no es local: la salida (direcciones .onion, logs, configuración…) se enviará a ese servidor."
+        );
+        eprintln!("   {sanitized_summary}");
+        eprint!("¿Permitir? [s/N]: ");
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).is_ok() && parse_confirmation_answer(&line) {
+            GateDecision::Approved
+        } else {
+            GateDecision::RejectedByUser
+        }
+    }
 }
 
 /// Opciones de ejecución de una consulta `ask`.
@@ -367,6 +425,8 @@ pub(crate) struct AskOptions {
     pub(crate) max_tool_output_bytes: usize,
     /// Máximo de iteraciones del bucle `chat → tools`.
     pub(crate) max_turns: usize,
+    /// A25-10 (P5.3): endpoint LLM no local → las lecturas sensibles piden `[s/N]`.
+    pub(crate) confirm_sensitive_reads: bool,
 }
 
 impl Default for AskOptions {
@@ -376,6 +436,7 @@ impl Default for AskOptions {
             no_exec: false,
             max_tool_output_bytes: DEFAULT_MAX_TOOL_OUTPUT_BYTES,
             max_turns: DEFAULT_MAX_TURNS,
+            confirm_sensitive_reads: false,
         }
     }
 }
@@ -529,6 +590,32 @@ impl AiAssistant {
 
                 // 4. Despachar según clase y flag `--no-exec`.
                 let outcome = match effective_kind {
+                    ToolKind::ReadOnly
+                        if options.confirm_sensitive_reads
+                            && readonly_is_sensitive(&tc.name, run_cmd_scope.as_deref()) =>
+                    {
+                        match self
+                            .gate
+                            .confirm_sensitive_read(&display_tool, &sanitized_summary)
+                        {
+                            GateDecision::Approved => {
+                                self.registry.call(&tc.name, clean_args).await
+                            }
+                            GateDecision::RejectedByUser | GateDecision::NoTty => {
+                                let rejected = json!({
+                                    "rejected": true,
+                                    "error": format!(
+                                        "reading '{}' requires human confirmation because the LLM \
+                                         endpoint is not local; it was not approved",
+                                        display_tool
+                                    )
+                                });
+                                messages
+                                    .push(ChatMessage::tool_result(&tc.name, rejected.to_string()));
+                                continue;
+                            }
+                        }
+                    }
                     ToolKind::ReadOnly => self.registry.call(&tc.name, clean_args).await,
                     ToolKind::Mutating | ToolKind::Destructive if options.no_exec => {
                         self.registry.try_call(&tc.name, clean_args).await
@@ -1407,5 +1494,87 @@ mod tests {
         assert!(msg.contains("http://127.0.0.1:11434"));
         assert!(msg.contains("enola-cli ai create"));
         assert!(msg.contains("http://127.0.0.1:11435"));
+    }
+
+    /// A25-10 (P5.3): clasificación default-deny de lecturas sensibles.
+    #[test]
+    fn sensitive_reads_are_default_deny() {
+        assert!(readonly_is_sensitive("tor_list", None));
+        assert!(readonly_is_sensitive("config_show", None));
+        assert!(readonly_is_sensitive("wp_status", None));
+        assert!(readonly_is_sensitive(
+            "enola_run_command",
+            Some("logs:view")
+        ));
+        assert!(readonly_is_sensitive(
+            "enola_run_command",
+            Some("vpn:status")
+        ));
+        assert!(!readonly_is_sensitive("docs_search", None));
+        assert!(!readonly_is_sensitive("plan_wp_create", None));
+        assert!(!readonly_is_sensitive("enola_list_commands", None));
+        assert!(!readonly_is_sensitive(
+            "enola_run_command",
+            Some("docs:faq")
+        ));
+        assert!(!readonly_is_sensitive(
+            "enola_run_command",
+            Some("test:list")
+        ));
+    }
+
+    /// A25-10 (P5.3): con endpoint no local, una lectura sensible rechazada
+    /// por el gate (FixedGate usa el default: rechaza) no se ejecuta y el
+    /// modelo recibe el motivo — la salida nunca sale hacia el endpoint.
+    #[tokio::test]
+    async fn sensitive_read_with_remote_endpoint_is_gated() {
+        let mut reg = ToolRegistry::new();
+        let spy = SpyTool::new(json!({"services": [{"onion": "abc.onion"}]}));
+        register_tool(
+            &mut reg,
+            "tor_list",
+            ToolKind::ReadOnly,
+            json!({"type": "object", "properties": {}, "additionalProperties": false}),
+            spy.clone(),
+        );
+        let mut engine = MockLlmEngine::new();
+        let mut turn = 0usize;
+        engine
+            .expect_chat_tools()
+            .times(2)
+            .returning(move |_, msgs, _| {
+                turn += 1;
+                if turn == 1 {
+                    Ok(LlmChatResponse {
+                        content: String::new(),
+                        tool_calls: vec![LlmToolCall {
+                            name: "tor_list".to_string(),
+                            arguments: json!({}),
+                        }],
+                        ..Default::default()
+                    })
+                } else {
+                    assert!(msgs.iter().all(|m| !m.content.contains("abc.onion")));
+                    assert!(msgs.iter().any(|m| m.content.contains("not local")));
+                    Ok(LlmChatResponse {
+                        content: "No tengo permiso.".to_string(),
+                        tool_calls: vec![],
+                        ..Default::default()
+                    })
+                }
+            });
+        let gate = FixedGate::new(GateDecision::Approved);
+        let assistant = AiAssistant::new(
+            Arc::new(engine),
+            Arc::new(reg),
+            Arc::new(ConfirmationStore::new()),
+            gate,
+        );
+        let opts = AskOptions {
+            confirm_sensitive_reads: true,
+            ..Default::default()
+        };
+        assistant.ask("lista", &opts).await.unwrap();
+        assert!(spy.calls.lock().unwrap().is_empty(), "no debe ejecutarse");
     }
 }

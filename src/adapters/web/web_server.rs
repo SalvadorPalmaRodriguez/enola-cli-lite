@@ -14,8 +14,36 @@ use crate::adapters::web::web_api;
 /// A25-02 (P1.2): máximo de comandos de consola concurrentes.
 pub(crate) const CONSOLE_MAX_CONCURRENT: usize = 4;
 
+/// A25-06 (P5.2): TTL por defecto del token del dashboard (decisión del
+/// operador: 12 h, renovación silenciosa re-persistida en `~/.enola/web-token`).
+pub(crate) const DEFAULT_TOKEN_TTL_SECS: u64 = 12 * 3600;
+/// Límites de `[web].token_ttl_secs` (5 min … 7 días).
+const TOKEN_TTL_BOUNDS: (u64, u64) = (300, 7 * 24 * 3600);
+
+/// Token vigente y cuándo se emitió.
+pub(crate) struct WebToken {
+    pub(crate) value: String,
+    pub(crate) issued: std::time::Instant,
+}
+
+/// Persiste un token nuevo; `true` si quedó guardado (si no, no se rota).
+pub(crate) type TokenPersister = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
+/// Token aleatorio de 32 letras (CSPRNG del hilo, `rand::thread_rng`).
+pub(crate) fn generate_token() -> String {
+    let mut rng = rand::thread_rng();
+    (0..32)
+        .map(|_| (b'a' + rng.gen_range(0..26)) as char)
+        .collect()
+}
+
 pub struct AppState {
-    pub token: String,
+    /// A25-06: token vigente (rota al caducar o con `POST /api/token/rotate`).
+    pub(crate) token: std::sync::RwLock<WebToken>,
+    /// A25-06: vida máxima del token.
+    pub(crate) token_ttl: Duration,
+    /// A25-06: cómo se re-persiste el token al rotar.
+    pub(crate) persist_token: TokenPersister,
     /// T12: contador de fallos de auth consecutivos para el backoff anti fuerza bruta.
     pub auth_failures: AtomicU64,
     /// A25-02 (P1.2): semáforo de `/api/console/run` (procesos root acotados).
@@ -24,6 +52,73 @@ pub struct AppState {
     pub(crate) pqc_job: std::sync::Mutex<Option<Arc<crate::adapters::web::web_jobs::JobLog>>>,
     /// A25-I5 (P1.5): tickets monouso del SSE (el EventSource no envía token).
     pub(crate) sse_tickets: crate::adapters::web::web_jobs::TicketStore,
+}
+
+impl AppState {
+    /// Estado inicial con `token` recién emitido.
+    pub(crate) fn new(token: String, token_ttl: Duration, persist_token: TokenPersister) -> Self {
+        Self {
+            token: std::sync::RwLock::new(WebToken {
+                value: token,
+                issued: std::time::Instant::now(),
+            }),
+            token_ttl,
+            persist_token,
+            auth_failures: AtomicU64::new(0),
+            console_slots: tokio::sync::Semaphore::new(CONSOLE_MAX_CONCURRENT),
+            pqc_job: std::sync::Mutex::new(None),
+            sse_tickets: Default::default(),
+        }
+    }
+
+    /// Valor del token vigente.
+    pub(crate) fn token_value(&self) -> String {
+        self.token
+            .read()
+            .map(|t| t.value.clone())
+            .unwrap_or_else(|p| p.into_inner().value.clone())
+    }
+
+    /// Emite, persiste y activa un token nuevo. `None` (y se conserva el
+    /// actual) si no se pudo persistir: el operador no podría leerlo.
+    pub(crate) fn rotate_token(&self) -> Option<String> {
+        let new = generate_token();
+        if !(self.persist_token)(&new) {
+            eprintln!(
+                "⚠️  Could not persist the rotated dashboard token; keeping the current one."
+            );
+            return None;
+        }
+        let mut guard = self.token.write().unwrap_or_else(|p| p.into_inner());
+        *guard = WebToken {
+            value: new.clone(),
+            issued: std::time::Instant::now(),
+        };
+        Some(new)
+    }
+
+    /// Rota en silencio si el token superó su TTL. `true` si rotó.
+    pub(crate) fn rotate_if_expired(&self) -> bool {
+        let expired = self
+            .token
+            .read()
+            .map(|t| t.issued.elapsed() >= self.token_ttl)
+            .unwrap_or(true);
+        expired && self.rotate_token().is_some()
+    }
+}
+
+/// `[web].token_ttl_secs` (clave de seguridad: bajo root solo de
+/// `/etc/enola/config.toml`), acotado a 5 min … 7 días.
+fn token_ttl_from_config() -> Duration {
+    let section =
+        crate::infrastructure::config_loader::load_security_section("web", &["token_ttl_secs"]);
+    let secs = section
+        .get("token_ttl_secs")
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TOKEN_TTL_SECS)
+        .clamp(TOKEN_TTL_BOUNDS.0, TOKEN_TTL_BOUNDS.1);
+    Duration::from_secs(secs)
 }
 
 /// F-06 residual (R-10): persiste el token del dashboard en
@@ -75,20 +170,26 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
     // arranque. `ENOLA_WEB_TOKEN` ya no existe: bajo `sudo -E` permitía fijar
     // el token del dashboard root a un valor conocido por el atacante. Los
     // tests leen `~/.enola/web-token`, como el usuario real.
-    let token: String = (0..32)
-        .map(|_| {
-            let mut rng = rand::thread_rng();
-            (b'a' + rng.gen_range(0..26)) as char
-        })
-        .collect();
+    let token = generate_token();
+    let token_ttl = token_ttl_from_config();
+    #[cfg(unix)]
+    let persister: TokenPersister = Arc::new(|t: &str| persist_web_token(t).is_some());
+    #[cfg(not(unix))]
+    let persister: TokenPersister = Arc::new(|_t: &str| false);
+    let state = Arc::new(AppState::new(token.clone(), token_ttl, persister));
 
-    let state = Arc::new(AppState {
-        token: token.clone(),
-        auth_failures: AtomicU64::new(0),
-        console_slots: tokio::sync::Semaphore::new(CONSOLE_MAX_CONCURRENT),
-        pqc_job: std::sync::Mutex::new(None),
-        sse_tickets: Default::default(),
-    });
+    // A25-06: renovación silenciosa — al caducar, el token se rota y se
+    // re-persiste en ~/.enola/web-token (el navegador pedirá el nuevo).
+    {
+        let st = state.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                st.rotate_if_expired();
+            }
+        });
+    }
 
     let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
 
@@ -102,6 +203,8 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
         // A25-I5: el SSE de jobs va FUERA del middleware de token (lo
         // autentica su ticket monouso); el resto de /api exige el bearer.
         .nest("/api", api_routes.merge(web_api::sse_routes()))
+        // A25-05 (P5.1): Host de loopback + cabeceras de seguridad en TODA respuesta.
+        .layer(axum::middleware::from_fn(security_headers_middleware))
         .with_state(state);
 
     // F-06 residual: el token se persiste en ~/.enola/web-token (0600) del
@@ -133,6 +236,10 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
     eprintln!("  Listening: http://127.0.0.1:{}", port);
     eprintln!("  Token file: {}", token_display);
     eprintln!("  Read it with: cat {}", token_display);
+    eprintln!(
+        "  The token rotates every {} and is rewritten to that file.",
+        humantime_secs(token_ttl.as_secs())
+    );
     eprintln!("  Open in browser and enter the token when prompted.");
     eprintln!("════════════════════════════════════════════════════════════════");
 
@@ -140,6 +247,17 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// `43200` → `12h`, `90` → `90s` (solo para el banner).
+fn humantime_secs(secs: u64) -> String {
+    if secs % 3600 == 0 {
+        format!("{}h", secs / 3600)
+    } else if secs % 60 == 0 {
+        format!("{}min", secs / 60)
+    } else {
+        format!("{secs}s")
+    }
 }
 
 fn is_root() -> bool {
@@ -194,6 +312,69 @@ async fn console_commands_json() -> impl IntoResponse {
     )
 }
 
+/// A25-05: hosts aceptados en la cabecera `Host` (anti DNS-rebinding). El puerto
+/// no se compara: un túnel SSH (`ssh -L 9000:127.0.0.1:8090`) llega como
+/// `localhost:9000` y es uso legítimo; el rebinding usa un dominio del atacante.
+fn host_is_loopback(host: &str) -> bool {
+    let h = host.trim();
+    let name = if let Some(rest) = h.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        h.rsplit_once(':').map(|(n, _)| n).unwrap_or(h)
+    };
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "::1"
+    )
+}
+
+/// A25-05 (P5.1): rechaza `Host` ajeno con 421 y añade cabeceras de seguridad.
+///
+/// CSP: `'unsafe-inline'` en `script-src`/`style-src` es un residual temporal —
+/// `index.html` usa ~80 manejadores `onclick=` inline; quitarlo exige migrarlos a
+/// `addEventListener`. El resto (`default-src 'self'`, `frame-ancestors 'none'`,
+/// `base-uri`/`form-action`) sí se aplica.
+pub(crate) async fn security_headers_middleware(req: Request, next: Next) -> Response {
+    use axum::http::{header, HeaderValue, StatusCode};
+    let host_ok = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(host_is_loopback)
+        .unwrap_or(false);
+    if !host_ok {
+        return (
+            StatusCode::MISDIRECTED_REQUEST,
+            "Misdirected request: the dashboard only answers on 127.0.0.1/localhost",
+        )
+            .into_response();
+    }
+    let is_api = req.uri().path().starts_with("/api");
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+             style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; \
+             frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        ),
+    );
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    if is_api {
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    resp
+}
+
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     req: Request,
@@ -205,7 +386,8 @@ pub async fn auth_middleware(
         .and_then(|v| v.to_str().ok());
 
     match auth_header {
-        Some(h) if token_matches(h, &state.token) => {
+        // A25-06: un token caducado se rota aquí mismo (el viejo deja de valer).
+        Some(h) if !state.rotate_if_expired() && token_matches(h, &state.token_value()) => {
             state.auth_failures.store(0, Ordering::Relaxed);
             next.run(req).await
         }
@@ -308,5 +490,95 @@ mod tests {
         assert_eq!(auth_backoff_delay(3), Duration::from_millis(800));
         assert_eq!(auth_backoff_delay(10), Duration::from_millis(2000));
         assert_eq!(auth_backoff_delay(100), Duration::from_millis(2000));
+    }
+
+    /// A25-05: el Host debe ser loopback (anti DNS-rebinding); el puerto no
+    /// importa (túneles SSH).
+    #[test]
+    fn host_validation_accepts_only_loopback_names() {
+        for ok in [
+            "127.0.0.1:8090",
+            "localhost:9000",
+            "LOCALHOST",
+            "[::1]:8090",
+            "127.0.0.1",
+        ] {
+            assert!(host_is_loopback(ok), "{ok}");
+        }
+        for bad in [
+            "evil.com",
+            "evil.com:8090",
+            "127.0.0.1.evil.com:8090",
+            "10.0.0.5:8090",
+            "",
+        ] {
+            assert!(!host_is_loopback(bad), "{bad}");
+        }
+    }
+
+    #[tokio::test]
+    async fn middleware_sets_headers_and_rejects_foreign_host() {
+        use axum::routing::get;
+        let app = axum::Router::new()
+            .route("/api/x", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(security_headers_middleware));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let client = reqwest::Client::new();
+        let url = format!("http://{addr}/api/x");
+        let r = client
+            .get(&url)
+            .header("Host", "evil.com")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 421);
+        let r = client.get(&url).send().await.unwrap();
+        assert_eq!(r.status().as_u16(), 200);
+        let h = r.headers();
+        assert_eq!(h["x-frame-options"], "DENY");
+        assert_eq!(h["x-content-type-options"], "nosniff");
+        assert_eq!(h["cache-control"], "no-store");
+        assert_eq!(h["referrer-policy"], "no-referrer");
+        assert!(h["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("frame-ancestors 'none'"));
+    }
+
+    fn state_with(ttl: Duration, persist_ok: bool) -> AppState {
+        AppState::new("a".repeat(32), ttl, Arc::new(move |_t: &str| persist_ok))
+    }
+
+    /// A25-06: rotación manual y por TTL; sin persistir no se rota.
+    #[test]
+    fn token_rotates_on_demand_and_on_expiry() {
+        let st = state_with(Duration::from_secs(3600), true);
+        let old = st.token_value();
+        assert!(!st.rotate_if_expired());
+        let new = st.rotate_token().unwrap();
+        assert_ne!(old, new);
+        assert_eq!(st.token_value(), new);
+        assert_eq!(new.len(), 32);
+
+        let st = state_with(Duration::from_secs(0), true);
+        let old = st.token_value();
+        assert!(st.rotate_if_expired());
+        assert_ne!(st.token_value(), old);
+
+        let st = state_with(Duration::from_secs(0), false);
+        let old = st.token_value();
+        assert!(!st.rotate_if_expired());
+        assert_eq!(st.token_value(), old, "sin persistir se conserva el token");
+    }
+
+    #[test]
+    fn ttl_banner_format() {
+        assert_eq!(humantime_secs(43200), "12h");
+        assert_eq!(humantime_secs(300), "5min");
+        assert_eq!(humantime_secs(90), "90s");
     }
 }

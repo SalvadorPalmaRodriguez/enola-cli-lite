@@ -420,6 +420,9 @@ async fn execute_ask(args: AskArgs, format: &str) -> CliResult<String> {
     let ask_opts = AskOptions {
         model: ai_cfg.model.clone(),
         no_exec,
+        // A25-10 (P5.3): instancia gestionada o loopback = local; si no, las
+        // lecturas sensibles piden `[s/N]` (su salida va a ese servidor).
+        confirm_sensitive_reads: instance.is_none() && !endpoint_is_loopback(&ai_cfg.endpoint),
         ..Default::default()
     };
 
