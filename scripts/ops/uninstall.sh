@@ -82,8 +82,35 @@ run() {
     fi
 }
 
+# A25-16: allowlist de lo que `run_rm` puede borrar como root. Las rutas
+# vienen también del manifest (key|value): un valor inyectado (`share_dir|/`)
+# no debe convertirse en `rm -rf /`. Absolutas, sin `.`/`..`/`//` ni saltos de
+# línea, y solo los patrones que este script gestiona.
+rm_target_allowed() {
+    local t="$1"
+    case "$t" in /*) ;; *) return 1 ;; esac
+    case "$t" in *"/../"*|*"/.."|*"/./"*|*"/."|*"//"*) return 1 ;; esac
+    case "$t" in *$'\n'*|*$'\r'*) return 1 ;; esac
+    [[ "$t" =~ ^/usr/local/bin/enola-cli(\.[A-Za-z0-9_-]+)?$ ]] && return 0
+    [[ "$t" =~ ^/usr/local/share/enola(/.+)?$ ]] && return 0
+    [[ "$t" =~ ^/opt/enola(-[^/]+)?(/.+)?$ ]] && return 0
+    [[ "$t" =~ ^/home/[^/]+/\.enola$ || "$t" == "/root/.enola" ]] && return 0
+    [[ "$t" =~ ^/var/lib/tor/enola_[^/]+$ ]] && return 0
+    [[ "$t" =~ ^/etc/tor/enola\.d(/[^/]+)?$ ]] && return 0
+    [[ "$t" =~ ^/etc/nginx/(sites-enabled|sites-available|conf\.d|ssl)/[^/]+$ ]] && return 0
+    [[ "$t" =~ ^/etc/systemd/system/enola-[^/]+$ ]] && return 0
+    [[ "$t" =~ ^/etc/apparmor\.d/(enola-[^/]+|usr\.local\.bin\.enola-cli)$ ]] && return 0
+    [[ "$t" =~ ^/srv/enola-[^/]+$ ]] && return 0
+    [[ "$t" =~ ^/etc/wireguard/[^/]+\.conf$ ]] && return 0
+    return 1
+}
+
 run_rm() {
     local target="$1"
+    if ! rm_target_allowed "$target"; then
+        warn "Refusing to remove '$target': outside the paths Enola manages."
+        return 0
+    fi
     if [ -e "$target" ] || [ -L "$target" ]; then
         run rm -rf "$target"
     elif $DRY_RUN; then

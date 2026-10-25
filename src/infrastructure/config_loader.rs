@@ -110,7 +110,7 @@ pub fn load_section_root_owned(section: &str) -> HashMap<String, String> {
 /// respuestas gobiernan tools en `ask`) y por dónde enruta (A25-10.1-2).
 pub const AI_SECURITY_KEYS: &[&str] = &["endpoint", "tor_proxy"];
 /// Claves de `[distribution]`: origen de binarios y claves de verificación.
-pub const DISTRIBUTION_SECURITY_KEYS: &[&str] = &["binary_base_url", "minisign_pubkey_url"];
+pub const DISTRIBUTION_SECURITY_KEYS: &[&str] = &["binary_base_url"];
 
 /// A25-04 (P2.6, SD-6): carga una sección que mezcla claves de conveniencia
 /// y claves de seguridad (`security_keys`: a dónde se conecta root, qué

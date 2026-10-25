@@ -1,9 +1,10 @@
 // MCP-007 — Política de escritura del servidor MCP.
 //
-// Regla (decisión D4): las tools `ReadOnly` siempre pasan; las `Mutating`
-// y `Destructive` exigen `allow_write` y, si la allowlist no está vacía,
-// figurar en ella. Allowlist vacía + `allow_write` → se permiten todas
-// las mutantes (decisión explícita, documentada en la skill `mcp`).
+// Regla: las tools `ReadOnly` siempre pasan; las `Mutating` y `Destructive`
+// exigen `allow_write` y figurar en la allowlist. A25-11 (decisión del
+// operador 2026-10-25, sustituye a D4): allowlist vacía + `allow_write` ya NO
+// habilita todas las mutantes — exige el escape explícito
+// `--allow-all-mutating` (o `[mcp].allow_all_mutating = true`), con aviso.
 // Las `Destructive` exigen ADEMÁS la confirmación de dos pasos (MCP-009),
 // que se aplica en el servidor/handler, no en esta función.
 //
@@ -25,8 +26,10 @@ pub(crate) struct McpPolicy {
     pub(crate) allow_write: bool,
     /// Allowlist de nombres de tool (`wp_create`) o rutas de comando
     /// (`family:sub` p.ej. `wp:create`; `family` pelado para hojas).
-    /// Vacía = todas las mutantes.
+    /// Vacía = ninguna mutante, salvo `allow_all_mutating` (A25-11).
     pub(crate) allowed_tools: Vec<String>,
+    /// Escape explícito: todas las mutantes sin allowlist (A25-11).
+    pub(crate) allow_all_mutating: bool,
     /// Límite de bytes para stdout/stderr devueltos por tools.
     pub(crate) max_output_bytes: usize,
     /// Path del log de auditoría (None = stderr).
@@ -40,6 +43,7 @@ impl Default for McpPolicy {
         Self {
             allow_write: false,
             allowed_tools: Vec::new(),
+            allow_all_mutating: false,
             max_output_bytes: 64 * 1024,
             audit_log: None,
             request_timeout_secs: 60,
@@ -48,6 +52,19 @@ impl Default for McpPolicy {
 }
 
 impl McpPolicy {
+    /// A25-11: valida la combinación al arrancar — `--allow-write` sin
+    /// allowlist exige `--allow-all-mutating`.
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.allow_write && self.allowed_tools.is_empty() && !self.allow_all_mutating {
+            return Err(EnolaError::ValidationError(
+                "--allow-write requires --allow-tools or [mcp].allowed_tools \
+                 (or the explicit --allow-all-mutating)"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Evalúa si `tool_name` (de clase `kind`) puede ejecutarse.
     ///
     /// Para `enola_run_command` el nombre evaluado es `family:sub` (p.ej.
@@ -64,6 +81,12 @@ impl McpPolicy {
                     return Err(EnolaError::SecurityError(format!(
                         "tool '{tool_name}' is mutating; start the server with --allow-write \
                          (or [mcp].allow_write = true) to enable it"
+                    )));
+                }
+                if self.allowed_tools.is_empty() && !self.allow_all_mutating {
+                    return Err(EnolaError::SecurityError(format!(
+                        "tool '{tool_name}' is mutating and the MCP allowlist is empty; \
+                         set --allow-tools / [mcp].allowed_tools (or --allow-all-mutating)"
                     )));
                 }
                 if !self.allowed_tools.is_empty()
@@ -86,6 +109,8 @@ pub(crate) struct McpFlagOverrides {
     pub(crate) allow_write: Option<bool>,
     /// `--allow-tools` CSV ya troceado.
     pub(crate) allow_tools: Option<Vec<String>>,
+    /// `--allow-all-mutating` (`Some(true)` si se pasó).
+    pub(crate) allow_all_mutating: Option<bool>,
     /// `--max-output-bytes`.
     pub(crate) max_output_bytes: Option<usize>,
     /// `--audit-log` path.
@@ -196,6 +221,11 @@ pub(crate) fn resolve_policy(
             .or_else(|| env_csv("ENOLA_MCP_ALLOWED_TOOLS"))
             .or_else(|| file_csv(config_section, "allowed_tools"))
             .unwrap_or_default(),
+        // A25-11: solo flag o fichero (sin variable de entorno, SD-4).
+        allow_all_mutating: flags
+            .allow_all_mutating
+            .or_else(|| file_bool(config_section, "allow_all_mutating"))
+            .unwrap_or(false),
         max_output_bytes: flags
             .max_output_bytes
             .or_else(|| env_u64("ENOLA_MCP_MAX_OUTPUT_BYTES").map(|v| v as usize))
@@ -236,14 +266,41 @@ mod tests {
         assert!(e.to_string().contains("allow-write"));
     }
 
+    /// A25-11: allowlist vacía + allow_write ya no abre todas las mutantes.
     #[test]
-    fn mutating_allowed_with_allow_write_and_empty_allowlist() {
+    fn empty_allowlist_requires_explicit_allow_all_mutating() {
         let p = McpPolicy {
             allow_write: true,
             ..Default::default()
         };
+        assert!(p.validate().is_err());
+        assert!(p.allows(mutating(), "wp_create").is_err());
+        let p = McpPolicy {
+            allow_write: true,
+            allow_all_mutating: true,
+            ..Default::default()
+        };
+        assert!(p.validate().is_ok());
         assert!(p.allows(mutating(), "wp_create").is_ok());
         assert!(p.allows(mutating(), "tor_remove").is_ok());
+        let p = McpPolicy {
+            allow_write: true,
+            allowed_tools: vec!["wp_create".into()],
+            ..Default::default()
+        };
+        assert!(p.validate().is_ok());
+        // Sin allow_write no hay nada que validar.
+        assert!(McpPolicy::default().validate().is_ok());
+    }
+
+    #[test]
+    fn allow_all_mutating_comes_from_flag_or_file_only() {
+        let mut file = HashMap::new();
+        file.insert("allow_all_mutating".to_string(), "true".to_string());
+        let p = resolve_policy(&McpFlagOverrides::default(), &file);
+        assert!(p.allow_all_mutating);
+        let p = resolve_policy(&McpFlagOverrides::default(), &HashMap::new());
+        assert!(!p.allow_all_mutating);
     }
 
     #[test]

@@ -32,11 +32,9 @@ pub struct DistributionSettings {
     /// - `"https://releases.enola.dev"`
     #[serde(default)]
     pub binary_base_url: String,
-
-    /// URL para descargar la clave pública minisign (verificación de firmas).
-    /// Si está vacío, se usa la clave embebida en el binario (`minisign.pub`).
-    #[serde(default)]
-    pub minisign_pubkey_url: String,
+    // A25-I3: `minisign_pubkey_url` eliminado — nadie la leía y sugería un trust
+    // anchor configurable inexistente. La clave de verificación de updates es la
+    // embebida (+ rotación firmada) o `[update].minisign_pubkey` root-owned.
 }
 
 impl DistributionSettings {
@@ -54,13 +52,6 @@ impl DistributionSettings {
         {
             cfg.binary_base_url = v;
         }
-        if let Some(v) = std::env::var("ENOLA_MINISIGN_PUBKEY_URL")
-            .ok()
-            .or_else(|| file.get("minisign_pubkey_url").cloned())
-        {
-            cfg.minisign_pubkey_url = v;
-        }
-
         cfg
     }
 
@@ -191,7 +182,6 @@ mod tests {
     fn distribution_default_preserves_current_behavior() {
         let d = DistributionSettings::default();
         assert_eq!(d.binary_base_url, "");
-        assert_eq!(d.minisign_pubkey_url, "");
     }
 
     #[test]
@@ -244,7 +234,6 @@ mod tests {
 
     fn clear_dist_env() {
         std::env::remove_var("ENOLA_BINARY_BASE_URL");
-        std::env::remove_var("ENOLA_MINISIGN_PUBKEY_URL");
     }
 
     #[test]
@@ -252,13 +241,8 @@ mod tests {
         let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_dist_env();
         std::env::set_var("ENOLA_BINARY_BASE_URL", "https://cdn.example.com/dl");
-        std::env::set_var(
-            "ENOLA_MINISIGN_PUBKEY_URL",
-            "https://cdn.example.com/enola.pub",
-        );
         let d = DistributionSettings::load();
         assert_eq!(d.binary_base_url, "https://cdn.example.com/dl");
-        assert_eq!(d.minisign_pubkey_url, "https://cdn.example.com/enola.pub");
         clear_dist_env();
     }
 
@@ -353,10 +337,8 @@ mod tests {
     fn distribution_settings_partial_config() {
         let d = DistributionSettings {
             binary_base_url: "https://example.com".to_string(),
-            minisign_pubkey_url: String::new(),
         };
         assert!(!d.binary_base_url.is_empty());
-        assert!(d.minisign_pubkey_url.is_empty());
     }
 
     // ── BackupSettings ──

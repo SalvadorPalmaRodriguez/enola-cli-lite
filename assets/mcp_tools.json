@@ -3952,6 +3952,18 @@
           "value_name": "TOOLS"
         },
         {
+          "boolean": true,
+          "name": "allow-all-mutating",
+          "positional": false,
+          "possible_values": [
+            "true",
+            "false"
+          ],
+          "required": false,
+          "short": null,
+          "value_name": "ALLOW_ALL_MUTATING"
+        },
+        {
           "boolean": false,
           "name": "max-output-bytes",
           "positional": false,

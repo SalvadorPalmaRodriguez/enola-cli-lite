@@ -1,4 +1,7 @@
-use crate::domain::vpn::{validate_public_key, validate_vpn_name, VpnError, VpnServer};
+use crate::domain::vpn::{
+    validate_peer_ip, validate_peer_name, validate_public_key, validate_vpn_name, VpnError,
+    VpnServer,
+};
 use crate::ports::vpn::{VpnInterfaceStatus, VpnPort};
 /// VPN Application Manager (Tarea 162)
 ///
@@ -100,11 +103,10 @@ impl VpnManager {
     ) -> Result<String, VpnError> {
         validate_vpn_name(interface).map_err(VpnError::InvalidConfig)?;
 
-        if peer_name.is_empty() {
-            return Err(VpnError::InvalidConfig(
-                "Peer name cannot be empty".to_string(),
-            ));
-        }
+        // A25-09 (F-21): validación en application — vale para CLI, web y MCP.
+        validate_peer_name(peer_name).map_err(VpnError::InvalidConfig)?;
+        let server_cidr = self.vpn.interface_address(interface)?;
+        validate_peer_ip(peer_ip, server_cidr.as_deref()).map_err(VpnError::InvalidConfig)?;
 
         // Generate peer key pair
         let peer_private_key = self.vpn.generate_private_key()?;
@@ -146,11 +148,10 @@ impl VpnManager {
         validate_vpn_name(interface).map_err(VpnError::InvalidConfig)?;
         validate_public_key(peer_public_key).map_err(VpnError::InvalidConfig)?;
 
-        if peer_name.is_empty() {
-            return Err(VpnError::InvalidConfig(
-                "Peer name cannot be empty".to_string(),
-            ));
-        }
+        // A25-09 (F-21): validación en application — vale para CLI, web y MCP.
+        validate_peer_name(peer_name).map_err(VpnError::InvalidConfig)?;
+        let server_cidr = self.vpn.interface_address(interface)?;
+        validate_peer_ip(peer_ip, server_cidr.as_deref()).map_err(VpnError::InvalidConfig)?;
 
         self.vpn.add_peer(interface, peer_public_key, peer_ip, None)
     }

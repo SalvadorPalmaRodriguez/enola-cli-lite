@@ -139,6 +139,18 @@ impl VpnPort for WireGuardAdapter {
         parse_wg_show_output(interface, &output)
     }
 
+    fn interface_address(&self, interface: &str) -> Result<Option<String>, VpnError> {
+        let Ok(conf) = std::fs::read_to_string(Self::conf_path(interface)) else {
+            return Ok(None);
+        };
+        Ok(conf.lines().find_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            (k.trim().eq_ignore_ascii_case("Address"))
+                .then(|| v.split(',').next().unwrap_or("").trim().to_string())
+                .filter(|v| !v.is_empty())
+        }))
+    }
+
     fn list_interfaces(&self) -> Result<Vec<String>, VpnError> {
         let output = Self::run_cmd(&["wg", "show", "interfaces"]).unwrap_or_default();
         let interfaces: Vec<String> = output
@@ -183,7 +195,11 @@ impl VpnPort for WireGuardAdapter {
                 .map_err(|e| VpnError::SystemError(format!("psk write: {}", e)))?;
             let tmp_path = tmp.path().to_path_buf();
             args.push("preshared-key");
-            args.push(tmp_path.to_str().unwrap());
+            // A25-I2: sin unwrap() en producción.
+            let tmp_str = tmp_path
+                .to_str()
+                .ok_or_else(|| VpnError::SystemError("psk tmp path is not UTF-8".to_string()))?;
+            args.push(tmp_str);
             let result = Self::run_cmd(&args);
             drop(tmp);
             result?;

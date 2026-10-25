@@ -4,7 +4,8 @@
 # Vendored verbatim from ggml-org/llama.cpp @ b4879
 # (commit f08f4b3187b691bb08a8884ed39ebaa94e956707), file convert_hf_to_gguf.py.
 # Original file: https://github.com/ggml-org/llama.cpp/blob/b4879/convert_hf_to_gguf.py
-# Unmodified except for this provenance and licence header. Deployed by enola-cli
+# Modified: this provenance and licence header, and trust_remote_code=False in the
+# three AutoTokenizer.from_pretrained() calls (enola A25-12). Deployed by enola-cli
 # into the finetune container (phase 14.5) to convert a merged LoRA model to GGUF.
 #
 # This file is third-party software, NOT covered by the Enola CLI licence. It is
@@ -778,7 +779,7 @@ class Model:
         toktypes: list[int] = []
 
         from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=False)  # enola A25-12: never run repo code
         vocab_size = hparams["vocab_size"]
         assert max(tokenizer.get_vocab().values()) < vocab_size
 
@@ -4644,7 +4645,7 @@ class ChatGLMModel(Model):
         scores: list[float] = []
 
         from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=False)  # enola A25-12: never run repo code
         vocab_size = hparams.get("padded_vocab_size", len(tokenizer.get_vocab()))
         assert max(tokenizer.get_vocab().values()) < vocab_size
         role_special_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|observation|>"]
@@ -4737,7 +4738,7 @@ class ChatGLMModel(Model):
         toktypes: list[int] = []
 
         from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=False)  # enola A25-12: never run repo code
         vocab_size = hparams.get("padded_vocab_size",hparams["vocab_size"])
         assert max(tokenizer.get_vocab().values()) < vocab_size
 

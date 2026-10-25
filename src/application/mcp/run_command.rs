@@ -814,6 +814,7 @@ mod tests {
         ]);
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -887,6 +888,7 @@ mod tests {
         ]);
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -919,6 +921,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new(); // sin dispatch esperado
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -940,6 +943,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -984,6 +988,7 @@ mod tests {
         ]);
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1033,6 +1038,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1053,6 +1059,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new(); // cualquier run() panicaría
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1090,6 +1097,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1136,6 +1144,7 @@ mod tests {
             let mock = MockProcessRunnerPort::new();
             let policy = McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             };
             let h = handler_with_policy(mock, policy);
@@ -1147,6 +1156,7 @@ mod tests {
                 mock2,
                 McpPolicy {
                     allow_write: true,
+                    allow_all_mutating: true,
                     ..Default::default()
                 },
             );
@@ -1171,6 +1181,7 @@ mod tests {
             let mock = MockProcessRunnerPort::new();
             let policy = McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             };
             let h = handler_with_policy(mock, policy);
@@ -1186,6 +1197,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1206,6 +1218,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1224,6 +1237,7 @@ mod tests {
             mock,
             McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             },
         );
@@ -1241,6 +1255,7 @@ mod tests {
             mock,
             McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             },
         );
@@ -1263,6 +1278,7 @@ mod tests {
         let mock = MockProcessRunnerPort::new();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let h = handler_with_policy(mock, policy);
@@ -1284,6 +1300,7 @@ mod tests {
             mock,
             McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             },
         );
@@ -1305,6 +1322,7 @@ mod tests {
             mock,
             McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             },
         );

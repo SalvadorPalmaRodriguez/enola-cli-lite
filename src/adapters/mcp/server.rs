@@ -685,6 +685,7 @@ mod tests {
         let (registry, counter) = destructive_registry();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let out = run_full(
@@ -710,6 +711,7 @@ mod tests {
         let (registry, counter) = destructive_registry();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let out = run_full(
@@ -754,6 +756,7 @@ mod tests {
             registry.clone(),
             McpPolicy {
                 allow_write: true,
+                allow_all_mutating: true,
                 ..Default::default()
             },
             // NOTA: nuevo server = nuevo store → el token no existiría.
@@ -771,6 +774,7 @@ mod tests {
         let store = Arc::new(ConfirmationStore::new());
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let out = run_full(
@@ -839,6 +843,7 @@ mod tests {
         let (registry, counter) = destructive_registry();
         let policy = McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         };
         let out = run_full(

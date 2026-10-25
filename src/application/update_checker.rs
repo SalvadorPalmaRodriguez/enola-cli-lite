@@ -32,6 +32,8 @@ pub(crate) const UPDATE_EXIT_SIGNATURE_INVALID: i32 = 21;
 pub enum UpdateFeedErrorKind {
     FeedInvalid,
     SignatureInvalid,
+    /// A25-13: feed firmado pero más antiguo que el último visto (replay/freeze).
+    FeedReplay,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -326,7 +328,9 @@ impl UpdateReport {
         }
         if let Some(kind) = self.feed_error_kind {
             return match kind {
-                UpdateFeedErrorKind::FeedInvalid => UpdateCheckStatus::FeedInvalid,
+                UpdateFeedErrorKind::FeedInvalid | UpdateFeedErrorKind::FeedReplay => {
+                    UpdateCheckStatus::FeedInvalid
+                }
                 UpdateFeedErrorKind::SignatureInvalid => UpdateCheckStatus::SignatureInvalid,
             };
         }
@@ -517,6 +521,92 @@ fn persist_trusted_minisign_key(new_key: &str) -> std::io::Result<()> {
         let _ = std::fs::create_dir_all(parent);
     }
     crate::infrastructure::atomic_secret_file::write_secret_atomically(&path, content.as_bytes())
+}
+
+/// A25-13: un feed más antiguo que esto genera aviso de posible congelación.
+const FEED_STALE_DAYS: i64 = 90;
+
+/// A25-13: estado de frescura del feed, junto a `trusted_minisign_keys.json`.
+fn feed_state_path() -> PathBuf {
+    trusted_minisign_keys_path().with_file_name("feed_state.json")
+}
+
+/// Último `published_at` aceptado. Bajo euid 0 solo si el fichero es
+/// root-owned (un valor futuro plantado por el usuario bloquearía updates).
+fn load_last_published_at(path: &Path, euid: u32) -> Option<chrono::DateTime<chrono::Utc>> {
+    if euid == 0 && !config_loader::is_root_owned_secure(path) {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    chrono::DateTime::parse_from_rfc3339(v.get("last_published_at")?.as_str()?)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
+}
+
+/// Decisión pura de frescura: `Err` si el feed retrocede respecto a `last`
+/// (o no trae fecha habiendo historial); `Ok(Some(aviso))` si es viejo.
+fn evaluate_feed_freshness(
+    published_at: &str,
+    last: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> std::result::Result<Option<String>, String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(published_at.trim())
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let Some(published) = parsed else {
+        return match last {
+            Some(l) => Err(format!(
+                "feed has no valid published_at but a feed published at {} was already \
+                 accepted — refusing a possible replay",
+                l.to_rfc3339()
+            )),
+            None => Ok(Some(
+                "feed has no published_at: freshness cannot be checked".to_string(),
+            )),
+        };
+    };
+    if let Some(l) = last {
+        if published < l {
+            return Err(format!(
+                "feed published_at {} is older than the last accepted feed ({}) — \
+                 possible replay of an old signed feed",
+                published.to_rfc3339(),
+                l.to_rfc3339()
+            ));
+        }
+    }
+    let age = now.signed_duration_since(published).num_days();
+    Ok((age > FEED_STALE_DAYS).then(|| {
+        format!("feed was published {age} days ago: it may be frozen by a mirror or attacker")
+    }))
+}
+
+/// Aplica la frescura a un feed ya verificado y persiste el nuevo máximo.
+fn enforce_feed_freshness(feed: &UpdateFeed) -> UpdateFeedResult<()> {
+    let path = feed_state_path();
+    let last = load_last_published_at(&path, current_euid());
+    match evaluate_feed_freshness(&feed.published_at, last, chrono::Utc::now()) {
+        Err(msg) => Err(UpdateFeedError::new(UpdateFeedErrorKind::FeedReplay, msg)),
+        Ok(warning) => {
+            if let Some(w) = warning {
+                eprintln!("⚠️  {w}");
+            }
+            if let Ok(p) = chrono::DateTime::parse_from_rfc3339(feed.published_at.trim()) {
+                let p = p.with_timezone(&chrono::Utc);
+                if last.is_none_or(|l| p > l) {
+                    let body = serde_json::json!({ "last_published_at": p.to_rfc3339() });
+                    if let Some(parent) = path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = crate::infrastructure::atomic_secret_file::write_secret_atomically(
+                        &path,
+                        body.to_string().as_bytes(),
+                    );
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 /// MED-02: Verifica que la firma de `next_pubkey` es válida con la clave actual.
@@ -1056,6 +1146,9 @@ async fn fetch_feed(url: &str) -> UpdateFeedResult<UpdateFeed> {
             format!("update feed parse: {}", e),
         )
     })?;
+    // A25-13: un feed firmado pero más antiguo que el último aceptado se
+    // rechaza (replay/freeze); el nuevo máximo se persiste.
+    enforce_feed_freshness(&feed)?;
     // MED-02: Process key rotation if announced in the feed.
     if let Some(ref next) = feed.next_pubkey {
         if verify_next_pubkey_signature(next, &current_pubkey) {
@@ -3410,6 +3503,42 @@ mod tests {
         std::os::unix::fs::symlink("/etc/hostname", &link).unwrap();
         if unsafe { libc::geteuid() } != 0 {
             assert!(staged_artifacts_root_owned(&[link]).is_err());
+        }
+    }
+
+    /// A25-13: retroceso de `published_at` rechazado; feed viejo avisa.
+    #[test]
+    fn feed_freshness_rejects_replay_and_warns_when_stale() {
+        let ts = |s: &str| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        };
+        let now = ts("2026-10-25T00:00:00Z");
+        let last = Some(ts("2026-10-01T00:00:00Z"));
+        assert!(evaluate_feed_freshness("2026-09-01T00:00:00Z", last, now).is_err());
+        assert!(evaluate_feed_freshness("", last, now).is_err());
+        assert_eq!(
+            evaluate_feed_freshness("2026-10-20T00:00:00Z", last, now),
+            Ok(None)
+        );
+        assert_eq!(
+            evaluate_feed_freshness("2026-10-01T00:00:00Z", last, now),
+            Ok(None)
+        );
+        let stale = evaluate_feed_freshness("2026-05-01T00:00:00Z", None, now).unwrap();
+        assert!(stale.unwrap().contains("days ago"));
+        assert!(evaluate_feed_freshness("", None, now).unwrap().is_some());
+    }
+
+    #[test]
+    fn feed_state_requires_root_owned_file_under_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("feed_state.json");
+        std::fs::write(&p, r#"{"last_published_at":"2099-01-01T00:00:00Z"}"#).unwrap();
+        assert!(load_last_published_at(&p, 1000).is_some());
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(load_last_published_at(&p, 0).is_none());
         }
     }
 }

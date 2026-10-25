@@ -52,6 +52,13 @@ pub trait VpnPort: Send + Sync {
         preshared_key: Option<&str>,
     ) -> Result<(), VpnError>;
 
+    /// A25-09: dirección del servidor en la interfaz (`Address = 10.8.0.1/24`
+    /// del `.conf`), para validar que la IP de un peer cae en su subred.
+    /// `Ok(None)` si no se puede determinar.
+    fn interface_address(&self, _interface: &str) -> Result<Option<String>, VpnError> {
+        Ok(None)
+    }
+
     /// Remove a peer from a running WireGuard interface.
     fn remove_peer(&self, interface: &str, public_key: &str) -> Result<(), VpnError>;
 

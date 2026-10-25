@@ -102,6 +102,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
         Commands::Mcp {
             allow_write,
             allow_tools,
+            allow_all_mutating,
             max_output_bytes,
             audit_log,
             request_timeout_secs,
@@ -109,6 +110,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
             execute_mcp(
                 allow_write,
                 allow_tools.as_deref(),
+                allow_all_mutating,
                 max_output_bytes,
                 audit_log.as_deref(),
                 request_timeout_secs,
@@ -154,6 +156,7 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
 async fn execute_mcp(
     allow_write: bool,
     allow_tools: Option<&str>,
+    allow_all_mutating: bool,
     max_output_bytes: Option<u64>,
     audit_log: Option<&str>,
     request_timeout_secs: Option<u64>,
@@ -178,6 +181,7 @@ async fn execute_mcp(
                 .map(String::from)
                 .collect()
         }),
+        allow_all_mutating: if allow_all_mutating { Some(true) } else { None },
         max_output_bytes: max_output_bytes.map(|v| v as usize),
         audit_log: audit_log.map(String::from),
         request_timeout_secs,
@@ -201,6 +205,14 @@ async fn execute_mcp(
         crate::infrastructure::config_loader::load_section("mcp")
     };
     let policy = Arc::new(resolve_policy(&flags, &config_section));
+    // A25-11: --allow-write sin allowlist exige el escape explícito.
+    policy.validate().map_err(CliError::from)?;
+    if policy.allow_write && policy.allow_all_mutating && policy.allowed_tools.is_empty() {
+        eprintln!(
+            "⚠️  MCP: --allow-all-mutating — every mutating tool is enabled for this client \
+             (destructive ones still need the two-step confirmation). Prefer --allow-tools."
+        );
+    }
     // A25-04 (P2.5): una ruta de audit inválida (bajo root: fuera de
     // /var/log/enola o /var/lib/enola) aborta el arranque en vez de escribir
     // donde diga un tercero o perder el log en silencio.
@@ -391,6 +403,8 @@ async fn execute_ask(args: AskArgs, format: &str) -> CliResult<String> {
     // por lo que la política interna de `enola_run_command` se habilita tras la aprobación humana.
     let policy = Arc::new(McpPolicy {
         allow_write: true,
+        // La barrera de `ask` es el gate humano `[s/N]` (TTY), no la allowlist.
+        allow_all_mutating: true,
         ..Default::default()
     });
     let audit = Arc::new(AuditLogger::new(None));

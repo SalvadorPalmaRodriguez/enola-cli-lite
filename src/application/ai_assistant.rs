@@ -936,6 +936,7 @@ mod tests {
         let confirmations = Arc::new(ConfirmationStore::new());
         let policy = Arc::new(McpPolicy {
             allow_write: true,
+            allow_all_mutating: true,
             ..Default::default()
         });
         let audit = Arc::new(AuditLogger::new(None));

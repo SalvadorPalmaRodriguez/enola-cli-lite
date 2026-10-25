@@ -115,8 +115,25 @@ impl FileManifestAdapter {
     }
 }
 
+/// A25-16: rechaza separadores de línea/campo que romperían el formato.
+fn validate_manifest_entry(entry_type: &str, value: &str) -> Result<()> {
+    let bad_type = entry_type.is_empty() || entry_type.contains(['\n', '\r', '\0', '|']);
+    let bad_value = value.contains(['\n', '\r', '\0']);
+    if bad_type || bad_value {
+        return Err(crate::domain::error::EnolaError::ValidationError(format!(
+            "invalid manifest entry {:?}|{:?}: line breaks, NUL and '|' in the key are not allowed",
+            entry_type, value
+        )));
+    }
+    Ok(())
+}
+
 impl ManifestPort for FileManifestAdapter {
     fn append(&self, entry_type: &str, value: &str) -> Result<()> {
+        // A25-16 (CWE-74): el formato es `key|value` por línea y uninstall.sh
+        // borra como root rutas leídas de aquí. Un `\n` en el valor crearía
+        // entradas arbitrarias (`share_dir|/` → `rm -rf /`).
+        validate_manifest_entry(entry_type, value)?;
         // Best-effort: if the file doesn't exist or we can't write, no-op.
         if !self.manifest_path.exists() {
             tracing::warn!(
@@ -390,5 +407,22 @@ mod tests {
 
         // The manifest file should still exist and be readable.
         assert!(manifest_path.exists());
+    }
+
+    /// A25-16: inyección de líneas en el manifest rechazada.
+    #[test]
+    fn append_rejects_newlines_and_separators() {
+        assert!(validate_manifest_entry("docker_container", "wp-blog").is_ok());
+        assert!(validate_manifest_entry("tor_service", "a|b").is_ok());
+        for (k, v) in [
+            ("docker_container", "x\nshare_dir|/"),
+            ("docker_container", "x\r"),
+            ("docker_container", "x\0"),
+            ("a|b", "x"),
+            ("a\nb", "x"),
+            ("", "x"),
+        ] {
+            assert!(validate_manifest_entry(k, v).is_err(), "{k:?}|{v:?}");
+        }
     }
 }

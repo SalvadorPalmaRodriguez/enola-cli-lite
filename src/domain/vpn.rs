@@ -196,6 +196,74 @@ pub fn validate_public_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A25-09: nombre de peer. Se interpola en `# Peer: {name}` del `.conf` del
+/// servidor y del cliente; `wg-quick` interpreta `PostUp = <shell>` como root,
+/// así que un salto de línea inyectaría directivas.
+pub fn validate_peer_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 32 {
+        return Err("Peer name must be 1-32 characters".to_string());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!(
+            "Peer name '{}' contains invalid characters (use letters, digits, - or _)",
+            name.escape_debug()
+        ));
+    }
+    Ok(())
+}
+
+/// A25-09: IP de un peer — IPv4 sin prefijo (`AllowedIPs` se fija a `/32`),
+/// no la red, ni el broadcast, ni la del servidor, y dentro de `server_cidr`
+/// (`10.8.0.1/24`) si se conoce. Un `0.0.0.0/0` daba al peer todo el túnel.
+pub fn validate_peer_ip(ip: &str, server_cidr: Option<&str>) -> Result<(), String> {
+    let addr: std::net::Ipv4Addr = ip.parse().map_err(|_| {
+        format!(
+            "Peer IP '{}' is not a plain IPv4 address (no prefix)",
+            ip.escape_debug()
+        )
+    })?;
+    if addr.is_unspecified() || addr.is_broadcast() || addr.is_loopback() || addr.is_multicast() {
+        return Err(format!("Peer IP '{addr}' is not a usable host address"));
+    }
+    let Some(cidr) = server_cidr else {
+        return Ok(());
+    };
+    let (srv, prefix) = cidr
+        .split_once('/')
+        .ok_or_else(|| format!("Server address '{cidr}' has no prefix"))?;
+    let srv: std::net::Ipv4Addr = srv
+        .trim()
+        .parse()
+        .map_err(|_| format!("Server address '{cidr}' is not IPv4"))?;
+    let prefix: u32 = prefix
+        .trim()
+        .parse()
+        .ok()
+        .filter(|p| *p <= 32)
+        .ok_or_else(|| format!("Server address '{cidr}' has an invalid prefix"))?;
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
+    let (a, s) = (u32::from(addr), u32::from(srv));
+    if a & mask != s & mask {
+        return Err(format!("Peer IP '{addr}' is outside the VPN subnet {cidr}"));
+    }
+    if prefix < 31 && (a & !mask == 0 || a & !mask == !mask) {
+        return Err(format!(
+            "Peer IP '{addr}' is the network or broadcast address of {cidr}"
+        ));
+    }
+    if a == s {
+        return Err(format!("Peer IP '{addr}' is the server's own address"));
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers (pure functions)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -446,5 +514,42 @@ mod tests {
         let ip = srv.next_peer_ip().unwrap();
         assert_ne!(ip, "10.8.0.1");
         assert_eq!(ip, "10.8.0.2");
+    }
+
+    #[test]
+    fn peer_name_rejects_injection() {
+        assert!(validate_peer_name("laptop_1-a").is_ok());
+        for bad in [
+            "",
+            "laptop\nPostUp = id",
+            "a b",
+            "x=y",
+            "ñ",
+            &"a".repeat(33),
+        ] {
+            assert!(validate_peer_name(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn peer_ip_must_be_host_inside_subnet() {
+        let cidr = Some("10.8.0.1/24");
+        assert!(validate_peer_ip("10.8.0.2", cidr).is_ok());
+        for bad in [
+            "0.0.0.0/0",
+            "10.8.0.2/32",
+            "10.8.1.2",
+            "10.8.0.0",
+            "10.8.0.255",
+            "10.8.0.1",
+            "0.0.0.0",
+            "::1",
+            "10.8.0.2\nPostUp=x",
+        ] {
+            assert!(validate_peer_ip(bad, cidr).is_err(), "{bad:?}");
+        }
+        // Sin subred conocida: solo forma.
+        assert!(validate_peer_ip("10.9.0.7", None).is_ok());
+        assert!(validate_peer_ip("10.9.0.7/32", None).is_err());
     }
 }

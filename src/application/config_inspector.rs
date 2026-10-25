@@ -93,14 +93,6 @@ const KNOWN_KEYS: &[ConfigKeySpec] = &[
         redact: false,
     },
     ConfigKeySpec {
-        section: "distribution",
-        key: "minisign_pubkey_url",
-        env_var: "ENOLA_MINISIGN_PUBKEY_URL",
-        default_value: "",
-        alias: None,
-        redact: false,
-    },
-    ConfigKeySpec {
         section: "update",
         key: "feed_url",
         env_var: "ENOLA_UPDATE_FEED_URL",
@@ -577,7 +569,6 @@ fn check_urls_syntactic(entries: &[ConfigEntry], findings: &mut Vec<ValidationFi
         "web.web_public_url",
         "web.docs_url",
         "distribution.binary_base_url",
-        "distribution.minisign_pubkey_url",
         "update.feed_url",
         "update.signature_url",
         "http.tor_socks_proxy",

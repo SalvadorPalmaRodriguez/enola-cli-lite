@@ -170,6 +170,7 @@
     "mcp": [
       "--allow-write",
       "--allow-tools",
+      "--allow-all-mutating",
       "--max-output-bytes",
       "--audit-log",
       "--request-timeout-secs"

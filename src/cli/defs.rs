@@ -510,9 +510,13 @@ pub enum Commands {
         #[arg(long)]
         allow_write: bool,
 
-        /// Comma-separated allowlist of tool names
+        /// Comma-separated allowlist of tool names or command paths (required with --allow-write)
         #[arg(long, value_name = "TOOLS")]
         allow_tools: Option<String>,
+
+        /// Allow every mutating tool without an allowlist (explicit escape; prints a warning)
+        #[arg(long)]
+        allow_all_mutating: bool,
 
         /// Max bytes returned per tool call (env: ENOLA_MCP_MAX_OUTPUT_BYTES)
         #[arg(long, value_name = "BYTES")]
