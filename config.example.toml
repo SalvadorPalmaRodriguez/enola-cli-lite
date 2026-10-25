@@ -3,7 +3,7 @@
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Documento: config.example.toml
-# Versión: 2.4 | Actualizado: 2026-10-18
+# Versión: 2.5 | Actualizado: 2026-10-25
 # Referencias: CONFIG-001..009, QUAL-001, QUAL-003, FASE-9-ASK
 #
 # Copia este fichero a `~/.enola/config.toml` y ajústalo a tu entorno.
@@ -12,6 +12,12 @@
 # Prioridad de resolución (alta → baja):
 #   1. Flags CLI           (ej.  --web-url, --binary-base-url)
 #   2. Variables de entorno (ENOLA_WEB_URL, …)
+#
+# COMO ROOT (sudo): de las variables ENOLA_* solo se conservan
+# ENOLA_ACCEPT_LICENSE, ENOLA_MCP_CHILD y ENOLA_AUTO_SETUP; el resto se ignora
+# con un aviso. Las claves de seguridad ([ai].endpoint, [ai].tor_proxy,
+# [distribution], [update], [mcp], [http].tor_socks_proxy no-loopback) solo se
+# leen de /etc/enola/config.toml (root-owned); en este fichero se ignoran.
 
 
 # ── 1. URLs públicas de la web del proyecto ────────────────────────────────
@@ -29,6 +35,7 @@ web_public_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite"
 
 # ── 2. Distribución (descarga de binarios) ─────────────────────────────────
 # Env-vars equivalentes: ENOLA_BINARY_BASE_URL, ENOLA_MINISIGN_PUBKEY_URL
+# Como root: solo desde /etc/enola/config.toml o --binary-base-url.
 [distribution]
 # Base URL desde donde se descargan los artefactos de release.
 # Si está vacío (default), se usa ruta relativa /releases/… sobre la web.
@@ -127,7 +134,8 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # confirm_token monouso, vinculado a los args, TTL 300 s. Y `try_run: true`
 # simula cualquier mutante sin efectos (misma política aplicada).
 # - max_output_bytes   → límite de stdout/stderr por llamada (65536).
-# - audit_log          → "stderr" o path de fichero (nunca stdout).
+# - audit_log          → "stderr" o path absoluto (nunca stdout). Como root,
+#                        solo en /var/log/enola/ o /var/lib/enola/.
 # - request_timeout_secs → timeout por llamada a tool (60).
 #
 # Env vars: ENOLA_MCP_ALLOW_WRITE, ENOLA_MCP_ALLOWED_TOOLS,
@@ -154,6 +162,8 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # Env vars: ENOLA_AI_ENDPOINT, ENOLA_AI_MODEL, ENOLA_AI_TIMEOUT_SECS,
 #           ENOLA_AI_USE_TOR_DOWNLOADS, ENOLA_AI_TOR_PROXY
 # Flags:    --endpoint --model --instance --no-exec --yes --tor
+# Como root: endpoint y tor_proxy solo desde /etc/enola/config.toml o flag;
+# `ask` imprime el endpoint efectivo y su origen.
 [ai]
 # endpoint = "http://127.0.0.1:11434"
 # model = "llama3.1:8b"

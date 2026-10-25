@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ai/commands-ask.md`
-> **Versión:** 1.1 | **Actualizado:** 2026-10-23
+> **Versión:** 1.2 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** ../general/commands.md, ../general/config-reference.md, ../mcp/commands-mcp.md
 
@@ -41,6 +41,14 @@ Prioridad de resolución (alta → baja):
 2. **Variables de entorno**: `ENOLA_AI_ENDPOINT`, `ENOLA_AI_MODEL`, `ENOLA_AI_TIMEOUT_SECS`
 3. **Archivo `~/.enola/config.toml`**: sección `[ai]`
 4. **Defaults del binario**: `http://127.0.0.1:11434`, `llama3.1:8b`, `120` segundos
+
+**Con `sudo` (root):** las variables `ENOLA_AI_*` se ignoran, y `endpoint`/`tor_proxy`
+solo se leen del flag o de `/etc/enola/config.toml` (root-owned); el resto de `[ai]`
+(`model`, `timeout_secs`) sigue viniendo de `~/.enola/config.toml`. Antes de nada, `ask`
+imprime el endpoint efectivo y su origen, por ejemplo
+`🤖 LLM endpoint: http://127.0.0.1:11434 (source: default)`, y avisa si el servidor no
+está en esta máquina: ese modelo decide qué herramientas de enola se ejecutan y recibe
+su salida.
 
 ```toml
 [ai]

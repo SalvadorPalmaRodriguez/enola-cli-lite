@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.7 | **Actualizado:** 2026-10-25
+> **Versión:** 1.8 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -23,6 +23,31 @@ Los valores se resuelven en este orden (alta → baja):
 4. **Defaults del binario** — valores hardcodeados en el CLI
 
 Verificar con: `enola-cli config-show` (muestra el valor efectivo y su fuente).
+
+---
+
+## Como root (`sudo`)
+
+Cuando el CLI corre como root, el entorno del usuario no se considera de
+confianza (`sudo -E` lo entrega entero):
+
+- **Variables de entorno:** solo se conservan `ENOLA_ACCEPT_LICENSE`,
+  `ENOLA_MCP_CHILD` y `ENOLA_AUTO_SETUP`. Cualquier otra `ENOLA_*` heredada se
+  ignora con **un** aviso que lista sus nombres (nunca sus valores). `PATH` se fija
+  a `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`.
+- **Flags:** se respetan siempre (los teclea el operador). `--tor-socks` con un
+  proxy que no está en `127.0.0.1`/`::1`/`localhost` muestra un aviso.
+- **`~/.enola/config.toml`:** se sigue leyendo para claves de comodidad (`[ai].model`,
+  `[ai].timeout_secs`, `[backup]`, `[web]`, `[http].download_timeout_secs`…). Las
+  claves que deciden **a dónde se conecta root, qué verifica o por dónde enruta**
+  solo se leen de `/etc/enola/config.toml` (root-owned, no escribible por grupo/otros):
+  `[ai].endpoint`, `[ai].tor_proxy`, `[distribution].*`, `[update].*`, `[mcp].*` y un
+  `[http].tor_socks_proxy` que no sea loopback. Si están en la config del usuario se
+  ignoran con aviso.
+- Para cambiar como root algo que antes ponías en una variable: usa el flag
+  equivalente o `/etc/enola/config.toml`. Los overrides de límites de contenedor
+  por variable de entorno no tienen equivalente: como root se usan los límites por
+  defecto.
 
 ---
 
@@ -98,9 +123,9 @@ Proxy SOCKS5 para peticiones a URLs `.onion`.
 |-------|------|---------|---------|-------------|
 | `tor_socks_proxy` | String | `socks5h://127.0.0.1:9050` | `ENOLA_TOR_SOCKS_PROXY` | Proxy SOCKS5h para Tor |
 
-> **Bajo `sudo`:** `ENOLA_TOR_SOCKS_PROXY` y el `config.toml` del usuario solo admiten `socks5h://` en
-> `127.0.0.1`/`::1`/`localhost` (si no, se ignoran con aviso). Un proxy en otro host va en
-> `/etc/enola/config.toml` (root-owned) o con `--tor-socks`.
+> **Bajo `sudo`:** `ENOLA_TOR_SOCKS_PROXY` se ignora (ver "Como root"); el `config.toml` del
+> usuario solo admite `socks5h://` en `127.0.0.1`/`::1`/`localhost` (si no, se ignora con
+> aviso). Un proxy en otro host va en `/etc/enola/config.toml` (root-owned) o con `--tor-socks`.
 
 ```toml
 [http]
@@ -143,7 +168,7 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 | `allow_write` | Bool | `false` | `ENOLA_MCP_ALLOW_WRITE` / `--allow-write` | Habilita tools mutantes |
 | `allowed_tools` | Array/CSV | `[]` | `ENOLA_MCP_ALLOWED_TOOLS` / `--allow-tools` | Vacía = todas las mutantes; si no, nombres (`wp_create`) o rutas (`wp:create`; `family` pelado para hojas como `doctor`) |
 | `max_output_bytes` | Integer | `65536` | `ENOLA_MCP_MAX_OUTPUT_BYTES` / `--max-output-bytes` | Límite de stdout/stderr por llamada |
-| `audit_log` | String | `stderr` | `ENOLA_MCP_AUDIT_LOG` / `--audit-log` | `"stderr"` o path de fichero (nunca stdout) |
+| `audit_log` | String | `stderr` | `ENOLA_MCP_AUDIT_LOG` / `--audit-log` | `"stderr"` o path absoluto de fichero (nunca stdout). Como root solo directamente en `/var/log/enola/` o `/var/lib/enola/` (si no, `mcp` no arranca) |
 | `request_timeout_secs` | Integer | `60` | `ENOLA_MCP_REQUEST_TIMEOUT_SECS` / `--request-timeout-secs` | Timeout por llamada a tool |
 
 ```toml
@@ -205,6 +230,11 @@ Configuración del asistente de IA local (`enola-cli ask`) conectado a Ollama.
 # use_tor_for_downloads = false
 ```
 
+> **Bajo `sudo`:** `endpoint` y `tor_proxy` solo se leen de `/etc/enola/config.toml`
+> (root-owned) o del flag; `ENOLA_AI_ENDPOINT` y `ENOLA_AI_TOR_PROXY` se ignoran. `enola-cli ask` imprime siempre el
+> endpoint efectivo y su origen (`--endpoint`, `instance <n>`, `/etc/enola/config.toml`,
+> `default`) y avisa si no está en esta máquina.
+
 > Si se pasa `--instance <name>` en `enola-cli ask`, el CLI resuelve el puerto
 > local del contenedor Ollama correspondiente (`enola-ai-<name>-ollama`). Si
 > `endpoint` es una dirección `.onion`, las peticiones se enrutan automáticamente
@@ -214,18 +244,20 @@ Configuración del asistente de IA local (`enola-cli ask`) conectado a Ollama.
 
 ## Variables solo-desarrollo / escape hatches
 
-> **Solo para desarrollo y depuración.** Nunca las definas en producción ni las
-> propagues vía `sudo -E`; los procesos root las evalúan con *warning* visible.
+> **Solo para desarrollo y depuración.** Como root ninguna de estas variables tiene
+> efecto salvo `ENOLA_AUTO_SETUP` (ver "Como root").
 
 | Variable / flag | Efecto | Riesgo |
 |---|---|---|
 | `ENOLA_AUTO_SETUP=1` | En modo no-TTY (script/servicio) permite que el preflight instale dependencias (`apt-get`) automáticamente | Mutación del sistema sin consentimiento interactivo |
-| `ENOLA_ALLOW_UNSIGNED_UPDATE=1` / `update apply --allow-unsigned` | Salta la verificación minisign del binario | Instala binario arbitrario como root |
-| `ENOLA_SKIP_ROOT_CHECK=1` | Omite la exigencia de root | Comandos fallarán o mutarán sin privilegios |
-| `ENOLA_MINISIGN_BIN` | Path alternativo al binario `minisign` | Identity-check (`-V` contiene "minisign"); como root solo se acepta si el binario y todos sus directorios son root-owned y no escribibles por grupo/otros (se usa la ruta canónica) |
-| `ENOLA_WEB_TOKEN` | Fija el token del dashboard (tests) | Predecible si se filtra |
-| `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` (+ `ENOLA_UPDATE_ENV_ANCHORS=1`) | Overrides de trust anchors de update | Bajo euid 0 se ignoran salvo que `ENOLA_UPDATE_ENV_ANCHORS=1` esté presente, y emiten warning |
-| `ENOLA_TEST_TOKEN` | Token de test del dashboard (feature `testing`, ausente en release) | N/A en release |
+| `update download/apply --allow-unsigned` | Salta la verificación minisign del binario (solo el flag; la antigua `ENOLA_ALLOW_UNSIGNED_UPDATE` ya no existe) | Instala binario arbitrario como root |
+| `ENOLA_SKIP_ROOT_CHECK=1` | Omite la exigencia de root (solo en builds `--features testing`) | Ausente en release |
+| `ENOLA_MINISIGN_BIN` | Path alternativo al binario `minisign` (sin root) | Como root se ignora: se usa `minisign` del `PATH` seguro |
+| `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` (+ `ENOLA_UPDATE_ENV_ANCHORS=1`) | Overrides de trust anchors de update (sin root) | Como root se ignoran: usa `[update]` en `/etc/enola/config.toml` |
+| `ENOLA_TEST_TOKEN` | Salto de licencia en tests (feature `testing`, ausente en release) | Como root se ignora; los E2E usan `ENOLA_ACCEPT_LICENSE` |
+
+El token del dashboard web ya no se puede fijar (`ENOLA_WEB_TOKEN` se eliminó): se
+genera aleatorio en cada arranque y se guarda en `~/.enola/web-token`.
 
 ## Ejemplo completo
 
