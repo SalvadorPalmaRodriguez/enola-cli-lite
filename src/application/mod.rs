@@ -12,6 +12,7 @@ pub mod ai_service; // Fase 10 — casos de uso de instancias IA (create, publis
 pub mod apparmor_manager; // AA-004..007 (204-207) — AppArmor orchestration
 pub mod backup_system;
 pub mod cleanup_service;
+pub mod command_gate; // A25-01/02 — gate único de comandos (MCP enola_run_command + consola web)
 pub mod config_inspector; // CFG-NEW-001: inspector de configuracin centralizada
 pub mod dependency_manager;
 pub mod deploy_fileserver;

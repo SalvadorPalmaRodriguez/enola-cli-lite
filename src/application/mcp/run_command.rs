@@ -14,9 +14,11 @@ use crate::application::mcp::confirmation::{confirmation_required_result, Confir
 use crate::application::mcp::policy::McpPolicy;
 use crate::application::mcp::registry::ToolHandler;
 use crate::domain::error::{EnolaError, Result};
-use crate::domain::tool::{
-    classify, is_forbidden_family, is_forbidden_path, truncate_output, ToolKind,
-};
+// A25-01/02: vetos, flags vetadas, clasificación y redacción viven en el gate
+// único compartido con la consola web (`application::command_gate`).
+use crate::application::command_gate::{check_family, check_route};
+pub(crate) use crate::application::command_gate::{policy_name, redact_argv};
+use crate::domain::tool::{truncate_output, ToolKind};
 use crate::ports::process_runner::ProcessRunnerPort;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -26,6 +28,8 @@ use std::time::Duration;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// Profundidad máxima de la ruta de subcomandos (familia → grupo → hoja).
 const MAX_PATH_TOKENS: usize = 2;
+/// Nombre de la vía en los mensajes de veto del gate.
+const VIA: &str = "enola_run_command";
 /// Timeout máximo aceptado vía `timeout_secs` (5 min).
 const MAX_TIMEOUT_SECS: u64 = 300;
 
@@ -96,26 +100,6 @@ fn resolve_leaf<'a>(
         )));
     }
     Ok((tokens, node))
-}
-
-/// Flags vetadas por hoja en `enola_run_command`: (familia, path, nombres).
-///
-/// Defensa en profundidad (auditoría F-01/F-25): los bool `SetTrue` son hoy
-/// indespachables por el serializado `--flag valor`, pero `--binary`
-/// (flag de valor) sí es expresable y rompe la cadena de firma de updates.
-const DENIED_FLAGS: &[(&str, &[&str], &[&str])] = &[
-    ("update", &["download"], &["allow-unsigned"]),
-    ("update", &["apply"], &["binary", "allow-unsigned"]),
-];
-
-/// Primera flag vetada presente en `args["args"]` para la ruta, si la hay.
-fn denied_flag(family: &str, tokens: &[String], args: &Value) -> Option<String> {
-    let obj = args.get("args")?.as_object()?;
-    let denied = DENIED_FLAGS.iter().find_map(|(fam, path, denied)| {
-        (*fam == family && path.iter().copied().eq(tokens.iter().map(String::as_str)))
-            .then_some(*denied)
-    })?;
-    obj.keys().find(|k| denied.contains(&k.as_str())).cloned()
 }
 
 /// Valida `args` (objeto flag→valor) contra las flags del nodo hoja y
@@ -229,19 +213,6 @@ fn build_flag_argv(leaf: &Value, args: &Value) -> Result<Vec<String>> {
     Ok(argv)
 }
 
-/// Nombre de política/auditoría para una ruta resuelta (R-6c):
-/// `family:sub path` con subcomando, `family` pelado para familias hoja.
-///
-/// Una entrada de allowlist `doctor` cubre a la vez la tool builtin y la
-/// hoja despachada vía meta-tool — misma operación, colisión benigna.
-pub(crate) fn policy_name(family: &str, tokens: &[String]) -> String {
-    if tokens.is_empty() {
-        family.to_string()
-    } else {
-        format!("{family}:{}", tokens.join(" "))
-    }
-}
-
 /// Construye una vista previa del `argv` redactado para `enola_run_command`
 /// (usado por `ai_assistant` para mostrar el comando exacto en el prompt `[s/N]`).
 pub(crate) fn preview_redacted_argv(args: &Value) -> Result<Vec<String>> {
@@ -266,39 +237,6 @@ pub(crate) fn build_argv(family: &str, tokens: &[String], flag_argv: Vec<String>
     argv
 }
 
-/// F-12: redacta los valores de flags sensibles en el argv devuelto al
-/// llamante — el flag `--admin-pass` se conserva pero su valor sale como
-/// "***" (misma tabla SECRET_KEYS que el audit log).
-pub(crate) fn redact_argv(argv: &[String]) -> Vec<String> {
-    let mut out = Vec::with_capacity(argv.len());
-    let mut redact_next = false;
-    for arg in argv {
-        if redact_next {
-            out.push("***".to_string());
-            redact_next = false;
-            continue;
-        }
-        if let Some(flag) = arg.strip_prefix("--") {
-            let name = flag.split('=').next().unwrap_or("");
-            let lower = name.to_lowercase();
-            if crate::application::mcp::audit::SECRET_KEYS
-                .iter()
-                .any(|k| lower.contains(k))
-            {
-                if flag.contains('=') {
-                    out.push(format!("--{}=***", name));
-                } else {
-                    out.push(arg.clone());
-                    redact_next = true;
-                }
-                continue;
-            }
-        }
-        out.push(arg.clone());
-    }
-    out
-}
-
 struct RunCommandHandler {
     runner: Arc<dyn ProcessRunnerPort + Send + Sync>,
     policy: Arc<McpPolicy>,
@@ -317,31 +255,16 @@ impl RunCommandHandler {
             .get("family")
             .and_then(|v| v.as_str())
             .ok_or_else(|| err("missing required 'family'"))?;
-        if is_forbidden_family(family) {
-            return Err(EnolaError::SecurityError(format!(
-                "family '{family}' cannot be dispatched through enola_run_command"
-            )));
-        }
+        check_family(family, VIA)?;
         let subcommand = args.get("subcommand").and_then(|v| v.as_str());
         let family_node = find_family(tree, family)?;
         let (tokens, leaf) = resolve_leaf(family_node, subcommand)?;
-        let token_refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-        if is_forbidden_path(family, &token_refs) {
-            return Err(EnolaError::SecurityError(format!(
-                "command '{family} {}' cannot be dispatched through enola_run_command",
-                tokens.join(" ")
-            )));
-        }
-        if let Some(flag) = denied_flag(family, &tokens, args) {
-            return Err(EnolaError::SecurityError(format!(
-                "flag '--{flag}' cannot be passed to '{family} {}' through enola_run_command",
-                tokens.join(" ")
-            )));
-        }
-        let kind = {
-            let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-            classify(family, &refs)
-        };
+        let flag_names: Vec<&str> = args
+            .get("args")
+            .and_then(|a| a.as_object())
+            .map(|o| o.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        let kind = check_route(family, &tokens, flag_names, VIA)?;
         Ok((family, tokens, leaf, kind))
     }
 }
@@ -492,6 +415,14 @@ impl ToolHandler for RunCommandHandler {
                             are not predicted",
         }))
     }
+}
+
+/// P1 — expone la resolución MCP (vetos + clasificación) al test de paridad
+/// del gate (`command_gate::tests`).
+#[cfg(test)]
+pub(crate) fn resolve_kind_for_parity(args: &Value) -> Result<ToolKind> {
+    let tree = load_tree();
+    RunCommandHandler::resolve(&tree, args).map(|(_, _, _, kind)| kind)
 }
 
 /// Registra la meta-tool `enola_run_command` en el registry.

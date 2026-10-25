@@ -178,15 +178,13 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/diag/wp-sync", get(api_diag_wp_sync))
         .route("/diag/nginx-test", get(api_diag_nginx_test))
         .route("/diag/resources", get(api_diag_resources))
-        // Test
-        .route("/test/run", post(api_test_run))
+        // Test — A25-03 (P1.4): `test run/benchmark/clean` son de desarrollo
+        // y solo existen en el CLI; la web conserva las consultas de lectura.
         .route("/test/list", get(api_test_list))
-        .route("/test/benchmark", post(api_test_benchmark))
         .route("/test/results", get(api_test_results))
-        .route("/test/clean", post(api_test_clean))
-        // Setup
+        // Setup — A25-03 (P1.4/P1.5): POST con `confirm:"setup"`; el SSE PQC
+        // solo observa (ver `sse_routes`).
         .route("/setup", post(api_setup))
-        .route("/setup/pqc-tls", get(api_setup_pqc_tls_sse))
         // System (quickref, license, config, verify, uninstall)
         .route("/quickref", get(api_quickref))
         .route("/license", get(api_license))
@@ -208,6 +206,24 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             state.clone(),
             crate::adapters::web::web_server::auth_middleware,
         ))
+}
+
+/// A25-I5 (P1.5): rutas SSE fuera del middleware de token — el
+/// `EventSource` no puede enviar `Authorization`; se autentican con un ticket
+/// monouso emitido por un POST autenticado y SOLO observan un job ya lanzado.
+pub fn sse_routes() -> Router<Arc<AppState>> {
+    Router::new().route("/setup/pqc-tls/events", get(api_setup_pqc_tls_events))
+}
+
+/// P1.3: deserializa un body JSON estricto devolviendo 400 (no el 422 por
+/// defecto de axum) ante campos desconocidos o tipos inválidos.
+fn strict_json<T>(
+    body: Result<Json<T>, axum::extract::rejection::JsonRejection>,
+) -> Result<T, ApiError> {
+    body.map(|Json(v)| v).map_err(|e| ApiError {
+        error: format!("Invalid request body: {}", e.body_text()),
+        code: 400,
+    })
 }
 
 // ── Status ───────────────────────────────────────────────────────────────────
@@ -1117,10 +1133,19 @@ async fn api_tor_detail(Path(name): Path<String>) -> ApiResult<TorDetailResponse
 
 // ── Console (universal CLI access) ────────────────────────────────────────────
 
+/// Timeout por defecto y máximo de `/api/console/run` (A25-02, P1.2).
+const CONSOLE_DEFAULT_TIMEOUT_SECS: u64 = 300;
+const CONSOLE_MAX_TIMEOUT_SECS: u64 = 1800;
+/// Tope de salida devuelta por stream (bytes).
+const CONSOLE_OUTPUT_LIMIT: usize = 500_000;
+
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConsoleRunRequest {
     args: Vec<String>,
     timeout_secs: Option<u64>,
+    /// Confirmación de comandos Destructive (recurso o `family:sub`).
+    confirm: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1136,11 +1161,56 @@ struct ConsoleRunError {
     stdout: String,
     stderr: String,
     exit_code: i32,
+    /// 409: valor que debe enviarse en `confirm` para ejecutar.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirm_expected: Option<String>,
+    #[serde(skip)]
+    status: axum::http::StatusCode,
+}
+
+impl ConsoleRunError {
+    fn new(status: axum::http::StatusCode, error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: -1,
+            confirm_expected: None,
+            status,
+        }
+    }
 }
 
 impl axum::response::IntoResponse for ConsoleRunError {
     fn into_response(self) -> axum::response::Response {
-        (axum::http::StatusCode::BAD_REQUEST, axum::Json(self)).into_response()
+        (self.status, axum::Json(self)).into_response()
+    }
+}
+
+/// A25-02: traduce el veredicto del gate único (`command_gate`) a HTTP.
+/// SecurityError → 403 (vetado, igual que en MCP); el resto → 400.
+fn gate_error(e: crate::domain::error::EnolaError) -> ConsoleRunError {
+    use axum::http::StatusCode;
+    match e {
+        crate::domain::error::EnolaError::SecurityError(msg) => ConsoleRunError::new(
+            StatusCode::FORBIDDEN,
+            format!("{msg} — not available from the web console; use the CLI"),
+        ),
+        other => ConsoleRunError::new(StatusCode::BAD_REQUEST, other.to_string()),
+    }
+}
+
+/// Valida `timeout_secs` (1..=1800); ausente → 300 s.
+fn console_timeout(requested: Option<u64>) -> Result<std::time::Duration, ConsoleRunError> {
+    match requested {
+        None => Ok(std::time::Duration::from_secs(CONSOLE_DEFAULT_TIMEOUT_SECS)),
+        Some(s) if (1..=CONSOLE_MAX_TIMEOUT_SECS).contains(&s) => {
+            Ok(std::time::Duration::from_secs(s))
+        }
+        Some(s) => Err(ConsoleRunError::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("timeout_secs must be between 1 and {CONSOLE_MAX_TIMEOUT_SECS} (got {s})"),
+        )),
     }
 }
 
@@ -1196,51 +1266,94 @@ async fn api_console_help() -> ApiResult<ConsoleHelpResponse> {
     Ok(Json(ConsoleHelpResponse { commands, help }))
 }
 
+/// `POST /api/console/run` — A25-02 (P1.2): argv libre del CLI, pero tras el
+/// MISMO gate que `enola_run_command` (vetos `FORBIDDEN_*`, `DENIED_FLAGS`,
+/// clasificación) + `confirm` en Destructive, entorno `env_clear()` +
+/// allowlist compartida, timeout acotado y concurrencia limitada.
 async fn api_console_run(
-    Json(req): Json<ConsoleRunRequest>,
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    body: Result<Json<ConsoleRunRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<ConsoleRunResponse>, ConsoleRunError> {
-    let binary = std::env::current_exe().map_err(|e| ConsoleRunError {
-        error: format!("cannot locate binary: {}", e),
-        stdout: String::new(),
-        stderr: String::new(),
-        exit_code: -1,
+    use crate::application::command_gate::{evaluate_argv, redact_argv, GateDecision};
+    use axum::http::StatusCode;
+
+    let req = body
+        .map(|Json(r)| r)
+        .map_err(|e| ConsoleRunError::new(StatusCode::BAD_REQUEST, e.body_text()))?;
+    let timeout = console_timeout(req.timeout_secs)?;
+    let redacted = redact_argv(&req.args);
+
+    let decision = evaluate_argv(&req.args).map_err(|e| {
+        tracing::warn!(argv = ?redacted, error = %e, "web console: command rejected by gate");
+        gate_error(e)
     })?;
-    let timeout = std::time::Duration::from_secs(req.timeout_secs.unwrap_or(300));
+    if let GateDecision::NeedsConfirm {
+        policy_name,
+        expected,
+        ..
+    } = &decision
+    {
+        if req.confirm.as_deref() != Some(expected.as_str()) {
+            let mut err = ConsoleRunError::new(
+                StatusCode::CONFLICT,
+                format!(
+                    "Destructive command '{policy_name}' requires confirmation — resend with \"confirm\": \"{expected}\""
+                ),
+            );
+            err.confirm_expected = Some(expected.clone());
+            return Err(err);
+        }
+    }
+
+    let _slot = state.console_slots.try_acquire().map_err(|_| {
+        ConsoleRunError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            format!(
+                "too many console commands running (max {})",
+                crate::adapters::web::web_server::CONSOLE_MAX_CONCURRENT
+            ),
+        )
+    })?;
+
+    let binary = std::env::current_exe().map_err(|e| {
+        ConsoleRunError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("cannot locate binary: {}", e),
+        )
+    })?;
+    tracing::info!(argv = ?redacted, "web console: dispatching command");
     let output = tokio::time::timeout(
         timeout,
         tokio::process::Command::new(&binary)
             .args(&req.args)
-            // SEC-009: misma barrera que MCP — un comando despachado por la
-            // consola web no puede disparar el preflight auto-install (apt).
-            .env("ENOLA_MCP_CHILD", "1")
+            .stdin(std::process::Stdio::null())
+            // Un timeout suelta el future → el hijo root muere con él.
+            .kill_on_drop(true)
+            // A25-02 / SEC-009: mismo entorno mínimo que los hijos MCP (sin
+            // ENOLA_WEB_TOKEN ni overrides) y ENOLA_MCP_CHILD=1 (sin preflight).
+            .env_clear()
+            .envs(crate::infrastructure::child_env::child_env())
             .output(),
     )
     .await
-    .map_err(|_| ConsoleRunError {
-        error: "command timed out".to_string(),
-        stdout: String::new(),
-        stderr: String::new(),
-        exit_code: -1,
-    })?
-    .map_err(|e| ConsoleRunError {
-        error: format!("failed to spawn command: {}", e),
-        stdout: String::new(),
-        stderr: String::new(),
-        exit_code: -1,
+    .map_err(|_| ConsoleRunError::new(StatusCode::GATEWAY_TIMEOUT, "command timed out"))?
+    .map_err(|e| {
+        ConsoleRunError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to spawn command: {}", e),
+        )
     })?;
-    let limit = 500_000;
-    let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
-    let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
-    let stdout = if stdout.len() > limit {
-        stdout[..limit].to_string() + "\n[...truncated]"
-    } else {
-        stdout
+    let limit_text = |raw: &[u8]| {
+        let text = strip_ansi(&String::from_utf8_lossy(raw));
+        let (mut out, truncated) =
+            crate::domain::tool::truncate_output(&text, CONSOLE_OUTPUT_LIMIT);
+        if truncated {
+            out.push_str("\n[...truncated]");
+        }
+        out
     };
-    let stderr = if stderr.len() > limit {
-        stderr[..limit].to_string() + "\n[...truncated]"
-    } else {
-        stderr
-    };
+    let stdout = limit_text(&output.stdout);
+    let stderr = limit_text(&output.stderr);
     let exit_code = output.status.code().unwrap_or(-1);
     if exit_code != 0 {
         Err(ConsoleRunError {
@@ -1248,6 +1361,8 @@ async fn api_console_run(
             stdout,
             stderr,
             exit_code,
+            confirm_expected: None,
+            status: StatusCode::BAD_REQUEST,
         })
     } else {
         Ok(Json(ConsoleRunResponse {
@@ -2452,36 +2567,14 @@ async fn api_diag_resources() -> ApiResult<String> {
 
 // ── Test ──────────────────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-struct TestRunRequest {
-    filter: Option<String>,
-}
-
-async fn api_test_run(Json(req): Json<TestRunRequest>) -> ApiResult<String> {
-    let result = commands::test::run(req.filter.as_deref())
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(result))
-}
-
 async fn api_test_list() -> ApiResult<Vec<String>> {
     let tests = commands::test::list().await.map_err(ApiError::from)?;
     Ok(Json(tests))
 }
 
-async fn api_test_benchmark() -> ApiResult<String> {
-    let result = commands::test::benchmark().await.map_err(ApiError::from)?;
-    Ok(Json(result))
-}
-
 async fn api_test_results() -> ApiResult<commands::test::TestResults> {
     let results = commands::test::results().await.map_err(ApiError::from)?;
     Ok(Json(results))
-}
-
-async fn api_test_clean() -> ApiResult<String> {
-    let result = commands::test::clean().await.map_err(ApiError::from)?;
-    Ok(Json(result))
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -2492,153 +2585,224 @@ struct SetupRequest {
     vpn: Option<bool>,
     security: Option<bool>,
     pqc_tls: Option<bool>,
+    /// A25-03 (P1.4): `setup` ejecuta apt-get como root → `confirm:"setup"`.
+    confirm: Option<String>,
 }
 
-async fn api_setup(Json(req): Json<SetupRequest>) -> ApiResult<String> {
+#[derive(Serialize)]
+struct SetupResponse {
+    output: String,
+    /// P1.5: ticket monouso (TTL 60 s) para observar el job PQC TLS en
+    /// `GET /api/setup/pqc-tls/events?ticket=…`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pqc_tls_ticket: Option<String>,
+}
+
+async fn api_setup(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    Json(req): Json<SetupRequest>,
+) -> ApiResult<SetupResponse> {
     use crate::adapters::infra::dependencies::SystemDependencyAdapter;
     use crate::application::dependency_manager::DependencyManager;
     use crate::domain::dependencies::SetupScope;
-    let scope = if req.all.unwrap_or(false) {
-        SetupScope::All
-    } else if req.vpn.unwrap_or(false) {
-        SetupScope::Vpn
-    } else if req.security.unwrap_or(false) {
-        SetupScope::Security
-    } else {
-        SetupScope::Core
-    };
-    let adapter = std::sync::Arc::new(SystemDependencyAdapter::new());
-    let mgr = DependencyManager::new(adapter);
-    let result = mgr.setup(scope).map_err(|e| ApiError {
-        error: format!("{}", e),
-        code: 500,
-    })?;
-    let mut out = mgr.format_setup_result(&result);
+    require_confirm(req.confirm.as_deref(), "setup")?;
 
-    if req.pqc_tls.unwrap_or(false) {
-        out.push_str(
-            "\n\nPQC TLS stack installation started. Please check the SSE endpoint for progress.",
-        );
+    let pqc_tls = req.pqc_tls.unwrap_or(false);
+    let explicit_scope =
+        req.all.unwrap_or(false) || req.vpn.unwrap_or(false) || req.security.unwrap_or(false);
+    let mut out = String::new();
+
+    // PQC TLS solo: no dispara el setup base (mismo comportamiento que la UI
+    // previa, que con PQC marcado solo lanzaba el instalador).
+    if !pqc_tls || explicit_scope {
+        let scope = if req.all.unwrap_or(false) {
+            SetupScope::All
+        } else if req.vpn.unwrap_or(false) {
+            SetupScope::Vpn
+        } else if req.security.unwrap_or(false) {
+            SetupScope::Security
+        } else {
+            SetupScope::Core
+        };
+        let adapter = std::sync::Arc::new(SystemDependencyAdapter::new());
+        let mgr = DependencyManager::new(adapter);
+        let result = mgr.setup(scope).map_err(|e| ApiError {
+            error: format!("{}", e),
+            code: 500,
+        })?;
+        out = mgr.format_setup_result(&result);
     }
 
-    Ok(Json(out))
+    let pqc_tls_ticket = if pqc_tls {
+        let job = start_or_join_pqc_job(&state);
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str("PQC TLS stack installation started; streaming progress.");
+        Some(state.sse_tickets.issue(job))
+    } else {
+        None
+    };
+
+    Ok(Json(SetupResponse {
+        output: out,
+        pqc_tls_ticket,
+    }))
 }
 
-async fn api_setup_pqc_tls_sse(
-) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+/// Lanza el instalador PQC TLS en segundo plano, o devuelve el job en curso
+/// (un solo instalador a la vez: un segundo POST solo obtiene otro ticket
+/// para observarlo, nunca otra ejecución).
+fn start_or_join_pqc_job(state: &AppState) -> Arc<crate::adapters::web::web_jobs::JobLog> {
+    use crate::adapters::web::web_jobs::JobLog;
+    let mut slot = state.pqc_job.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(job) = slot.as_ref().filter(|j| !j.is_done()) {
+        return job.clone();
+    }
+    let job = JobLog::new();
+    *slot = Some(job.clone());
+    tokio::spawn(run_pqc_installer(job.clone()));
+    job
+}
+
+/// Job del instalador PQC TLS: vuelca stdout/stderr al `JobLog`.
+async fn run_pqc_installer(job: Arc<crate::adapters::web::web_jobs::JobLog>) {
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    let (tx, rx) = futures::channel::mpsc::channel::<Result<Event, std::convert::Infallible>>(32);
+    // R-8/G-2 + SEC-001: directorio temporal privado (0700, nombre
+    // aleatorio) — el path fijo en /tmp era un vector de pre-plantado.
+    // `_tmp_dir` mantiene vivo el TempDir hasta que el instalador termina.
+    let (_tmp_dir, script_path) = match crate::infrastructure::pqc_tls::stage_installer() {
+        Ok(v) => v,
+        Err(e) => {
+            job.push(format!("ERROR: Failed to write installer: {}", e));
+            job.finish();
+            return;
+        }
+    };
+    job.push("Writing PQC TLS installer script...");
+    job.push("Starting PQC TLS installer (compiles OpenSSL from source, may take 10-30 min)...");
 
+    let mut child = match tokio::process::Command::new("bash")
+        .arg(&script_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            job.push(format!("ERROR: Failed to start installer: {}", e));
+            job.finish();
+            return;
+        }
+    };
+
+    // A25-I2 (P1.6): sin unwrap() — un pipe ausente cierra el job con error.
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        let _ = child.kill().await;
+        job.push("ERROR: Failed to capture installer output");
+        job.finish();
+        return;
+    };
+    let mut stdout_lines = BufReader::new(stdout).lines();
+    let mut stderr_lines = BufReader::new(stderr).lines();
+    let mut stderr_open = true;
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1800);
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep_until(deadline) => {
+                let _ = child.kill().await;
+                job.push("TIMEOUT: Installer exceeded 30 minutes. The installer compiles OpenSSL from source and may take longer on slow hardware.");
+                job.push("SOLUTION: Run 'enola-cli setup --pqc-tls' directly in a terminal where it won't time out.");
+                job.finish();
+                return;
+            }
+            line = stdout_lines.next_line() => {
+                match line {
+                    Ok(Some(text)) => job.push(text),
+                    Ok(None) => break,
+                    Err(e) => job.push(format!("[read error: {}]", e)),
+                }
+            }
+            line = stderr_lines.next_line(), if stderr_open => {
+                match line {
+                    Ok(Some(text)) => job.push(format!("[stderr] {}", text)),
+                    Ok(None) => stderr_open = false,
+                    Err(e) => job.push(format!("[stderr read error: {}]", e)),
+                }
+            }
+        }
+    }
+    // Vacía el stderr pendiente tras cerrar stdout.
+    while stderr_open {
+        match stderr_lines.next_line().await {
+            Ok(Some(text)) => job.push(format!("[stderr] {}", text)),
+            _ => stderr_open = false,
+        }
+    }
+
+    match child.wait().await {
+        Ok(s) if s.success() => job.push("SUCCESS: PQC TLS stack installed."),
+        Ok(s) => {
+            job.push(format!("FAILED: Installer exited with {}", s));
+            job.push("SOLUTION: Check the output above for errors. You can retry with 'enola-cli setup --pqc-tls' in a terminal.");
+        }
+        Err(e) => job.push(format!("ERROR: Failed to wait for installer: {}", e)),
+    }
+    job.finish();
+}
+
+#[derive(Deserialize)]
+struct SseTicketQuery {
+    ticket: String,
+}
+
+/// `GET /api/setup/pqc-tls/events?ticket=…` — A25-I5 (P1.5): SOLO observa
+/// el job lanzado por `POST /api/setup`; nunca ejecuta nada. Ticket
+/// inválido/caducado/ya usado → 401 con el mismo backoff que el bearer.
+async fn api_setup_pqc_tls_events(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    Query(q): Query<SseTicketQuery>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use std::sync::atomic::Ordering;
+
+    let Some(job) = state.sse_tickets.redeem(&q.ticket) else {
+        let fails = state.auth_failures.fetch_add(1, Ordering::Relaxed);
+        tokio::time::sleep(crate::adapters::web::web_server::auth_backoff_delay(fails)).await;
+        return ApiError {
+            error: "Unauthorized: invalid or expired stream ticket".to_string(),
+            code: 401,
+        }
+        .into_response();
+    };
+
+    let (tx, rx) = futures::channel::mpsc::channel::<Result<Event, std::convert::Infallible>>(32);
     tokio::spawn(async move {
         use futures::SinkExt;
         let mut tx = tx;
-
-        // R-8/G-2 + SEC-001: directorio temporal privado (0700, nombre
-        // aleatorio) — el path fijo en /tmp era un vector de pre-plantado.
-        // `_tmp_dir` mantiene vivo el TempDir hasta que el instalador termina.
-        let (_tmp_dir, script_path) = match crate::infrastructure::pqc_tls::stage_installer() {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = tx
-                    .send(Ok(
-                        Event::default().data(format!("ERROR: Failed to write installer: {}", e))
-                    ))
-                    .await;
-                return;
-            }
-        };
-
-        let _ = tx
-            .send(Ok(
-                Event::default().data("Writing PQC TLS installer script...")
-            ))
-            .await;
-
-        let _ = tx
-            .send(Ok(Event::default().data(
-                "Starting PQC TLS installer (compiles OpenSSL from source, may take 10-30 min)...",
-            )))
-            .await;
-
-        let mut child = match tokio::process::Command::new("bash")
-            .arg(&script_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = tx
-                    .send(Ok(
-                        Event::default().data(format!("ERROR: Failed to start installer: {}", e))
-                    ))
-                    .await;
-                return;
-            }
-        };
-
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-        let mut stdout_lines = BufReader::new(stdout).lines();
-        let mut stderr_lines = BufReader::new(stderr).lines();
-
-        let timeout_dur = std::time::Duration::from_secs(1800);
-        let deadline = tokio::time::Instant::now() + timeout_dur;
-
+        let mut next = 0usize;
         loop {
-            tokio::select! {
-                _ = tokio::time::sleep_until(deadline) => {
-                    let _ = child.kill().await;
-                    let _ = tx.send(Ok(Event::default().data("TIMEOUT: Installer exceeded 30 minutes. The installer compiles OpenSSL from source and may take longer on slow hardware."))).await;
-                    let _ = tx.send(Ok(Event::default().data("SOLUTION: Run 'enola-cli setup --pqc-tls' directly in a terminal where it won't time out."))).await;
-                    return;
-                }
-                line = stdout_lines.next_line() => {
-                    match line {
-                        Ok(Some(text)) => { let _ = tx.send(Ok(Event::default().data(text))).await; }
-                        Ok(None) => break,
-                        Err(e) => { let _ = tx.send(Ok(Event::default().data(format!("[read error: {}]", e)))).await; }
-                    }
-                }
-                line = stderr_lines.next_line() => {
-                    match line {
-                        Ok(Some(text)) => { let _ = tx.send(Ok(Event::default().data(format!("[stderr] {}", text)))).await; }
-                        Ok(None) => {}
-                        Err(e) => { let _ = tx.send(Ok(Event::default().data(format!("[stderr read error: {}]", e)))).await; }
-                    }
+            let (lines, idx, done) = job.read_from(next);
+            next = idx;
+            for line in lines {
+                if tx.send(Ok(Event::default().data(line))).await.is_err() {
+                    return; // el navegador cerró la conexión
                 }
             }
-        }
-
-        let status = child.wait().await;
-        match status {
-            Ok(s) if s.success() => {
-                let _ = tx
-                    .send(Ok(
-                        Event::default().data("SUCCESS: PQC TLS stack installed.")
-                    ))
-                    .await;
+            if done {
+                return;
             }
-            Ok(s) => {
-                let _ = tx
-                    .send(Ok(
-                        Event::default().data(format!("FAILED: Installer exited with {}", s))
-                    ))
-                    .await;
-                let _ = tx.send(Ok(Event::default().data("SOLUTION: Check the output above for errors. You can retry with 'enola-cli setup --pqc-tls' in a terminal."))).await;
-            }
-            Err(e) => {
-                let _ = tx
-                    .send(Ok(Event::default()
-                        .data(format!("ERROR: Failed to wait for installer: {}", e))))
-                    .await;
-            }
+            job.wait(std::time::Duration::from_secs(1)).await;
         }
     });
-
-    Sse::new(rx).keep_alive(KeepAlive::default())
+    Sse::new(rx)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 // ── Console Help Per Command ──────────────────────────────────────────────────
@@ -2942,15 +3106,27 @@ async fn api_update_schema() -> ApiResult<String> {
     Ok(Json(text))
 }
 
+/// A25-01 (P1.3): sin `allow_unsigned` — el escape de firma solo existe en
+/// el CLI (flag tecleado por el operador). Campos desconocidos → 400.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UpdateDownloadRequest {
     yes: Option<bool>,
     dry_run: Option<bool>,
     force: Option<bool>,
-    allow_unsigned: Option<bool>,
+    confirm: Option<String>,
 }
 
-async fn api_update_download(Json(req): Json<UpdateDownloadRequest>) -> ApiResult<String> {
+async fn api_update_download(
+    body: Result<Json<UpdateDownloadRequest>, axum::extract::rejection::JsonRejection>,
+) -> ApiResult<String> {
+    let req = strict_json(body)?;
+    let dry_run = req.dry_run.unwrap_or(false);
+    // `update download` es Destructive (con --yes reemplaza el binario): la
+    // web exige `confirm:"update"` salvo en simulación.
+    if !dry_run {
+        require_confirm(req.confirm.as_deref(), "update")?;
+    }
     let binary = std::env::current_exe().map_err(|e| ApiError {
         error: format!("cannot locate binary: {}", e),
         code: 500,
@@ -2963,18 +3139,18 @@ async fn api_update_download(Json(req): Json<UpdateDownloadRequest>) -> ApiResul
     if req.yes.unwrap_or(false) {
         args.push("--yes".to_string());
     }
-    if req.dry_run.unwrap_or(false) {
+    if dry_run {
         args.push("--dry-run".to_string());
     }
     if req.force.unwrap_or(false) {
         args.push("--force".to_string());
     }
-    if req.allow_unsigned.unwrap_or(false) {
-        args.push("--allow-unsigned".to_string());
-    }
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(300),
-        tokio::process::Command::new(&binary).args(&args).output(),
+        tokio::process::Command::new(&binary)
+            .args(&args)
+            .kill_on_drop(true)
+            .output(),
     )
     .await
     .map_err(|_| ApiError {
@@ -2993,32 +3169,31 @@ async fn api_update_download(Json(req): Json<UpdateDownloadRequest>) -> ApiResul
     Ok(Json(strip_ansi(&text)))
 }
 
+/// A25-01 (P1.3): la web solo aplica lo descargado y verificado en
+/// `/var/lib/enola/updates`; `binary`/`allow_unsigned` ya no existen en el
+/// contrato (`deny_unknown_fields` → 400 si se envían).
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UpdateApplyRequest {
-    binary: Option<String>,
-    allow_unsigned: Option<bool>,
+    confirm: Option<String>,
 }
 
-async fn api_update_apply(Json(req): Json<UpdateApplyRequest>) -> ApiResult<String> {
+async fn api_update_apply(
+    body: Result<Json<UpdateApplyRequest>, axum::extract::rejection::JsonRejection>,
+) -> ApiResult<String> {
+    let req = strict_json(body)?;
+    require_confirm(req.confirm.as_deref(), "update")?;
     let binary = std::env::current_exe().map_err(|e| ApiError {
         error: format!("cannot locate binary: {}", e),
         code: 500,
     })?;
-    let mut args = vec![
-        "update".to_string(),
-        "apply".to_string(),
-        "--json".to_string(),
-    ];
-    if let Some(b) = req.binary {
-        args.push("--binary".to_string());
-        args.push(b);
-    }
-    if req.allow_unsigned.unwrap_or(false) {
-        args.push("--allow-unsigned".to_string());
-    }
+    let args = ["update", "apply", "--json"];
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        tokio::process::Command::new(&binary).args(&args).output(),
+        tokio::process::Command::new(&binary)
+            .args(args)
+            .kill_on_drop(true)
+            .output(),
     )
     .await
     .map_err(|_| ApiError {
@@ -3100,4 +3275,168 @@ async fn api_doctor_security() -> ApiResult<String> {
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(Json(text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    fn state() -> Arc<AppState> {
+        Arc::new(AppState {
+            token: "t".repeat(32),
+            auth_failures: std::sync::atomic::AtomicU64::new(0),
+            console_slots: tokio::sync::Semaphore::new(
+                crate::adapters::web::web_server::CONSOLE_MAX_CONCURRENT,
+            ),
+            pqc_job: std::sync::Mutex::new(None),
+            sse_tickets: Default::default(),
+        })
+    }
+
+    async fn console(args: &[&str], confirm: Option<&str>, timeout: Option<u64>) -> StatusCode {
+        let req = ConsoleRunRequest {
+            args: args.iter().map(|s| s.to_string()).collect(),
+            timeout_secs: timeout,
+            confirm: confirm.map(String::from),
+        };
+        match api_console_run(axum::extract::State(state()), Ok(Json(req))).await {
+            Ok(_) => StatusCode::OK,
+            Err(e) => e.status,
+        }
+    }
+
+    /// A25-01: el contrato web de update ya no admite `binary` ni
+    /// `allow_unsigned` (deny_unknown_fields → 400 vía `strict_json`).
+    #[test]
+    fn update_requests_reject_binary_and_allow_unsigned() {
+        let apply: std::result::Result<UpdateApplyRequest, _> =
+            serde_json::from_value(serde_json::json!({"binary": "/tmp/x", "allow_unsigned": true}));
+        assert!(apply.is_err());
+        let dl: std::result::Result<UpdateDownloadRequest, _> =
+            serde_json::from_value(serde_json::json!({"yes": true, "allow_unsigned": true}));
+        assert!(dl.is_err());
+        let ok: std::result::Result<UpdateApplyRequest, _> =
+            serde_json::from_value(serde_json::json!({"confirm": "update"}));
+        assert!(ok.is_ok());
+    }
+
+    #[test]
+    fn update_apply_requires_confirm() {
+        let err = require_confirm(None, "update").unwrap_err();
+        assert_eq!(err.code, 409);
+        assert!(require_confirm(Some("update"), "update").is_ok());
+    }
+
+    /// A25-02: la consola aplica el MISMO gate que MCP (sin ejecutar nada:
+    /// todos estos casos se rechazan antes del spawn).
+    #[tokio::test]
+    async fn console_vetoes_forbidden_commands() {
+        for args in [
+            &["update", "apply", "--binary", "/tmp/x", "--allow-unsigned"][..],
+            &["web"],
+            &["web", "--port", "9000"],
+            &["mcp"],
+            &["setup"],
+            &["uninstall"],
+            &["test", "run"],
+            &["--tor-socks", "socks5h://10.0.0.5:9050", "tor", "list"],
+        ] {
+            assert_eq!(
+                console(args, None, None).await,
+                StatusCode::FORBIDDEN,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn console_destructive_without_confirm_is_409() {
+        assert_eq!(
+            console(&["tor", "remove", "x", "--force"], None, None).await,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            console(&["tor", "remove", "x", "--force"], Some("other"), None).await,
+            StatusCode::CONFLICT
+        );
+    }
+
+    #[tokio::test]
+    async fn console_timeout_is_bounded() {
+        assert_eq!(
+            console(&["tor", "list"], None, Some(999_999)).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            console(&["tor", "list"], None, Some(0)).await,
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[tokio::test]
+    async fn console_concurrency_is_bounded() {
+        let st = state();
+        let _held = st
+            .console_slots
+            .acquire_many(crate::adapters::web::web_server::CONSOLE_MAX_CONCURRENT as u32)
+            .await
+            .unwrap();
+        let req = ConsoleRunRequest {
+            args: vec!["tor".into(), "list".into()],
+            timeout_secs: None,
+            confirm: None,
+        };
+        let r = api_console_run(axum::extract::State(st.clone()), Ok(Json(req))).await;
+        assert_eq!(
+            r.err().map(|e| e.status),
+            Some(StatusCode::TOO_MANY_REQUESTS)
+        );
+    }
+
+    /// A25-I5: el SSE solo acepta un ticket válido emitido por el POST.
+    #[tokio::test]
+    async fn sse_rejects_missing_or_reused_ticket() {
+        let st = state();
+        let r = api_setup_pqc_tls_events(
+            axum::extract::State(st.clone()),
+            Query(SseTicketQuery {
+                ticket: "nope".into(),
+            }),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
+        let job = crate::adapters::web::web_jobs::JobLog::new();
+        job.push("line");
+        job.finish();
+        let t = st.sse_tickets.issue(job);
+        let r = api_setup_pqc_tls_events(
+            axum::extract::State(st.clone()),
+            Query(SseTicketQuery { ticket: t.clone() }),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let r = api_setup_pqc_tls_events(
+            axum::extract::State(st.clone()),
+            Query(SseTicketQuery { ticket: t }),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "ticket monouso");
+    }
+
+    #[tokio::test]
+    async fn setup_requires_confirm() {
+        let req = SetupRequest {
+            all: None,
+            vpn: None,
+            security: None,
+            pqc_tls: Some(true),
+            confirm: None,
+        };
+        let r = api_setup(axum::extract::State(state()), Json(req)).await;
+        let err = r.err().expect("sin confirm debe fallar");
+        assert_eq!(err.into_response().status(), StatusCode::CONFLICT);
+    }
 }

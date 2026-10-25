@@ -329,13 +329,10 @@
             <section id="tab-test" class="tab-content">
                 <h2>Tests</h2>
                 <div class="actions">
-                    <input type="text" id="test-filter" placeholder="Filter (optional)">
-                    <button onclick="testRun()">Run Tests</button>
                     <button onclick="testList()">List Tests</button>
-                    <button onclick="testBenchmark()" disabled title="Not available in enola-cli-lite">Benchmark</button>
                     <button onclick="testResults()">Results</button>
-                    <button onclick="testClean()">Clean</button>
                 </div>
+                <p class="hint">Running, benchmarking and cleaning tests is CLI-only: <code>sudo enola-cli test run</code>.</p>
                 <pre id="test-output"></pre>
             </section>
 
@@ -404,12 +401,9 @@
                     <label><input type="checkbox" id="upd-dl-yes"> --yes</label>
                     <label><input type="checkbox" id="upd-dl-dryrun"> --dry-run</label>
                     <label><input type="checkbox" id="upd-dl-force"> Force</label>
-                    <label><input type="checkbox" id="upd-dl-allow-unsigned"> Allow Unsigned</label>
                     <button onclick="updDownload()">Download</button>
                     <div class="actions" style="margin-top:4px">
-                        <input type="text" id="upd-apply-binary" placeholder="Binary path (optional)">
-                        <label><input type="checkbox" id="upd-apply-allow-unsigned"> Allow Unsigned</label>
-                        <button onclick="updApply()">Apply</button>
+                        <button onclick="updApply()" title="Applies the downloaded, signature-verified update. Custom binaries / --allow-unsigned are CLI-only.">Apply</button>
                     </div>
                 </div>
                 <pre id="update-output"></pre>

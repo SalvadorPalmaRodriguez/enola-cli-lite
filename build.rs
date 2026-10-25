@@ -273,6 +273,9 @@ fn extract_flags(cmd: &clap::Command) -> serde_json::Value {
             "name": name,
             "required": arg.is_required_set(),
             "positional": arg.get_long().is_none(),
+            // A25-02: alias corto (`-n`) — el gate de la consola web lo
+            // resuelve al nombre largo antes de aplicar vetos y DENIED_FLAGS.
+            "short": arg.get_short().map(|c| c.to_string()),
             // R-11: distingue flags de presencia (clap SetTrue/SetFalse,
             // `--flag` sin valor) de las que toman valor (`--flag x`). Los
             // bool clap reportan possible_values ["true","false"] aunque no

@@ -11,10 +11,19 @@ use std::time::Duration;
 
 use crate::adapters::web::web_api;
 
+/// A25-02 (P1.2): máximo de comandos de consola concurrentes.
+pub(crate) const CONSOLE_MAX_CONCURRENT: usize = 4;
+
 pub struct AppState {
     pub token: String,
     /// T12: contador de fallos de auth consecutivos para el backoff anti fuerza bruta.
     pub auth_failures: AtomicU64,
+    /// A25-02 (P1.2): semáforo de `/api/console/run` (procesos root acotados).
+    pub(crate) console_slots: tokio::sync::Semaphore,
+    /// A25-03 (P1.5): job PQC TLS en curso (uno a la vez).
+    pub(crate) pqc_job: std::sync::Mutex<Option<Arc<crate::adapters::web::web_jobs::JobLog>>>,
+    /// A25-I5 (P1.5): tickets monouso del SSE (el EventSource no envía token).
+    pub(crate) sse_tickets: crate::adapters::web::web_jobs::TicketStore,
 }
 
 /// F-06 residual (R-10): persiste el token del dashboard en
@@ -77,6 +86,9 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
     let state = Arc::new(AppState {
         token: token.clone(),
         auth_failures: AtomicU64::new(0),
+        console_slots: tokio::sync::Semaphore::new(CONSOLE_MAX_CONCURRENT),
+        pqc_job: std::sync::Mutex::new(None),
+        sse_tickets: Default::default(),
     });
 
     let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
@@ -88,7 +100,9 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
         .route("/style.css", get(style_css))
         .route("/app.js", get(app_js))
         .route("/console_commands.json", get(console_commands_json))
-        .nest("/api", api_routes)
+        // A25-I5: el SSE de jobs va FUERA del middleware de token (lo
+        // autentica su ticket monouso); el resto de /api exige el bearer.
+        .nest("/api", api_routes.merge(web_api::sse_routes()))
         .with_state(state);
 
     // F-06 residual: el token se persiste en ~/.enola/web-token (0600) del
@@ -168,13 +182,24 @@ async fn app_js() -> impl IntoResponse {
     )
 }
 
+/// P1.7: el catálogo de la consola se sirve con los vetos del gate
+/// (`forbidden`) para que la UI marque como no disponibles las familias y
+/// rutas que la consola rechazaría con 403.
 async fn console_commands_json() -> impl IntoResponse {
+    let raw = include_str!("../../../assets/console_commands.json");
+    let body = match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(mut v) => {
+            v["forbidden"] = crate::application::command_gate::forbidden_for_ui();
+            v.to_string()
+        }
+        Err(_) => raw.to_string(),
+    };
     (
         [(
             axum::http::header::CONTENT_TYPE,
             "application/json; charset=utf-8",
         )],
-        include_str!("../../../assets/console_commands.json"),
+        body,
     )
 }
 
@@ -208,7 +233,7 @@ pub async fn auth_middleware(
 
 /// T12: delay de backoff exponencial para respuestas 401 (anti fuerza bruta).
 /// Crece 100ms·2^n hasta un tope de 2000ms.
-fn auth_backoff_delay(failures: u64) -> Duration {
+pub(crate) fn auth_backoff_delay(failures: u64) -> Duration {
     const BASE_MS: u64 = 100;
     const MAX_MS: u64 = 2_000;
     let shift = failures.min(6) as u32;

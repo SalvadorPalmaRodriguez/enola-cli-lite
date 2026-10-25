@@ -20,6 +20,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -28,6 +29,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "s",
               "value_name": "SERVICE_TYPE"
             },
             {
@@ -36,6 +38,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "p",
               "value_name": "VIRTUAL_PORT"
             },
             {
@@ -44,6 +47,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "t",
               "value_name": "TARGET_PORT"
             },
             {
@@ -55,6 +59,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             }
           ],
@@ -70,6 +75,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -85,6 +91,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -100,6 +107,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -111,6 +119,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -126,6 +135,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -134,6 +144,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "p",
               "value_name": "VIRTUAL_PORT"
             },
             {
@@ -142,6 +153,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "n",
               "value_name": "NGINX_PORT"
             },
             {
@@ -150,6 +162,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "t",
               "value_name": "TARGET_PORT"
             },
             {
@@ -161,6 +174,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "AUTO_PORTS"
             }
           ],
@@ -176,6 +190,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -191,6 +206,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -211,6 +227,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVICE"
                 },
                 {
@@ -219,6 +236,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "INSTANCE"
                 }
               ],
@@ -234,6 +252,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVICE"
                 },
                 {
@@ -242,6 +261,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "INSTANCE"
                 }
               ],
@@ -257,6 +277,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVICE"
                 },
                 {
@@ -265,6 +286,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "INSTANCE"
                 }
               ],
@@ -280,6 +302,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVICE"
                 },
                 {
@@ -288,6 +311,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -296,6 +320,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "c",
                   "value_name": "CLIENT"
                 },
                 {
@@ -304,6 +329,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "p",
                   "value_name": "PUBKEY"
                 }
               ],
@@ -319,6 +345,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVICE"
                 },
                 {
@@ -327,6 +354,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -335,6 +363,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "c",
                   "value_name": "CLIENT"
                 }
               ],
@@ -350,6 +379,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "c",
                   "value_name": "CLIENT"
                 }
               ],
@@ -365,6 +395,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVICE"
                 },
                 {
@@ -373,6 +404,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -381,6 +413,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "c",
                   "value_name": "CLIENT"
                 },
                 {
@@ -389,6 +422,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "p",
                   "value_name": "PUBKEY"
                 }
               ],
@@ -419,6 +453,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -430,6 +465,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -438,6 +474,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PORT"
             },
             {
@@ -446,6 +483,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PORT"
             },
             {
@@ -454,6 +492,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "USERNAME"
             },
             {
@@ -462,6 +501,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PASSWORD"
             }
           ],
@@ -477,6 +517,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -492,6 +533,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -507,6 +549,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -522,6 +565,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -533,6 +577,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -548,6 +593,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -559,6 +605,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "ENABLE"
             },
             {
@@ -570,6 +617,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "DISABLE"
             },
             {
@@ -581,6 +629,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "STATUS"
             }
           ],
@@ -596,6 +645,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -604,6 +654,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "HTTP_PORT"
             },
             {
@@ -612,6 +663,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "HTTPS_PORT"
             },
             {
@@ -620,6 +672,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "SSH_PORT"
             },
             {
@@ -631,6 +684,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "AUTO_PORTS"
             }
           ],
@@ -646,6 +700,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -657,6 +712,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -668,6 +724,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -683,6 +740,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -703,6 +761,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVER"
                 },
                 {
@@ -711,6 +770,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "USERNAME"
                 },
                 {
@@ -719,6 +779,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PASSWORD"
                 }
               ],
@@ -734,6 +795,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVER"
                 },
                 {
@@ -742,6 +804,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "u",
                   "value_name": "USERNAME"
                 },
                 {
@@ -750,6 +813,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "e",
                   "value_name": "EMAIL"
                 },
                 {
@@ -758,6 +822,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": "p",
                   "value_name": "PASSWORD"
                 },
                 {
@@ -769,6 +834,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "ADMIN"
                 },
                 {
@@ -777,6 +843,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "USERNAME"
                 },
                 {
@@ -785,6 +852,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PASSWORD"
                 }
               ],
@@ -800,6 +868,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SERVER"
                 },
                 {
@@ -808,6 +877,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "u",
                   "value_name": "USERNAME"
                 },
                 {
@@ -816,6 +886,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "USERNAME"
                 },
                 {
@@ -824,6 +895,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PASSWORD"
                 }
               ],
@@ -860,6 +932,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -868,6 +941,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PORT"
             }
           ],
@@ -883,6 +957,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -898,6 +973,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -913,6 +989,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -928,6 +1005,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -939,6 +1017,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -954,6 +1033,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -969,6 +1049,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -984,6 +1065,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -999,6 +1081,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1010,6 +1093,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1021,6 +1105,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -1036,6 +1121,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1051,6 +1137,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1059,6 +1146,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "HTTP_PORT"
             },
             {
@@ -1067,6 +1155,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "HTTPS_PORT"
             },
             {
@@ -1078,6 +1167,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1089,6 +1179,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "AUTO_PORTS"
             }
           ],
@@ -1117,6 +1208,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -1125,6 +1217,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "PORT"
             }
           ],
@@ -1140,6 +1233,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1155,6 +1249,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1170,6 +1265,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1181,6 +1277,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -1196,6 +1293,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1211,6 +1309,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1222,6 +1321,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1233,6 +1333,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -1248,6 +1349,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1263,6 +1365,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1271,6 +1374,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "HTTP_PORT"
             }
           ],
@@ -1299,6 +1403,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -1307,6 +1412,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "PORT"
             }
           ],
@@ -1322,6 +1428,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1337,6 +1444,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1352,6 +1460,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1363,6 +1472,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -1378,6 +1488,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1393,6 +1504,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1404,6 +1516,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1415,6 +1528,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -1430,6 +1544,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1445,6 +1560,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1453,6 +1569,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "HTTP_PORT"
             }
           ],
@@ -1481,6 +1598,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -1489,6 +1607,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "PORT"
             }
           ],
@@ -1504,6 +1623,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1519,6 +1639,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1534,6 +1655,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1545,6 +1667,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -1560,6 +1683,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1575,6 +1699,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1586,6 +1711,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1597,6 +1723,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -1612,6 +1739,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1640,6 +1768,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -1648,6 +1777,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "PORT"
             }
           ],
@@ -1663,6 +1793,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1678,6 +1809,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1693,6 +1825,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1704,6 +1837,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -1719,6 +1853,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1734,6 +1869,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1745,6 +1881,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1756,6 +1893,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -1771,6 +1909,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1789,6 +1928,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -1817,6 +1957,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -1825,6 +1966,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "PORT"
             }
           ],
@@ -1840,6 +1982,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1855,6 +1998,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1870,6 +2014,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1881,6 +2026,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -1896,6 +2042,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1911,6 +2058,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -1922,6 +2070,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -1933,6 +2082,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             }
           ],
@@ -1948,6 +2098,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -1976,6 +2127,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -1987,6 +2139,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             },
             {
@@ -1998,6 +2151,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             }
           ],
@@ -2013,6 +2167,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -2021,6 +2176,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "p",
               "value_name": "PORT"
             }
           ],
@@ -2036,6 +2192,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -2047,6 +2204,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -2062,6 +2220,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -2123,6 +2282,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             },
             {
@@ -2134,6 +2294,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "DRY_RUN"
             }
           ],
@@ -2149,6 +2310,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "KEEP"
             }
           ],
@@ -2164,6 +2326,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "MAX_BACKUPS"
             }
           ],
@@ -2179,6 +2342,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "t",
               "value_name": "TARGET"
             },
             {
@@ -2190,6 +2354,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "DRY_RUN"
             },
             {
@@ -2201,6 +2366,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             },
             {
@@ -2209,6 +2375,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "KEEP_DAYS"
             }
           ],
@@ -2279,6 +2446,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "ADDRESS"
             }
           ],
@@ -2301,6 +2469,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "f",
               "value_name": "FILTER"
             }
           ],
@@ -2353,6 +2522,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "SOURCE"
             },
             {
@@ -2361,6 +2531,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "l",
               "value_name": "LINES"
             },
             {
@@ -2372,6 +2543,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FOLLOW"
             }
           ],
@@ -2409,6 +2581,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "JSON"
             }
           ],
@@ -2431,6 +2604,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "SSH_PORT"
             },
             {
@@ -2442,6 +2616,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -2463,6 +2638,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "p",
               "value_name": "PORT"
             },
             {
@@ -2471,6 +2647,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PROTO"
             },
             {
@@ -2479,6 +2656,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "FROM"
             }
           ],
@@ -2494,6 +2672,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "p",
               "value_name": "PORT"
             },
             {
@@ -2502,6 +2681,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PROTO"
             }
           ],
@@ -2524,6 +2704,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "MODE"
             },
             {
@@ -2535,6 +2716,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -2559,6 +2741,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "ENFORCE"
             },
             {
@@ -2570,6 +2753,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "COMPLAIN"
             },
             {
@@ -2581,6 +2765,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "DISABLE"
             },
             {
@@ -2589,6 +2774,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PROFILE"
             }
           ],
@@ -2611,6 +2797,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -2619,6 +2806,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "p",
               "value_name": "PORT"
             },
             {
@@ -2627,6 +2815,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "n",
               "value_name": "SUBNET"
             },
             {
@@ -2638,6 +2827,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTOSTART"
             },
             {
@@ -2649,6 +2839,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SYNC_FIREWALL"
             },
             {
@@ -2660,6 +2851,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "TOR"
             }
           ],
@@ -2675,6 +2867,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -2690,6 +2883,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -2705,6 +2899,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -2726,6 +2921,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -2737,6 +2933,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             },
             {
@@ -2748,6 +2945,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SYNC_FIREWALL"
             }
           ],
@@ -2768,6 +2966,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INTERFACE"
                 },
                 {
@@ -2776,6 +2975,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PEER_NAME"
                 },
                 {
@@ -2784,6 +2984,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "e",
                   "value_name": "ENDPOINT"
                 },
                 {
@@ -2792,6 +2993,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "DNS"
                 },
                 {
@@ -2803,6 +3005,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "PSK"
                 },
                 {
@@ -2811,6 +3014,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "IP"
                 },
                 {
@@ -2822,6 +3026,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "TOR"
                 }
               ],
@@ -2837,6 +3042,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INTERFACE"
                 },
                 {
@@ -2845,6 +3051,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PEER_NAME"
                 },
                 {
@@ -2853,6 +3060,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PUBLIC_KEY"
                 },
                 {
@@ -2861,6 +3069,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "IP"
                 }
               ],
@@ -2876,6 +3085,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INTERFACE"
                 },
                 {
@@ -2884,6 +3094,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PUBLIC_KEY"
                 }
               ],
@@ -2908,6 +3119,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "USER"
             },
             {
@@ -2916,6 +3128,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "p",
               "value_name": "PUBKEY"
             },
             {
@@ -2924,6 +3137,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "COMMENT"
             }
           ],
@@ -2939,6 +3153,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -2947,6 +3162,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "ONION_PORT"
             },
             {
@@ -2955,6 +3171,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "LOCAL_SSH_PORT"
             }
           ],
@@ -2975,6 +3192,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "ALL"
         },
         {
@@ -2986,6 +3204,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "VPN"
         },
         {
@@ -2997,6 +3216,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "SECURITY"
         },
         {
@@ -3008,6 +3228,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "PQC_TLS"
         }
       ],
@@ -3026,6 +3247,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "SECURITY"
         }
       ],
@@ -3050,6 +3272,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "THIRD_PARTY"
         }
       ],
@@ -3065,6 +3288,7 @@
           "positional": true,
           "possible_values": [],
           "required": true,
+          "short": null,
           "value_name": "FILE"
         },
         {
@@ -3073,6 +3297,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "PQSIG"
         },
         {
@@ -3081,6 +3306,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "PUBKEY"
         },
         {
@@ -3092,6 +3318,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "JSON"
         }
       ],
@@ -3110,6 +3337,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "YES"
         },
         {
@@ -3121,6 +3349,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "KEEP_DATA"
         },
         {
@@ -3129,6 +3358,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "ONLY"
         },
         {
@@ -3140,6 +3370,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "FORCE"
         },
         {
@@ -3151,6 +3382,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "REMOVE_DEPS"
         }
       ],
@@ -3169,6 +3401,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "JSON"
         }
       ],
@@ -3187,6 +3420,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "REACHABLE"
         },
         {
@@ -3198,6 +3432,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "JSON"
         }
       ],
@@ -3224,6 +3459,7 @@
               "positional": true,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "GROUP"
             }
           ],
@@ -3239,6 +3475,7 @@
               "positional": true,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "TOPIC"
             }
           ],
@@ -3254,6 +3491,7 @@
               "positional": true,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "FILTER"
             }
           ],
@@ -3269,6 +3507,7 @@
               "positional": true,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "CASE"
             }
           ],
@@ -3284,6 +3523,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "TERM"
             }
           ],
@@ -3333,6 +3573,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "JSON"
             },
             {
@@ -3344,6 +3585,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "FORCE"
             }
           ],
@@ -3362,6 +3604,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "JSON"
             }
           ],
@@ -3377,6 +3620,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "SOURCE"
             },
             {
@@ -3385,6 +3629,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "SIGNATURE"
             },
             {
@@ -3396,6 +3641,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "JSON"
             }
           ],
@@ -3414,6 +3660,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "YES"
             },
             {
@@ -3425,6 +3672,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "DRY_RUN"
             },
             {
@@ -3436,6 +3684,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "JSON"
             },
             {
@@ -3447,6 +3696,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "FORCE"
             },
             {
@@ -3458,6 +3708,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "ALLOW_UNSIGNED"
             }
           ],
@@ -3473,6 +3724,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "BINARY"
             },
             {
@@ -3484,6 +3736,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "JSON"
             },
             {
@@ -3495,6 +3748,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "ALLOW_UNSIGNED"
             }
           ],
@@ -3512,6 +3766,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": "p",
           "value_name": "PORT"
         }
       ],
@@ -3537,6 +3792,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "n",
                   "value_name": "NAME"
                 },
                 {
@@ -3545,6 +3801,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PORT"
                 }
               ],
@@ -3567,6 +3824,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "n",
                   "value_name": "NAME"
                 },
                 {
@@ -3575,6 +3833,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": "s",
                   "value_name": "SERVICE_TYPE"
                 },
                 {
@@ -3583,6 +3842,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": "p",
                   "value_name": "VIRTUAL_PORT"
                 },
                 {
@@ -3591,6 +3851,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": "t",
                   "value_name": "TARGET_PORT"
                 },
                 {
@@ -3602,6 +3863,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "SSL"
                 }
               ],
@@ -3624,6 +3886,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "n",
                   "value_name": "NAME"
                 },
                 {
@@ -3635,6 +3898,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "SSL"
                 },
                 {
@@ -3643,6 +3907,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PORT"
                 },
                 {
@@ -3651,6 +3916,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PORT"
                 }
               ],
@@ -3673,6 +3939,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "ALLOW_WRITE"
         },
         {
@@ -3681,6 +3948,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "TOOLS"
         },
         {
@@ -3689,6 +3957,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "BYTES"
         },
         {
@@ -3697,6 +3966,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "PATH"
         },
         {
@@ -3705,6 +3975,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "SECS"
         }
       ],
@@ -3720,6 +3991,7 @@
           "positional": true,
           "possible_values": [],
           "required": true,
+          "short": null,
           "value_name": "PROMPT"
         },
         {
@@ -3728,6 +4000,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "MODEL"
         },
         {
@@ -3736,6 +4009,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "URL"
         },
         {
@@ -3744,6 +4018,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "NAME"
         },
         {
@@ -3755,6 +4030,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "NO_EXEC"
         },
         {
@@ -3766,6 +4042,7 @@
             "false"
           ],
           "required": false,
+          "short": "y",
           "value_name": "YES"
         },
         {
@@ -3774,6 +4051,7 @@
           "positional": false,
           "possible_values": [],
           "required": false,
+          "short": null,
           "value_name": "PROVIDER"
         },
         {
@@ -3785,6 +4063,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "ACCEPT_RISKS"
         },
         {
@@ -3796,6 +4075,7 @@
             "false"
           ],
           "required": false,
+          "short": null,
           "value_name": "TOR"
         }
       ],
@@ -3816,6 +4096,7 @@
               "positional": false,
               "possible_values": [],
               "required": true,
+              "short": "n",
               "value_name": "NAME"
             },
             {
@@ -3824,6 +4105,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "m",
               "value_name": "MODEL"
             },
             {
@@ -3832,6 +4114,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PORT"
             },
             {
@@ -3840,6 +4123,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "PORT"
             },
             {
@@ -3851,6 +4135,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "NO_GPU"
             },
             {
@@ -3859,6 +4144,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": null,
               "value_name": "GIB"
             },
             {
@@ -3870,6 +4156,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "NO_PULL"
             }
           ],
@@ -3891,6 +4178,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -3906,6 +4194,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -3921,6 +4210,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -3936,6 +4226,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -3947,6 +4238,7 @@
                 "false"
               ],
               "required": false,
+              "short": "f",
               "value_name": "FORCE"
             }
           ],
@@ -3962,6 +4254,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -3973,6 +4266,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "SSL"
             },
             {
@@ -3984,6 +4278,7 @@
                 "false"
               ],
               "required": false,
+              "short": "a",
               "value_name": "AUTH"
             },
             {
@@ -3995,6 +4290,7 @@
                 "false"
               ],
               "required": false,
+              "short": null,
               "value_name": "VERIFY"
             }
           ],
@@ -4010,6 +4306,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             }
           ],
@@ -4025,6 +4322,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -4033,6 +4331,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "n",
               "value_name": "LINES"
             }
           ],
@@ -4053,6 +4352,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "NAME"
                 }
               ],
@@ -4068,6 +4368,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4076,6 +4377,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "SOURCE"
                 },
                 {
@@ -4084,6 +4386,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "FILE"
                 },
                 {
@@ -4092,6 +4395,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "HEX"
                 },
                 {
@@ -4100,6 +4404,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4111,6 +4416,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "TOR"
                 },
                 {
@@ -4122,6 +4428,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "NO_REGISTER"
                 }
               ],
@@ -4137,6 +4444,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4145,6 +4453,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PATH"
                 },
                 {
@@ -4153,6 +4462,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4164,6 +4474,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "NO_REGISTER"
                 }
               ],
@@ -4179,6 +4490,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4187,6 +4499,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "MODEL"
                 },
                 {
@@ -4195,6 +4508,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "NAME"
                 }
               ],
@@ -4210,6 +4524,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4218,6 +4533,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "MODEL"
                 },
                 {
@@ -4229,6 +4545,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": "f",
                   "value_name": "FORCE"
                 }
               ],
@@ -4244,6 +4561,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4252,6 +4570,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "FILE"
                 }
               ],
@@ -4267,6 +4586,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 }
               ],
@@ -4289,6 +4609,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INSTANCE"
                 }
               ],
@@ -4304,6 +4625,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -4312,6 +4634,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PATH"
                 },
                 {
@@ -4320,6 +4643,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "MODE"
                 }
               ],
@@ -4335,6 +4659,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -4343,6 +4668,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "MODE"
                 }
               ],
@@ -4358,6 +4684,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -4366,6 +4693,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "s",
                   "value_name": "SOURCE_TYPE"
                 },
                 {
@@ -4374,6 +4702,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": "p",
                   "value_name": "PATH"
                 },
                 {
@@ -4385,6 +4714,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "FORCE"
                 }
               ],
@@ -4400,6 +4730,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -4408,6 +4739,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "MODE"
                 }
               ],
@@ -4423,6 +4755,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "INSTANCE"
                 },
                 {
@@ -4431,6 +4764,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "CHUNK_SIZE"
                 },
                 {
@@ -4439,6 +4773,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "CHUNK_OVERLAP"
                 },
                 {
@@ -4450,6 +4785,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "REMOVE_CODE"
                 },
                 {
@@ -4458,6 +4794,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "PRESET"
                 },
                 {
@@ -4466,6 +4803,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "VECTOR_STORE"
                 },
                 {
@@ -4477,6 +4815,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": "s",
                   "value_name": "SHOW"
                 }
               ],
@@ -4494,6 +4833,7 @@
               "positional": true,
               "possible_values": [],
               "required": true,
+              "short": null,
               "value_name": "NAME"
             },
             {
@@ -4502,6 +4842,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "m",
               "value_name": "MODEL"
             },
             {
@@ -4510,6 +4851,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "p",
               "value_name": "PROMPT"
             },
             {
@@ -4518,6 +4860,7 @@
               "positional": false,
               "possible_values": [],
               "required": false,
+              "short": "r",
               "value_name": "RUNS"
             }
           ],
@@ -4544,6 +4887,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PROVIDER"
                 }
               ],
@@ -4559,6 +4903,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PROVIDER"
                 },
                 {
@@ -4567,6 +4912,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "MODEL"
                 },
                 {
@@ -4575,6 +4921,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "URL"
                 },
                 {
@@ -4586,6 +4933,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "KEY_STDIN"
                 },
                 {
@@ -4597,6 +4945,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "DISABLE"
                 }
               ],
@@ -4612,6 +4961,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PROVIDER"
                 },
                 {
@@ -4623,6 +4973,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "FORCE"
                 }
               ],
@@ -4638,6 +4989,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "PROVIDER"
                 },
                 {
@@ -4649,6 +5001,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "ACCEPT_RISKS"
                 },
                 {
@@ -4660,6 +5013,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "TOR"
                 }
               ],
@@ -4682,6 +5036,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "FILE.jsonl"
                 },
                 {
@@ -4690,6 +5045,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": "f",
                   "value_name": "alpaca|chatml|sharegpt|text"
                 },
                 {
@@ -4698,6 +5054,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": "o",
                   "value_name": "OUT"
                 },
                 {
@@ -4706,6 +5063,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "VAL_RATIO"
                 }
               ],
@@ -4721,6 +5079,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "FILE.jsonl"
                 },
                 {
@@ -4729,6 +5088,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "MODEL"
                 }
               ],
@@ -4744,6 +5104,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4752,6 +5113,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "FILE.jsonl"
                 },
                 {
@@ -4760,6 +5122,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "MODEL"
                 },
                 {
@@ -4768,6 +5131,7 @@
                   "positional": false,
                   "possible_values": [],
                   "required": false,
+                  "short": null,
                   "value_name": "ORG/REPO"
                 },
                 {
@@ -4779,6 +5143,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "LOW_MEMORY"
                 },
                 {
@@ -4790,6 +5155,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "NO_REGISTER"
                 },
                 {
@@ -4801,6 +5167,7 @@
                     "false"
                   ],
                   "required": false,
+                  "short": null,
                   "value_name": "FORCE"
                 }
               ],
@@ -4816,6 +5183,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 }
               ],
@@ -4831,6 +5199,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "NAME"
                 },
                 {
@@ -4839,6 +5208,7 @@
                   "positional": true,
                   "possible_values": [],
                   "required": true,
+                  "short": null,
                   "value_name": "JOB_ID"
                 }
               ],

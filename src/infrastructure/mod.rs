@@ -4,6 +4,7 @@
 pub mod anti_debug; // LAUNCH-015 — prctl PR_SET_DUMPABLE + TracerPid detection
 #[cfg(unix)]
 pub mod atomic_secret_file; // SEC-EXT-RACE-010 — escritura atómica O_EXCL+0600+rename (anti-TOCTOU §13.x)
+pub mod child_env; // R-3/A25-02 — allowlist de entorno para hijos enola-cli (MCP + consola web)
 pub mod config_loader; // CONFIG-001 + CONFIG-002 — generic TOML section loader
 pub mod container_limits; // SEC-EXT-DOCKER-040 — límites CPU/RAM/PIDs por defecto
 pub mod drop_privs; // SEC-EXT-PRIV-020 — drop EUID 0 antes de exec en subprocesos auxiliares

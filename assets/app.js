@@ -1327,33 +1327,19 @@
     window.diagResources = () => diagFetch('/api/diag/resources');
 
     // ── Test ───────────────────────────────────────────────────────────────
-    window.testRun = async function () {
-        const filter = document.getElementById('test-filter').value.trim() || null;
-        const el = document.getElementById('test-output');
-        el.textContent = 'Running tests...';
-        try { const result = await apiPostJson('/api/test/run', { filter }); el.textContent = result; toast('Tests run'); }
-        catch (e) { el.textContent = 'Error: ' + e.message; toast(e.message, true); }
-    };
     window.testList = async function () {
         const el = document.getElementById('test-output');
         el.textContent = 'Loading...';
         try { const data = await apiGetJson('/api/test/list'); el.textContent = data.join('\n'); }
         catch (e) { el.textContent = 'Error: ' + e.message; toast(e.message, true); }
     };
-    window.testBenchmark = async function () {
-        try { const result = await apiPostJson('/api/test/benchmark'); document.getElementById('test-output').textContent = result; }
-        catch (e) { toast(e.message, true); }
-    };
     window.testResults = async function () {
         try { const data = await apiGetJson('/api/test/results'); document.getElementById('test-output').textContent = JSON.stringify(data, null, 2); }
         catch (e) { toast(e.message, true); }
     };
-    window.testClean = async function () {
-        try { const result = await apiPostJson('/api/test/clean'); document.getElementById('test-output').textContent = result; toast('Cleaned'); }
-        catch (e) { toast(e.message, true); }
-    };
-
     // ── Setup ──────────────────────────────────────────────────────────────
+    // A25-03/I5: POST autenticado (confirm:"setup") arranca; el EventSource
+    // solo observa el job con un ticket monouso (no puede enviar Authorization).
     window.setupRun = async function () {
         const all = document.getElementById('setup-all').checked;
         const vpn = document.getElementById('setup-vpn').checked;
@@ -1361,28 +1347,30 @@
         const pqc_tls = document.getElementById('setup-pqc-tls').checked;
         const out = document.getElementById('setup-output');
 
-        if (pqc_tls) {
-            out.textContent = 'Starting PQC TLS installer (streaming output)...\n';
-            const evtSrc = new EventSource('/api/setup/pqc-tls');
+        showConfirm('Run setup', 'Install system dependencies as root (apt-get)?', async () => {
+            out.textContent = pqc_tls ? 'Starting PQC TLS installer (streaming output)...\n' : 'Running setup...';
+            let data;
+            try { data = await apiPostJson('/api/setup', { all, vpn, security, pqc_tls, confirm: 'setup' }); }
+            catch (e) { out.textContent = 'Error: ' + e.message; toast(e.message, true); return; }
+            if (data && data.output) out.textContent = data.output + '\n';
+            if (!data || !data.pqc_tls_ticket) { toast('Setup complete'); return; }
+
+            const evtSrc = new EventSource('/api/setup/pqc-tls/events?ticket=' + encodeURIComponent(data.pqc_tls_ticket));
             evtSrc.onmessage = function (ev) {
                 out.textContent += ev.data + '\n';
                 out.scrollTop = out.scrollHeight;
             };
             evtSrc.onerror = function () {
                 evtSrc.close();
-                if (!out.textContent.includes('SUCCESS') && !out.textContent.includes('FAILED') && !out.textContent.includes('TIMEOUT')) {
+                if (!out.textContent.includes('SUCCESS') && !out.textContent.includes('FAILED') && !out.textContent.includes('TIMEOUT') && !out.textContent.includes('ERROR')) {
                     out.textContent += '\n[Connection closed unexpectedly]\n';
-                    out.textContent += 'SOLUTION: Run "enola-cli setup --pqc-tls" directly in a terminal.\n';
+                    out.textContent += 'SOLUTION: Run setup again to re-attach, or "enola-cli setup --pqc-tls" in a terminal.\n';
                     toast('PQC TLS stream closed', true);
                 } else {
                     toast('PQC TLS setup finished');
                 }
             };
-            return;
-        }
-
-        try { const result = await apiPostJson('/api/setup', { all, vpn, security, pqc_tls }); out.textContent = result || 'Setup complete'; toast('Setup complete'); }
-        catch (e) { out.textContent = 'Error: ' + e.message; toast(e.message, true); }
+        });
     };
 
     // ── System (quickref, license, config, verify, uninstall) ─────────────
@@ -1447,19 +1435,20 @@
         const yes = document.getElementById('upd-dl-yes').checked;
         const dry_run = document.getElementById('upd-dl-dryrun').checked;
         const force = document.getElementById('upd-dl-force').checked;
-        const allow_unsigned = document.getElementById('upd-dl-allow-unsigned').checked;
-        try {
-            const data = await apiPostJson('/api/update/download', { yes, dry_run, force, allow_unsigned });
-            document.getElementById('update-output').textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-            toast('Download done');
-        } catch (e) { toast(e.message, true); }
+        const run = async () => {
+            try {
+                const data = await apiPostJson('/api/update/download', { yes, dry_run, force, confirm: 'update' });
+                document.getElementById('update-output').textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+                toast('Download done');
+            } catch (e) { toast(e.message, true); }
+        };
+        if (dry_run) { run(); return; }
+        showConfirm('Download Update', yes ? 'Download and apply the update? This will replace the current binary.' : 'Download the signed update?', run);
     };
     window.updApply = async function () {
         showConfirm('Apply Update', 'Apply update? This will replace the current binary.', async () => {
-            const binary = document.getElementById('upd-apply-binary').value.trim() || null;
-            const allow_unsigned = document.getElementById('upd-apply-allow-unsigned').checked;
             try {
-                const data = await apiPostJson('/api/update/apply', { binary, allow_unsigned });
+                const data = await apiPostJson('/api/update/apply', { confirm: 'update' });
                 document.getElementById('update-output').textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
                 toast('Update applied');
             } catch (e) { toast(e.message, true); }
@@ -1565,6 +1554,8 @@
                     .map(f => parts.slice(0, -1).join(' ') + ' ' + f);
             }
         }
+        // P1.7: los comandos vetados por el gate no se sugieren.
+        suggestions = suggestions.filter(s => !consoleForbidden(s.split(/\s+/)));
         suggestions.slice(0, 10).forEach(s => {
             const opt = document.createElement('option');
             opt.value = s;
@@ -1623,11 +1614,38 @@
             toast('Unknown module: ' + mod, true);
             return;
         }
+        const vetoed = consoleForbidden(args);
+        if (vetoed) {
+            out.textContent = '$ ' + raw + '\nError: "' + vetoed + '" is not available from the web console (use the CLI).';
+            toast('Not available from the web console', true);
+            return;
+        }
         saveConsoleHistory(raw);
+        await consoleSend(raw, args, null);
+    };
+
+    // P1.7: vetos del gate servidos en console_commands.json (`forbidden`).
+    function consoleForbidden(args) {
+        const fb = CONSOLE_DATA.forbidden || {};
+        if ((fb.families || []).includes(args[0])) return args[0];
+        const path = args.filter(a => !a.startsWith('-')).join(' ');
+        return (fb.paths || []).find(p => path === p || path.startsWith(p + ' ')) || null;
+    }
+
+    async function consoleSend(raw, args, confirm) {
+        const out = document.getElementById('console-output');
         out.textContent = '$ ' + raw + '\nRunning...';
         try {
-            const res = await apiPost('/api/console/run', { args, timeout_secs: 300 });
+            const body = { args, timeout_secs: 300 };
+            if (confirm) body.confirm = confirm;
+            const res = await apiPost('/api/console/run', body);
             const data = await res.json().catch(async () => ({ error: await res.text() }));
+            if (res.status === 409 && data.confirm_expected && !confirm) {
+                out.textContent = '$ ' + raw + '\n' + data.error;
+                showConfirm('Destructive command', 'Run "' + raw + '"? Target: ' + data.confirm_expected,
+                    () => consoleSend(raw, args, data.confirm_expected));
+                return;
+            }
             if (!res.ok) {
                 let detail = data.error || 'Command failed';
                 if (data.stderr) detail += '\n=== STDERR ===\n' + data.stderr;
