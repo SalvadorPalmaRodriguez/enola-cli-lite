@@ -42,7 +42,10 @@ pub struct DistributionSettings {
 impl DistributionSettings {
     /// Carga la configuración aplicando la cadena: env > archivo > default.
     pub fn load() -> Self {
-        let file = crate::infrastructure::config_loader::load_section("distribution");
+        let file = crate::infrastructure::config_loader::load_security_section(
+            "distribution",
+            crate::infrastructure::config_loader::DISTRIBUTION_SECURITY_KEYS,
+        );
         let mut cfg = Self::default();
 
         if let Some(v) = std::env::var("ENOLA_BINARY_BASE_URL")

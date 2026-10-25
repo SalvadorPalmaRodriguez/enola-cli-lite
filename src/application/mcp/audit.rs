@@ -121,44 +121,33 @@ impl AuditLogger {
             }
             AuditSink::File(path) => {
                 use std::io::Write;
-                if let Some(parent) = path.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        std::fs::create_dir_all(parent)?;
-                        #[cfg(unix)]
-                        {
-                            use std::os::unix::fs::PermissionsExt;
-                            let _ = std::fs::set_permissions(
-                                parent,
-                                std::fs::Permissions::from_mode(0o700),
-                            );
-                        }
-                    }
-                }
+                // SAFETY: geteuid no tiene precondiciones.
+                #[cfg(unix)]
+                let euid = unsafe { libc::geteuid() };
+                #[cfg(not(unix))]
+                let euid = 1;
+                validate_audit_path(path, euid)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .ok_or_else(|| std::io::Error::other("audit log path has no file name"))?;
+                let dir = open_audit_dir(path, euid)?;
                 // R-4: rotación simple por tamaño — un flood de rechazos no
                 // debe hacer crecer el log sin límite (10 MiB → .1, se pierde
-                // la rotación anterior).
+                // la rotación anterior). El directorio ya está validado (dueño
+                // y modo), así que el rename por ruta no lo controla un tercero.
                 const MAX_AUDIT_BYTES: u64 = 10 * 1024 * 1024;
-                if let Ok(meta) = std::fs::metadata(path) {
-                    if meta.len() >= MAX_AUDIT_BYTES {
-                        let rotated = path.with_file_name(format!(
-                            "{}.1",
-                            path.file_name().unwrap_or_default().to_string_lossy()
-                        ));
+                if let Ok(meta) = std::fs::symlink_metadata(path) {
+                    if meta.is_file() && meta.len() >= MAX_AUDIT_BYTES {
+                        let rotated = path.with_file_name(format!("{name}.1"));
                         let _ = std::fs::rename(path, &rotated);
                     }
                 }
-                let mut opts = std::fs::OpenOptions::new();
-                opts.create(true).append(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    // 0600 en creación + O_NOFOLLOW: un symlink preexistente
-                    // no puede hacer escribir al proceso (posiblemente root)
-                    // sobre un fichero arbitrario.
-                    opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-                }
-                let mut f = opts.open(path)?;
-                // Si el fichero ya existía con perms laxos, endurecerlos.
+                // 0600 en creación + O_NOFOLLOW relativo al fd del directorio:
+                // un symlink plantado no redirige la escritura (posiblemente root).
+                let mut f = dir.open_append_nofollow(name, 0o600)?;
+                // Si ya existía con perms laxos, endurecerlo sobre el fd (fchmod).
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -170,6 +159,65 @@ impl AuditLogger {
             }
         }
     }
+}
+
+/// A25-04 (P2.5): directorios donde root puede escribir el log de auditoría
+/// MCP. Una ruta elegida por terceros (`/usr/bin/x`, `/etc/sudoers.d/x`)
+/// hacía que root cambiara permisos del padre y escribiera ahí.
+pub(crate) const ROOT_AUDIT_DIRS: &[&str] = &["/var/log/enola", "/var/lib/enola"];
+
+/// Valida la ruta del log: absoluta y sin `..`; bajo euid 0 además su
+/// directorio padre debe ser uno de `ROOT_AUDIT_DIRS`.
+pub(crate) fn validate_audit_path(path: &std::path::Path, euid: u32) -> Result<(), String> {
+    use std::path::Component;
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+    {
+        return Err(format!(
+            "audit log '{}' must be an absolute path without '.'/'..'",
+            path.display()
+        ));
+    }
+    if path.file_name().is_none() {
+        return Err(format!("audit log '{}' has no file name", path.display()));
+    }
+    if euid == 0 {
+        let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
+        if !ROOT_AUDIT_DIRS.contains(&parent) {
+            return Err(format!(
+                "as root the audit log must live directly in {} (got '{}')",
+                ROOT_AUDIT_DIRS.join(" or "),
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Abre (creándolo si falta) el directorio del log sin seguir symlinks y sin
+/// `chmod` por ruta: bajo root se crea `0700` root-owned (rechaza uno ajeno o
+/// escribible por grupo/otros); sin root se reducen sus permisos a `0700`
+/// sobre el fd (nunca se añaden).
+#[cfg(unix)]
+fn open_audit_dir(
+    path: &std::path::Path,
+    euid: u32,
+) -> std::io::Result<crate::infrastructure::safe_dir::SafeDir> {
+    use crate::infrastructure::safe_dir::{open_user_dir, OwnerPolicy, SafeDir};
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("audit log path has no parent"))?;
+    if euid == 0 {
+        return SafeDir::open_or_create(parent, 0o700, OwnerPolicy::Euid);
+    }
+    if let Some(grand) = parent.parent() {
+        std::fs::create_dir_all(grand)?;
+    }
+    // SAFETY: getegid no tiene precondiciones.
+    let egid = unsafe { libc::getegid() };
+    open_user_dir(parent, 0o700, (euid, egid), OwnerPolicy::Euid)
 }
 
 #[cfg(test)]
@@ -214,6 +262,39 @@ mod tests {
         assert_eq!(first["result"], "ok");
         assert!(first["ts"].as_str().unwrap().contains('T'));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A25-04 (P2.5): bajo root solo /var/log/enola o /var/lib/enola.
+    #[test]
+    fn root_audit_path_must_be_in_canonical_dir() {
+        use std::path::Path;
+        for bad in [
+            "/usr/bin/x",
+            "/etc/sudoers.d/x",
+            "/var/log/enola/../../etc/x",
+            "/var/log/enola/sub/x",
+            "relative.log",
+        ] {
+            assert!(validate_audit_path(Path::new(bad), 0).is_err(), "{bad}");
+        }
+        assert!(validate_audit_path(Path::new("/var/log/enola/mcp-audit.log"), 0).is_ok());
+        assert!(validate_audit_path(Path::new("/var/lib/enola/mcp-audit.log"), 0).is_ok());
+        // Sin root: cualquier ruta absoluta propia.
+        assert!(validate_audit_path(Path::new("/tmp/x/audit.log"), 1000).is_ok());
+        assert!(validate_audit_path(Path::new("rel.log"), 1000).is_err());
+    }
+
+    #[test]
+    fn audit_does_not_follow_planted_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, "keep").unwrap();
+        let path = dir.path().join("logs").join("audit.log");
+        std::fs::create_dir(dir.path().join("logs")).unwrap();
+        std::os::unix::fs::symlink(&victim, &path).unwrap();
+        let logger = AuditLogger::new(Some(path.to_str().unwrap()));
+        logger.log_call("wp_create", &serde_json::json!({}), "ok");
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
     }
 
     #[test]

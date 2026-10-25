@@ -27,9 +27,13 @@ const APPARMOR_SYSFS_PATH: &str = "/sys/module/apparmor/parameters/enabled";
 const NO_NEW_PRIVS: &str = "no-new-privileges:true";
 
 fn apparmor_sysfs_path() -> PathBuf {
-    std::env::var(APPARMOR_PATH_OVERRIDE_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(APPARMOR_SYSFS_PATH))
+    // A25-04 / SD-5: el override solo existe en tests — en producción un
+    // fichero con `N` desactivaba la inyección de perfiles AppArmor.
+    #[cfg(any(test, feature = "testing"))]
+    if let Ok(p) = std::env::var(APPARMOR_PATH_OVERRIDE_ENV) {
+        return PathBuf::from(p);
+    }
+    PathBuf::from(APPARMOR_SYSFS_PATH)
 }
 
 /// Returns `true` iff the host kernel advertises AppArmor as enabled.

@@ -1365,7 +1365,14 @@ fn load_last_download() -> Option<(String, String, bool, Option<String>)> {
 /// Download the latest binary from the update feed.
 /// Verifies SHA256 and minisign signature.
 /// Saves the binary to a temp directory and returns the path.
-pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadResult, String> {
+///
+/// A25-04 (P2.4): `allow_unsigned` solo lo fija el flag `--allow-unsigned`
+/// tecleado por el operador — nunca el entorno (`ENOLA_ALLOW_UNSIGNED_UPDATE`
+/// heredado bajo `sudo -E` desactivaba la exigencia de firma).
+pub async fn download_update(
+    force_feed: bool,
+    allow_unsigned: bool,
+) -> std::result::Result<DownloadResult, String> {
     let url = feed_url();
     if url.is_empty() {
         return Err("No update feed configured. Set ENOLA_UPDATE_FEED_URL or [update].feed_url in config.toml".to_string());
@@ -1523,13 +1530,13 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
 
     // MED-05: fail if signature was not verified, unless escape hatch is set.
     if !signature_verified {
-        if std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1") {
+        if !allow_unsigned {
             // Still save metadata so user can inspect the binary, but return error.
             save_last_download(&persist_str, &actual_sha, false, sig_persisted.as_deref());
             return Err(format!(
                 "Signature verification failed or minisign unavailable. \
                  Binary saved at: {}. \
-                 To apply anyway, set ENOLA_ALLOW_UNSIGNED_UPDATE=1 or use --allow-unsigned.",
+                 To apply anyway, use --allow-unsigned.",
                 persist_str
             ));
         }
@@ -1672,21 +1679,23 @@ fn staged_artifacts_root_owned(paths: &[PathBuf]) -> std::result::Result<(), Str
 
 /// Apply a downloaded update: replace the current binary atomically.
 /// Requires root. Backs up old binary to enola-cli.bak.
+///
+/// `allow_unsigned` (A25-04, P2.4): solo desde el flag `--allow-unsigned`.
 pub fn apply_update(
     binary_path: Option<&str>,
     expected_sha: Option<&str>,
     known_verified: bool,
+    allow_unsigned: bool,
 ) -> std::result::Result<DownloadResult, String> {
     // Determine which binary to apply. SEC-A5: the file is read ONCE; every
     // check (SHA-256, minisign) and the install use those same bytes.
     let (bin_path, verified, sig_verified) = match binary_path {
         Some(p) => {
             // T2: reject an unverified explicit path unless the escape hatch is set.
-            if !known_verified && std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1")
-            {
+            if !known_verified && !allow_unsigned {
                 return Err(
                     "Cannot apply update: the binary path was not signature-verified. \
-                     To override, set ENOLA_ALLOW_UNSIGNED_UPDATE=1 or use --allow-unsigned."
+                     To override, use --allow-unsigned."
                         .to_string(),
                 );
             }
@@ -1747,12 +1756,12 @@ pub fn apply_update(
             let pubkey = update_minisign_pubkey();
             let sig = verify_bytes_minisign(&data, &sig_path, &pubkey);
             if !sig {
-                if std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1") {
+                if !allow_unsigned {
                     return Err(
                         "Cannot apply update: the downloaded binary is not signature-verified \
                          (minisign re-verification failed or .minisig missing). \
                          Re-run 'enola-cli update download'. \
-                         To override, set ENOLA_ALLOW_UNSIGNED_UPDATE=1 or use --allow-unsigned."
+                         To override, use --allow-unsigned."
                             .to_string(),
                     );
                 }
@@ -2749,14 +2758,13 @@ mod tests {
     #[test]
     fn apply_update_rejects_unsigned_download() {
         let (tmp, guard) = setup_test_home();
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
 
         // Simulate a download metadata with signature_verified = false
         let fake_bin = tmp.path().join("fake-binary");
         std::fs::write(&fake_bin, b"fake binary content").expect("write fake bin");
         save_last_download(&fake_bin.to_string_lossy(), "abc123", false, None);
 
-        let result = apply_update(None, None, false);
+        let result = apply_update(None, None, false, false);
         assert!(
             result.is_err(),
             "apply_update must reject unsigned download"
@@ -2774,7 +2782,6 @@ mod tests {
     #[test]
     fn apply_update_allows_unsigned_with_escape_hatch() {
         let (tmp, guard) = setup_test_home();
-        std::env::set_var("ENOLA_ALLOW_UNSIGNED_UPDATE", "1");
 
         // Simulate a download metadata with signature_verified = false
         let fake_bin = tmp.path().join("fake-binary-escape");
@@ -2785,7 +2792,7 @@ mod tests {
         // integrity re-check, it now stops at the SHA256 mismatch (the stored
         // "abc123" does not match the file content), which proves the signature
         // gate was bypassed without reaching the destructive replace step.
-        let result = apply_update(None, None, false);
+        let result = apply_update(None, None, false, true);
         if let Err(e) = &result {
             assert!(
                 !e.contains("not signature-verified"),
@@ -2794,7 +2801,6 @@ mod tests {
             );
         }
 
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
         teardown_test_home(tmp, guard);
     }
 
@@ -2803,12 +2809,11 @@ mod tests {
     #[test]
     fn apply_update_rejects_unverified_explicit_binary() {
         let (tmp, guard) = setup_test_home();
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
 
         let fake = tmp.path().join("explicit-binary");
         std::fs::write(&fake, b"explicit binary content").expect("write fake bin");
 
-        let result = apply_update(Some(fake.to_str().unwrap()), None, false);
+        let result = apply_update(Some(fake.to_str().unwrap()), None, false, false);
         assert!(
             result.is_err(),
             "apply_update must reject an unverified explicit --binary path"
@@ -2826,13 +2831,12 @@ mod tests {
     #[test]
     fn apply_update_explicit_binary_escape_hatch_bypasses_signature() {
         let (tmp, guard) = setup_test_home();
-        std::env::set_var("ENOLA_ALLOW_UNSIGNED_UPDATE", "1");
 
         // Non-existent path: with the escape hatch set, the signature gate is
         // skipped and the function fails later on reading the binary (not on
         // signature verification).
         let missing = tmp.path().join("does-not-exist");
-        let result = apply_update(Some(missing.to_str().unwrap()), None, false);
+        let result = apply_update(Some(missing.to_str().unwrap()), None, false, true);
 
         let err = result.expect_err("apply must still fail (binary missing)");
         assert!(
@@ -2841,7 +2845,6 @@ mod tests {
             err
         );
 
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
         teardown_test_home(tmp, guard);
     }
 
@@ -2850,7 +2853,6 @@ mod tests {
     #[test]
     fn apply_update_detects_staged_binary_tampering() {
         let (tmp, guard) = setup_test_home();
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
 
         // Signature was verified at download time, but the staged file no longer
         // matches the stored SHA256 (tampered between download and apply).
@@ -2871,7 +2873,7 @@ mod tests {
             sig_path.to_str(),
         );
 
-        let result = apply_update(None, None, false);
+        let result = apply_update(None, None, false, false);
         assert!(
             result.is_err(),
             "apply_update must reject a tampered binary"
@@ -2892,7 +2894,6 @@ mod tests {
         // signature_verified=true y sha coherente pero SIN .minisig válido
         // se rechaza — el flag del JSON ya no es trust anchor.
         let (tmp, guard) = setup_test_home();
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
 
         let fake_bin = tmp.path().join("forged-binary");
         std::fs::write(&fake_bin, b"attacker binary").expect("write bin");
@@ -2904,7 +2905,7 @@ mod tests {
         };
         save_last_download(&fake_bin.to_string_lossy(), &sha, true, None);
 
-        let r = apply_update(None, None, false);
+        let r = apply_update(None, None, false, false);
         let e = r.expect_err("forged meta must be rejected");
         assert!(e.contains("not signature-verified"), "got: {e}");
 
@@ -2916,7 +2917,6 @@ mod tests {
         // R-7: un .minisig de OTRO fichero no verifica el binario staged —
         // reutilizar artefactos firmados no equivale a tener la clave.
         let (tmp, guard) = setup_test_home();
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
 
         let other = tmp.path().join("other-msg");
         std::fs::write(&other, b"legit signed content").expect("write other");
@@ -2935,7 +2935,7 @@ mod tests {
             sig_path.to_str(),
         );
 
-        let r = apply_update(None, None, false);
+        let r = apply_update(None, None, false, false);
         let e = r.expect_err("foreign signature must be rejected");
         assert!(e.contains("not signature-verified"), "got: {e}");
 
@@ -2962,14 +2962,18 @@ mod tests {
     #[test]
     fn apply_update_explicit_binary_detects_sha_mismatch() {
         let (tmp, guard) = setup_test_home();
-        std::env::remove_var("ENOLA_ALLOW_UNSIGNED_UPDATE");
 
         let fake = tmp.path().join("explicit-sha-mismatch");
         std::fs::write(&fake, b"explicit binary content").expect("write fake bin");
 
         // known_verified=true (download --yes path) + expected_sha that does NOT
         // match the file → integrity check must abort.
-        let result = apply_update(Some(fake.to_str().unwrap()), Some("deadbeefdeadbeef"), true);
+        let result = apply_update(
+            Some(fake.to_str().unwrap()),
+            Some("deadbeefdeadbeef"),
+            true,
+            false,
+        );
         assert!(result.is_err(), "apply_update must detect SHA256 mismatch");
         let err = result.unwrap_err();
         assert!(

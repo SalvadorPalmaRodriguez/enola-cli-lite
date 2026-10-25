@@ -201,6 +201,20 @@ async fn execute_mcp(
         crate::infrastructure::config_loader::load_section("mcp")
     };
     let policy = Arc::new(resolve_policy(&flags, &config_section));
+    // A25-04 (P2.5): una ruta de audit inválida (bajo root: fuera de
+    // /var/log/enola o /var/lib/enola) aborta el arranque en vez de escribir
+    // donde diga un tercero o perder el log en silencio.
+    if let Some(p) = policy
+        .audit_log
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != "stderr")
+    {
+        // SAFETY: geteuid no tiene precondiciones.
+        let euid = unsafe { libc::geteuid() };
+        crate::application::mcp::audit::validate_audit_path(std::path::Path::new(p), euid)
+            .map_err(CliError::InvalidInput)?;
+    }
     let audit = std::sync::Arc::new(crate::application::mcp::audit::AuditLogger::new(
         policy.audit_log.as_deref(),
     ));
@@ -280,7 +294,10 @@ async fn execute_ask(args: AskArgs, format: &str) -> CliResult<String> {
     }
 
     let explicit_endpoint = endpoint.is_some();
-    let config_section = crate::infrastructure::config_loader::load_section("ai");
+    let config_section = crate::infrastructure::config_loader::load_security_section(
+        "ai",
+        crate::infrastructure::config_loader::AI_SECURITY_KEYS,
+    );
     // El flag --model tiene máxima prioridad; env/config también deben
     // prevalecer sobre el modelo de la instancia (resolución posterior).
     let model_flag_or_cfg = model.is_some()
@@ -343,6 +360,33 @@ async fn execute_ask(args: AskArgs, format: &str) -> CliResult<String> {
         )));
     }
 
+    // A25-10 (P2.7, SD-8b): el endpoint efectivo y su origen se imprimen
+    // SIEMPRE antes de la primera tool — el LLM decide qué tools pide root.
+    {
+        let origin = if instance.is_some() {
+            format!("instance {}", instance.as_deref().unwrap_or(""))
+        } else {
+            ai_endpoint_origin(
+                explicit_endpoint,
+                std::env::var("ENOLA_AI_ENDPOINT")
+                    .map(|v| !v.trim().is_empty())
+                    .unwrap_or(false),
+                config_section
+                    .get("endpoint")
+                    .is_some_and(|v| !v.trim().is_empty()),
+                is_root(),
+            )
+            .to_string()
+        };
+        eprintln!("🤖 LLM endpoint: {} (source: {origin})", ai_cfg.endpoint);
+        if !endpoint_is_loopback(&ai_cfg.endpoint) {
+            eprintln!(
+                "⚠️  The LLM endpoint is not on this machine: the model's answers decide \
+                 which enola tools run and tool output is sent to it."
+            );
+        }
+    }
+
     // En `ask`, el gate de escritura es interactivo (`TtyConfirmationGate` o `--no-exec`),
     // por lo que la política interna de `enola_run_command` se habilita tras la aprobación humana.
     let policy = Arc::new(McpPolicy {
@@ -397,6 +441,38 @@ async fn execute_ask(args: AskArgs, format: &str) -> CliResult<String> {
     } else {
         Ok(answer)
     }
+}
+
+/// A25-10 (P2.7): origen del endpoint LLM de `ask` (misma prioridad que
+/// `resolve_ai_config`: flag > env > config > default). Bajo root el env ya
+/// fue eliminado por `root_env` y `[ai].endpoint` solo viene de `/etc`.
+fn ai_endpoint_origin(flag: bool, env: bool, config: bool, root: bool) -> &'static str {
+    if flag {
+        "--endpoint"
+    } else if env {
+        "ENOLA_AI_ENDPOINT"
+    } else if config && root {
+        "/etc/enola/config.toml"
+    } else if config {
+        "~/.enola/config.toml"
+    } else {
+        "default"
+    }
+}
+
+/// `true` si el host del endpoint es loopback (`127.0.0.0/8`, `::1`, `localhost`).
+fn endpoint_is_loopback(endpoint: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(endpoint) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// Compone el ToolRegistry compartido entre `enola-cli mcp` y `enola-cli ask`
@@ -4068,10 +4144,7 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                     Err(e) => Err(CliError::Generic(format!("update download dry-run: {}", e))),
                 }
             } else {
-                if allow_unsigned {
-                    std::env::set_var("ENOLA_ALLOW_UNSIGNED_UPDATE", "1");
-                }
-                let result = update_checker::download_update(force).await;
+                let result = update_checker::download_update(force, allow_unsigned).await;
                 match result {
                     Ok(dl) => {
                         let sig_status = if dl.signature_verified {
@@ -4088,6 +4161,7 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                                 Some(&dl.binary_path),
                                 Some(&dl.sha256),
                                 dl.signature_verified,
+                                allow_unsigned,
                             ) {
                                 Ok(applied) => {
                                     msg.push_str(&format!("\n\n✅ Applied! Binary replaced at: {}\n  Backup: enola-cli.bak\n  SHA256 updated.", applied.binary_path));
@@ -4126,10 +4200,12 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
             json,
             allow_unsigned,
         } => {
-            if allow_unsigned {
-                std::env::set_var("ENOLA_ALLOW_UNSIGNED_UPDATE", "1");
-            }
-            if std::env::var("ENOLA_SKIP_ROOT_CHECK").is_err() {
+            // A25-04 / SD-5: escape de tests, inexistente en producción.
+            #[cfg(any(test, feature = "testing"))]
+            let skip_root_check = std::env::var("ENOLA_SKIP_ROOT_CHECK").is_ok();
+            #[cfg(not(any(test, feature = "testing")))]
+            let skip_root_check = false;
+            if !skip_root_check {
                 if std::fs::metadata("/usr/local/bin/enola-cli").is_err() {
                     // Not installed in standard location — allow anyway
                 } else if std::env::var("USER").unwrap_or_default() != "root"
@@ -4140,7 +4216,8 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                     ));
                 }
             }
-            let result = update_checker::apply_update(binary.as_deref(), None, false);
+            let result =
+                update_checker::apply_update(binary.as_deref(), None, false, allow_unsigned);
             match result {
                 Ok(applied) => {
                     let msg = format!(
@@ -5212,7 +5289,10 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
             no_register,
         } => {
             // R22: flag --tor > env ENOLA_AI_USE_TOR_DOWNLOADS > [ai].use_tor_for_downloads.
-            let section = crate::infrastructure::config_loader::load_section("ai");
+            let section = crate::infrastructure::config_loader::load_security_section(
+                "ai",
+                crate::infrastructure::config_loader::AI_SECURITY_KEYS,
+            );
             let cfg = resolve_ai_config(
                 &AiFlagOverrides {
                     use_tor_for_downloads: tor.then_some(true),
@@ -5685,5 +5765,39 @@ mod tests {
             cli.command,
             Commands::Ai(AiCommands::Model(M::Delete { force: false, .. }))
         ));
+    }
+}
+
+#[cfg(test)]
+mod ask_endpoint_tests {
+    use super::{ai_endpoint_origin, endpoint_is_loopback};
+
+    #[test]
+    fn endpoint_origin_follows_resolution_priority() {
+        assert_eq!(ai_endpoint_origin(true, true, true, true), "--endpoint");
+        assert_eq!(
+            ai_endpoint_origin(false, true, true, false),
+            "ENOLA_AI_ENDPOINT"
+        );
+        assert_eq!(
+            ai_endpoint_origin(false, false, true, true),
+            "/etc/enola/config.toml"
+        );
+        assert_eq!(
+            ai_endpoint_origin(false, false, true, false),
+            "~/.enola/config.toml"
+        );
+        assert_eq!(ai_endpoint_origin(false, false, false, true), "default");
+    }
+
+    #[test]
+    fn loopback_detection() {
+        assert!(endpoint_is_loopback("http://127.0.0.1:11434"));
+        assert!(endpoint_is_loopback("http://localhost:11434"));
+        assert!(endpoint_is_loopback("http://[::1]:11434"));
+        assert!(!endpoint_is_loopback("http://10.0.0.5:11434"));
+        assert!(!endpoint_is_loopback("http://127.0.0.1.evil.com:11434"));
+        assert!(!endpoint_is_loopback("http://abc.onion"));
+        assert!(!endpoint_is_loopback("not a url"));
     }
 }

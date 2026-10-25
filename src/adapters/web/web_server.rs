@@ -71,17 +71,16 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
         &crate::infrastructure::safe_dir::SERVICE_DATA_BASES,
     );
 
-    // Token: randomly generated unless ENOLA_WEB_TOKEN env var is set.
-    // ENOLA_WEB_TOKEN is intended for automated testing only.
-    // In production, omit it to get a random token printed on startup.
-    let token: String = std::env::var("ENOLA_WEB_TOKEN").unwrap_or_else(|_| {
-        (0..32)
-            .map(|_| {
-                let mut rng = rand::thread_rng();
-                (b'a' + rng.gen_range(0..26)) as char
-            })
-            .collect()
-    });
+    // A25-04/06 (P2.3, SD-7): el token se genera SIEMPRE con CSPRNG en cada
+    // arranque. `ENOLA_WEB_TOKEN` ya no existe: bajo `sudo -E` permitía fijar
+    // el token del dashboard root a un valor conocido por el atacante. Los
+    // tests leen `~/.enola/web-token`, como el usuario real.
+    let token: String = (0..32)
+        .map(|_| {
+            let mut rng = rand::thread_rng();
+            (b'a' + rng.gen_range(0..26)) as char
+        })
+        .collect();
 
     let state = Arc::new(AppState {
         token: token.clone(),
@@ -132,16 +131,8 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
     eprintln!("════════════════════════════════════════════════════════════════");
     eprintln!("  Enola Web Dashboard");
     eprintln!("  Listening: http://127.0.0.1:{}", port);
-    if std::env::var("ENOLA_WEB_TOKEN").is_ok() {
-        // Modo test: el operador ya conoce el valor (lo fijó él mismo).
-        eprintln!("  Token:    {}", token);
-        eprintln!("  ⚠️  Token fijado via ENOLA_WEB_TOKEN (modo test).");
-        eprintln!("     No use esto en producción — omita la variable para");
-        eprintln!("     obtener un token aleatorio en cada inicio.");
-    } else {
-        eprintln!("  Token file: {}", token_display);
-        eprintln!("  Read it with: cat {}", token_display);
-    }
+    eprintln!("  Token file: {}", token_display);
+    eprintln!("  Read it with: cat {}", token_display);
     eprintln!("  Open in browser and enter the token when prompted.");
     eprintln!("════════════════════════════════════════════════════════════════");
 

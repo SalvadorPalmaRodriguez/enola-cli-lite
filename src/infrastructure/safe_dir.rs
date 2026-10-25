@@ -327,6 +327,38 @@ impl SafeDir {
         Ok(file)
     }
 
+    /// Abre (y crea con `mode` si no existe) `name` en modo append sin seguir
+    /// symlinks; falla si no es un fichero regular (logs de auditoría, A25-04).
+    pub fn open_append_nofollow(&self, name: &str, mode: u32) -> io::Result<File> {
+        let c = component_cstring(name)?;
+        // SAFETY: fd de directorio válido, cadena C válida; el fd pasa a File.
+        let raw = unsafe {
+            libc::openat(
+                self.fd.as_raw_fd(),
+                c.as_ptr(),
+                libc::O_WRONLY
+                    | libc::O_APPEND
+                    | libc::O_CREAT
+                    | libc::O_NOFOLLOW
+                    | libc::O_CLOEXEC,
+                mode as libc::c_uint,
+            )
+        };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `raw` es un fd recién abierto y propio.
+        let file = unsafe { File::from_raw_fd(raw) };
+        let st = fstat(file.as_raw_fd())?;
+        if !is_type(&st, libc::S_IFREG) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{}/{}: no es un fichero regular", self.path.display(), name),
+            ));
+        }
+        Ok(file)
+    }
+
     /// Lee `name` como UTF-8 sin seguir symlinks. `Ok(None)` si no existe;
     /// error si no es un fichero regular o supera `max_bytes`.
     pub fn read_to_string_nofollow(

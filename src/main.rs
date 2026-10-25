@@ -119,6 +119,20 @@ fn apply_global_overrides(cli: &Cli) {
     }
     // QUAL-003: --tor-socks → ENOLA_TOR_SOCKS_PROXY (consumido por infrastructure/http.rs)
     if let Some(v) = cli.tor_socks.as_deref() {
+        // A25-04 (P2.1): el flag lo teclea el operador → se respeta, pero un
+        // proxy no-loopback como root se avisa explícitamente (decide por
+        // dónde sale el tráfico .onion de root).
+        #[cfg(unix)]
+        {
+            // SAFETY: geteuid no tiene precondiciones.
+            let is_root = unsafe { libc::geteuid() } == 0;
+            if is_root && !enola_core::infrastructure::root_env::socks_proxy_is_loopback(v) {
+                eprintln!(
+                    "⚠️  --tor-socks '{v}' is not a socks5h:// proxy on 127.0.0.1/::1/localhost: \
+                     .onion traffic of this root process goes through it."
+                );
+            }
+        }
         std::env::set_var("ENOLA_TOR_SOCKS_PROXY", v);
     }
 }

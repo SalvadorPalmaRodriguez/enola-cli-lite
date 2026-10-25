@@ -8,81 +8,92 @@
 // `ENOLA_TOR_SOCKS_PROXY` (a dónde se envía el tráfico .onion) o `PATH`
 // (qué binarios ejecuta root) quedaban bajo control del usuario.
 //
-// **Diseño**: `sanitize_inherited_env()` se llama al principio de `main`, ANTES
-// de exportar los flags globales (`--tor-socks`, …): lo que teclea el operador
-// en la línea de comandos se respeta; lo heredado del entorno se valida.
+// **Diseño (A25-04, P2.1)**: como root el entorno heredado es ALLOWLIST, no
+// denylist (la denylist de 4 variables no escalaba frente a ~60 `ENOLA_*`).
+// Bajo euid 0 se conservan SOLO `PATH := SECURE_PATH` y `ROOT_ENV_ALLOW`; toda
+// otra `ENOLA_*` heredada se elimina con UN aviso agregado. Se llama al
+// principio de `main`, ANTES de exportar los flags globales (`--tor-socks`, …):
+// lo que teclea el operador en la línea de comandos se respeta.
+//
+// Excepciones futuras: solo con justificación escrita en `security/SKILL.md`
+// (SD-4). No hay ampliación en builds `testing`: los E2E usan los mismos
+// mecanismos que un usuario real (flags, `/etc/enola/config.toml`).
 use std::path::{Path, PathBuf};
 
 /// `PATH` fijo para procesos root (D16).
 pub const SECURE_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/// Únicas `ENOLA_*` heredadas que sobreviven bajo euid 0 (decisión del
+/// operador 2026-10-25): gate legal de licencia, marca de hijo MCP/consola
+/// (desactiva el preflight) y consentimiento explícito de auto-setup.
+pub const ROOT_ENV_ALLOW: &[&str] = &[
+    "ENOLA_ACCEPT_LICENSE",
+    "ENOLA_MCP_CHILD",
+    "ENOLA_AUTO_SETUP",
+];
 
 /// Acción a aplicar sobre una variable del entorno heredado.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvAction {
     /// Fijar `name` = `value`.
     Set(&'static str, String),
-    /// Eliminar `name`, con el motivo para el aviso.
-    Remove(&'static str, String),
+    /// Eliminar `name` (variable `ENOLA_*` fuera de la allowlist).
+    Remove(String),
 }
 
-/// Decide qué hacer con el entorno heredado. Pura: `get` lee una variable.
-/// Sin root no cambia nada.
-pub fn sanitize_decisions(euid: u32, get: &dyn Fn(&str) -> Option<String>) -> Vec<EnvAction> {
+/// Decide qué hacer con el entorno heredado. Pura: `names` son los nombres de
+/// las variables presentes. Sin root no cambia nada.
+pub fn sanitize_decisions(euid: u32, names: &[String]) -> Vec<EnvAction> {
     let mut actions = Vec::new();
     if euid != 0 {
         return actions;
     }
     // D16: root nunca resuelve binarios con el PATH del usuario.
     actions.push(EnvAction::Set("PATH", SECURE_PATH.to_string()));
-    // Documentado solo para tests: root no escribe el manifest donde diga el entorno.
-    if get("ENOLA_MANIFEST_PATH").is_some() {
-        actions.push(EnvAction::Remove(
-            "ENOLA_MANIFEST_PATH",
-            "test-only override".to_string(),
-        ));
-    }
-    // Verificador de firmas de update: nombre simple (se resuelve con
-    // SECURE_PATH) o ruta absoluta con toda la cadena root-owned.
-    if let Some(raw) = get("ENOLA_MINISIGN_BIN").filter(|v| v.contains('/')) {
-        match trusted_root_binary(&raw) {
-            Some(canon) => actions.push(EnvAction::Set(
-                "ENOLA_MINISIGN_BIN",
-                canon.to_string_lossy().to_string(),
-            )),
-            None => actions.push(EnvAction::Remove(
-                "ENOLA_MINISIGN_BIN",
-                format!(
-                    "'{raw}' (and every parent directory) must be root-owned and \
-                     not group/other-writable"
-                ),
-            )),
-        }
-    }
-    if let Some(v) = get("ENOLA_TOR_SOCKS_PROXY").filter(|v| !v.trim().is_empty()) {
-        if !socks_proxy_is_loopback(&v) {
-            actions.push(EnvAction::Remove(
-                "ENOLA_TOR_SOCKS_PROXY",
-                format!("'{v}' is not a socks5h:// proxy on 127.0.0.1/::1/localhost"),
-            ));
-        }
-    }
+    let mut dropped: Vec<&String> = names
+        .iter()
+        .filter(|k| k.starts_with("ENOLA_") && !ROOT_ENV_ALLOW.contains(&k.as_str()))
+        .collect();
+    dropped.sort();
+    dropped.dedup();
+    actions.extend(dropped.into_iter().map(|k| EnvAction::Remove(k.clone())));
     actions
 }
 
-/// Aplica [`sanitize_decisions`] al entorno del proceso, avisando por stderr
-/// de cada variable descartada.
+/// Aplica [`sanitize_decisions`] al entorno del proceso con un único aviso
+/// agregado por stderr (nunca los valores: pueden ser secretos).
 pub fn sanitize_inherited_env() {
     // SAFETY: geteuid no tiene precondiciones.
     let euid = unsafe { libc::geteuid() };
-    for action in sanitize_decisions(euid, &|k| std::env::var(k).ok()) {
+    let names: Vec<String> = std::env::vars_os()
+        .filter_map(|(k, _)| k.into_string().ok())
+        .collect();
+    let mut removed: Vec<String> = Vec::new();
+    for action in sanitize_decisions(euid, &names) {
         match action {
             EnvAction::Set(k, v) => std::env::set_var(k, v),
-            EnvAction::Remove(k, why) => {
-                eprintln!("⚠️  {k} ignored when running as root: {why}");
-                std::env::remove_var(k);
+            EnvAction::Remove(k) => {
+                std::env::remove_var(&k);
+                removed.push(k);
             }
         }
     }
+    if let Some(msg) = ignored_warning(&removed) {
+        eprintln!("{msg}");
+    }
+}
+
+/// Texto del aviso agregado (`None` si no se ignoró nada).
+fn ignored_warning(removed: &[String]) -> Option<String> {
+    if removed.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "⚠️  {} ENOLA_* variable(s) ignored when running as root: {}. \
+         Use command-line flags or /etc/enola/config.toml (root-owned).",
+        removed.len(),
+        removed.join(", ")
+    ))
 }
 
 /// `true` si `value` es `socks5h://` hacia loopback (127.0.0.1, ::1, localhost).
@@ -151,86 +162,86 @@ pub fn trusted_root_binary(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
-    fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let m: HashMap<String, String> = vars
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        move |k| m.get(k).cloned()
+    fn names(vars: &[&str]) -> Vec<String> {
+        vars.iter().map(|s| s.to_string()).collect()
     }
 
     #[test]
     fn non_root_environment_is_untouched() {
-        let get = env(&[
-            ("PATH", "/home/u/bin:/usr/bin"),
-            ("ENOLA_MANIFEST_PATH", "/tmp/m"),
-            ("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.5:9050"),
+        let n = names(&[
+            "PATH",
+            "ENOLA_MANIFEST_PATH",
+            "ENOLA_TOR_SOCKS_PROXY",
+            "ENOLA_WEB_TOKEN",
         ]);
-        assert!(sanitize_decisions(1000, &get).is_empty());
+        assert!(sanitize_decisions(1000, &n).is_empty());
     }
 
     #[test]
     fn root_gets_secure_path() {
-        let get = env(&[("PATH", "/home/u/bin:/usr/bin")]);
-        let actions = sanitize_decisions(0, &get);
+        let actions = sanitize_decisions(0, &names(&["PATH"]));
         assert!(actions.contains(&EnvAction::Set("PATH", SECURE_PATH.to_string())));
     }
 
+    /// A25-04 (P2): con ~60 `ENOLA_*` heredadas solo sobreviven la allowlist
+    /// y PATH; variables ajenas a `ENOLA_*` no se tocan.
     #[test]
-    fn root_drops_manifest_path_override() {
-        let get = env(&[("ENOLA_MANIFEST_PATH", "/etc/passwd")]);
-        let actions = sanitize_decisions(0, &get);
-        assert!(actions
-            .iter()
-            .any(|a| matches!(a, EnvAction::Remove("ENOLA_MANIFEST_PATH", _))));
-    }
-
-    #[test]
-    fn root_drops_non_loopback_socks_proxy_but_keeps_loopback() {
-        let remote = env(&[("ENOLA_TOR_SOCKS_PROXY", "socks5h://10.0.0.5:9050")]);
-        assert!(sanitize_decisions(0, &remote)
-            .iter()
-            .any(|a| matches!(a, EnvAction::Remove("ENOLA_TOR_SOCKS_PROXY", _))));
-        let local = env(&[("ENOLA_TOR_SOCKS_PROXY", "socks5h://127.0.0.1:9150")]);
-        assert!(!sanitize_decisions(0, &local)
-            .iter()
-            .any(|a| matches!(a, EnvAction::Remove("ENOLA_TOR_SOCKS_PROXY", _))));
-    }
-
-    #[test]
-    fn root_drops_user_owned_minisign_bin() {
-        let tmp = tempfile::tempdir().unwrap();
-        let fake = tmp.path().join("minisign");
-        std::fs::write(&fake, "#!/bin/sh\necho minisign\n").unwrap();
-        let get = env(&[("ENOLA_MINISIGN_BIN", fake.to_str().unwrap())]);
-        let actions = sanitize_decisions(0, &get);
-        if unsafe { libc::geteuid() } != 0 {
-            assert!(actions
-                .iter()
-                .any(|a| matches!(a, EnvAction::Remove("ENOLA_MINISIGN_BIN", _))));
-        }
-    }
-
-    #[test]
-    fn root_keeps_root_owned_minisign_bin_as_canonical_path() {
-        // /bin/sh es root-owned en toda distro; sirve como binario de prueba.
-        let get = env(&[("ENOLA_MINISIGN_BIN", "/bin/sh")]);
-        let actions = sanitize_decisions(0, &get);
-        let canon = std::fs::canonicalize("/bin/sh").unwrap();
-        assert!(actions.contains(&EnvAction::Set(
+    fn root_keeps_only_allowlist() {
+        let mut n = names(&[
+            "PATH",
+            "HOME",
+            "LANG",
+            "ENOLA_ACCEPT_LICENSE",
+            "ENOLA_MCP_CHILD",
+            "ENOLA_AUTO_SETUP",
+            "ENOLA_WEB_TOKEN",
+            "ENOLA_ALLOW_UNSIGNED_UPDATE",
+            "ENOLA_MCP_AUDIT_LOG",
+            "ENOLA_AI_ENDPOINT",
+            "ENOLA_APPARMOR_ENABLED_PATH",
+            "ENOLA_SKIP_ROOT_CHECK",
             "ENOLA_MINISIGN_BIN",
-            canon.to_string_lossy().to_string()
-        )));
+            "ENOLA_TOR_SOCKS_PROXY",
+            "ENOLA_UPDATE_FEED_URL",
+            "ENOLA_UPDATE_ENV_ANCHORS",
+            "ENOLA_TEST_TOKEN",
+        ]);
+        n.extend((0..45).map(|i| format!("ENOLA_FUTURE_VAR_{i}")));
+        let actions = sanitize_decisions(0, &n);
+        let removed: Vec<&str> = actions
+            .iter()
+            .filter_map(|a| match a {
+                EnvAction::Remove(k) => Some(k.as_str()),
+                _ => None,
+            })
+            .collect();
+        let kept: Vec<&String> = n
+            .iter()
+            .filter(|k| !removed.contains(&k.as_str()))
+            .collect();
+        for k in &kept {
+            assert!(
+                !k.starts_with("ENOLA_") || ROOT_ENV_ALLOW.contains(&k.as_str()),
+                "{k} no debe sobrevivir como root"
+            );
+        }
+        for allowed in ROOT_ENV_ALLOW {
+            assert!(!removed.contains(allowed), "{allowed} debe conservarse");
+        }
+        for other in ["PATH", "HOME", "LANG"] {
+            assert!(!removed.contains(&other));
+        }
+        assert_eq!(removed.len(), n.len() - 6);
     }
 
     #[test]
-    fn root_keeps_simple_minisign_name() {
-        let get = env(&[("ENOLA_MINISIGN_BIN", "minisign")]);
-        assert!(!sanitize_decisions(0, &get)
-            .iter()
-            .any(|a| matches!(a, EnvAction::Remove("ENOLA_MINISIGN_BIN", _))));
+    fn warning_is_single_and_lists_names_only() {
+        assert!(ignored_warning(&[]).is_none());
+        let msg = ignored_warning(&names(&["ENOLA_WEB_TOKEN", "ENOLA_AI_ENDPOINT"])).unwrap();
+        assert!(msg.contains("2 ENOLA_* variable(s)"));
+        assert!(msg.contains("ENOLA_WEB_TOKEN, ENOLA_AI_ENDPOINT"));
+        assert!(msg.contains("/etc/enola/config.toml"));
     }
 
     #[test]

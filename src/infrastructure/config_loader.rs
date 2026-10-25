@@ -106,6 +106,59 @@ pub fn load_section_root_owned(section: &str) -> HashMap<String, String> {
     }
 }
 
+/// Claves de `[ai]` que deciden a qué servidor LLM se conecta root (cuyas
+/// respuestas gobiernan tools en `ask`) y por dónde enruta (A25-10.1-2).
+pub const AI_SECURITY_KEYS: &[&str] = &["endpoint", "tor_proxy"];
+/// Claves de `[distribution]`: origen de binarios y claves de verificación.
+pub const DISTRIBUTION_SECURITY_KEYS: &[&str] = &["binary_base_url", "minisign_pubkey_url"];
+
+/// A25-04 (P2.6, SD-6): carga una sección que mezcla claves de conveniencia
+/// y claves de seguridad (`security_keys`: a dónde se conecta root, qué
+/// verifica, por dónde enruta).
+///
+/// - Sin root: `~/.enola/config.toml` tal cual.
+/// - Con euid 0: las claves de conveniencia siguen viniendo del usuario; las
+///   de `security_keys` SOLO de `/etc/enola/config.toml` root-owned (las del
+///   usuario se descartan con un aviso). Las claves de `/etc` prevalecen.
+pub fn load_security_section(section: &str, security_keys: &[&str]) -> HashMap<String, String> {
+    #[cfg(unix)]
+    // SAFETY: geteuid no tiene precondiciones.
+    let euid = unsafe { libc::geteuid() };
+    #[cfg(not(unix))]
+    let euid = 1;
+    let user = load_section(section);
+    if euid != 0 {
+        return user;
+    }
+    let (merged, ignored) =
+        merge_security_section(user, load_section_root_owned(section), security_keys);
+    if !ignored.is_empty() {
+        eprintln!(
+            "⚠️  [{section}] {} in the user config ignored when running as root; \
+             set it in /etc/enola/config.toml (root-owned) or with a flag.",
+            ignored.join(", ")
+        );
+    }
+    merged
+}
+
+/// Parte pura de [`load_security_section`] para euid 0: devuelve el mapa
+/// efectivo y las claves de seguridad del usuario descartadas (ordenadas).
+pub(crate) fn merge_security_section(
+    mut user: HashMap<String, String>,
+    root: HashMap<String, String>,
+    security_keys: &[&str],
+) -> (HashMap<String, String>, Vec<String>) {
+    let mut ignored: Vec<String> = security_keys
+        .iter()
+        .filter(|k| user.remove(**k).is_some_and(|v| !v.trim().is_empty()))
+        .map(|k| k.to_string())
+        .collect();
+    ignored.sort();
+    user.extend(root);
+    (user, ignored)
+}
+
 fn load_section_from_path(path: Option<PathBuf>, section: &str) -> HashMap<String, String> {
     let Some(path) = path else {
         return HashMap::new();
@@ -446,5 +499,33 @@ binary_base_url = "https://dl.example.com"  # inline
         assert!(!super::is_root_owned_secure(&path));
         // Inexistente → tampoco.
         assert!(!super::is_root_owned_secure(&tmp.path().join("nope")));
+    }
+
+    /// A25-04 (P2.6): bajo root la clave de seguridad del usuario se descarta
+    /// y la de /etc prevalece; la de conveniencia se conserva.
+    #[test]
+    fn security_keys_come_only_from_root_config() {
+        let user: HashMap<String, String> = [
+            ("endpoint", "http://10.0.0.5:11434"),
+            ("model", "llama3.1:8b"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let (m, ignored) = merge_security_section(user.clone(), HashMap::new(), &["endpoint"]);
+        assert!(m.get("endpoint").is_none());
+        assert_eq!(m.get("model").map(String::as_str), Some("llama3.1:8b"));
+        assert_eq!(ignored, vec!["endpoint".to_string()]);
+
+        let root: HashMap<String, String> = [(
+            "endpoint".to_string(),
+            "http://192.168.1.2:11434".to_string(),
+        )]
+        .into();
+        let (m, _) = merge_security_section(user, root, &["endpoint"]);
+        assert_eq!(
+            m.get("endpoint").map(String::as_str),
+            Some("http://192.168.1.2:11434")
+        );
     }
 }
