@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/strapi/commands-strapi.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-10-24
+> **Versión:** 2.3 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -17,7 +17,7 @@ aplicaciones Jamstack y backends de contenido desacoplados. Stack: 2 contenedore
 
 ## `strapi build-image`
 
-Construye la imagen Docker de producción de Strapi (multi-stage, Node 20, Strapi 5.49).
+Construye la imagen Docker de producción de Strapi (multi-stage, Node 22 LTS pineado por digest, Strapi 5.49) con el tag `enola/strapi:5.49.0-node22`. Las instancias creadas antes con la imagen `enola/strapi:5.49.0` (Node 20, sin soporte desde 2026-04-30) aparecen en `doctor --security`.
 Debe ejecutarse **una vez** antes de `strapi create`. El Dockerfile está embebido en el binario.
 
 ```bash

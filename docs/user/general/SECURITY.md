@@ -1,4 +1,4 @@
-> **Versión:** 1.1 | **Actualizado:** 2026-10-25
+> **Versión:** 1.2 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
@@ -136,6 +136,45 @@ file "$BIN" | grep -q stripped && echo OK
   > capa de defensa en profundidad para el caso común (atacante oportunista
   > intentando volcar memoria de un proceso en ejecución).
 - Más detalle: `docs/user/verify-downloads.md`.
+
+### 5. Imágenes fuera de soporte
+
+Cada servicio publicable (WordPress, Git, CMS) se crea con una imagen Docker de
+versión fija, pineada por digest (`imagen@sha256:…`) y con fecha de fin de soporte
+conocida. Los contenedores arrancan sin capabilities (`cap_drop: ALL`) salvo las
+mínimas que necesita cada imagen, y el servidor Git usa su propia red Docker.
+
+Versiones para instancias **nuevas** (2026-10-25):
+
+| Servicio | Imagen | Soporte hasta |
+|---|---|---|
+| WordPress | `wordpress:6.9.4-php8.3-apache` + `mariadb:11.4.13` | PHP 8.3: 2027-12-31 · MariaDB 11.4 LTS: 2029-05-29 |
+| Git (Forgejo) | `forgejo:15.0.10` (LTS) | 2027-07-15 |
+| Drupal | `drupal:11.4.11-apache` + `mariadb:10.11.19` | junio 2027 · MariaDB 10.11 LTS: 2028-02-16 |
+| Ghost | `ghost:6.72.0-alpine` (SQLite) | rama 6.x (Ghost solo soporta la mayor actual) |
+| Strapi | `enola/strapi:5.49.0-node22` + `postgres:16.15` | Node 22 LTS: 2027-04-30 · PostgreSQL 16: 2028-11-09 |
+| Wagtail | `wagtail/bakerydemo` (demo oficial) | ⚠️ sin mantenimiento upstream desde 2021 |
+| Magnolia | `magnolia-docker` (oficial) | ⚠️ sin mantenimiento upstream desde 2020 |
+
+**Instancias existentes** creadas con versiones anteriores de Enola **no se migran
+solas** (sus datos podrían no ser compatibles). `sudo enola-cli doctor --security`
+las señala en `image-eol`. En particular:
+
+- **Ghost 5 con SQLite** (todas las instancias Ghost anteriores) expone los hashes de
+  contraseñas por la API pública (CVE-2026-53949, corregido solo en Ghost ≥ 6.21.2).
+  Si tienes un Ghost publicado, ocúltalo (`ghost hide`) hasta recrearlo.
+- **Forgejo 9.x** (sin parches desde 2025-01-16) y **MariaDB 10.6** de WordPress
+  (sin parches desde 2026-07-06).
+
+Procedimiento recomendado: copia de seguridad (`maintenance backup`), exportar el
+contenido desde la propia aplicación (Forgejo: `forgejo dump`; WordPress/Ghost:
+exportación del panel de administración), crear una instancia nueva con Enola y
+restaurar/importar en ella. La guía oficial de Forgejo indica actualizar
+directamente a la última versión con copia de seguridad previa.
+
+Recomendación adicional: activar `userns-remap` en el daemon Docker
+(`/etc/docker/daemon.json`) para que root dentro de un contenedor no sea root en el
+host; `doctor --security` lo indica como recomendación.
 
 ---
 

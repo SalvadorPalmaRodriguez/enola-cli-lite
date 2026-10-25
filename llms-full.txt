@@ -55,6 +55,7 @@ Global options: `--format text|json`, `--verbose`, `--binary-base-url <URL>`, `-
 - `tor auth rotate <service> -c <client> -p <pubkey>` — replace client public key (client generates the new pair; private key never reaches the operator)
 
 ### git — Forgejo Git servers
+- Images (new instances): Forgejo 15 LTS; WordPress 6.9 (PHP 8.3) + MariaDB 11.4 LTS; Drupal 11.4 + MariaDB 10.11; Ghost 6 (SQLite); Strapi on Node 22 + PostgreSQL 16 — all pinned by tag + digest, `cap_drop: ALL` + minimal `cap_add`, dedicated Docker networks. Existing instances on EOL images are reported by `doctor --security` (`image-eol`), never migrated automatically.
 - `git list` / `git create -n <name> [--ssl] [--http-port] [--ssh-port] [--admin-user <u> --admin-password <p>]`
 - `git start|stop|status|delete <name>` — lifecycle
 - `git registration <name> --enable|--disable|--status` — user self-registration

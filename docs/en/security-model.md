@@ -2,7 +2,7 @@
 > **Version:** 3.1 (2026-08-04)
 > **Audience:** end users, security researchers, journalists.
 > **Spanish original:** [`docs/user/general/SECURITY.md`](../user/general/SECURITY.md)
-> **Updated:** 2026-09-06
+> **Updated:** 2026-10-25
 > **Status:** ✅ **CURRENT**
 > **References:** commands.md
 
@@ -133,6 +133,24 @@ file "$BIN" | grep -q stripped && echo OK
   > defense-in-depth layer for the common case (opportunistic attacker
   > trying to dump memory from a running process).
 - More details: `docs/user/verify-downloads.md`.
+
+### 5. Out-of-support images
+
+Every publishable service (WordPress, Git, CMS) is created from a fixed-version
+Docker image pinned by digest (`image@sha256:…`) with a known end-of-support date.
+Containers start with no capabilities (`cap_drop: ALL`) except the minimum each image
+needs, and the Git server runs on its own Docker network. New instances use
+WordPress 6.9 (PHP 8.3) + MariaDB 11.4 LTS, Forgejo 15 LTS, Drupal 11.4 + MariaDB
+10.11 LTS, Ghost 6 (SQLite), Strapi on Node 22 LTS + PostgreSQL 16. The upstream
+Wagtail demo image (since 2021) and Magnolia image (since 2020) are unmaintained.
+
+Existing instances created by earlier Enola versions are **not migrated
+automatically**; `sudo enola-cli doctor --security` lists them under `image-eol`.
+**Ghost 5 with SQLite** (every earlier Ghost instance) exposes password hashes through
+the public API (CVE-2026-53949, fixed only in Ghost ≥ 6.21.2): hide a published Ghost
+(`ghost hide`) until you recreate it. Forgejo 9.x and the WordPress MariaDB 10.6 are
+also out of support. Recommended path: back up, export from the application, create a
+new instance and import. `doctor --security` also recommends Docker `userns-remap`.
 
 ---
 

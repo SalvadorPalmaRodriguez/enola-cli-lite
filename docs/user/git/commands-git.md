@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
-> **Versión:** 2.4 | **Actualizado:** 2026-10-24
+> **Versión:** 2.5 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -25,7 +25,10 @@ Sin flags ni argumentos.
 
 ## `git create`
 
-Crea un nuevo servidor Git (Forgejo).
+Crea un nuevo servidor Git (Forgejo 15 LTS, imagen pineada por digest, red Docker
+propia `enola_net_git_<nombre>`). Los servidores creados con versiones anteriores
+(Forgejo 9.x, sin soporte) no se actualizan solos: ver `SECURITY.md`, "Imágenes fuera
+de soporte".
 
 Dos modos de primer acceso:
 - **Modo CLI** (recomendado): admin creado automáticamente con `--admin-user`. La contraseña del admin se genera de forma **aleatoria** (se muestra una sola vez por la salida) y Forgejo fuerza su cambio en el primer login. `--admin-password` se usa solo para completar el wizard (si estuviera activo) y para guardar las credenciales locales de autorización (hash bcrypt); **nunca** se pasa por argv del proceso.
