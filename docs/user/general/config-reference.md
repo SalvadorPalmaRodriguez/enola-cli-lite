@@ -77,13 +77,15 @@ Configuración de descarga de binarios para `update download`.
 | Clave | Tipo | Default | Env var | Descripción |
 |-------|------|---------|---------|-------------|
 | `binary_base_url` | String | (relativo a web) | `ENOLA_BINARY_BASE_URL` | URL base para descargar releases |
-| `minisign_pubkey_url` | String | (embebida) | `ENOLA_MINISIGN_PUBKEY_URL` | URL de clave pública minisign |
 
 ```toml
 [distribution]
 binary_base_url = "https://github.com/user/enola-cli-lite/releases/latest/download"
-minisign_pubkey_url = "https://github.com/user/enola-cli-lite/releases/latest/download/minisign.pub"
 ```
+
+> `minisign_pubkey_url` se eliminó (nunca se usaba): la clave que verifica los updates
+> es la embebida en el binario, rotada solo por el feed firmado, o `[update].minisign_pubkey`
+> en `/etc/enola/config.toml`. Si la tienes en tu `config.toml`, se ignora.
 
 ---
 
@@ -166,7 +168,8 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 | Clave | Tipo | Default | Env var / Flag | Descripción |
 |-------|------|---------|----------------|-------------|
 | `allow_write` | Bool | `false` | `ENOLA_MCP_ALLOW_WRITE` / `--allow-write` | Habilita tools mutantes |
-| `allowed_tools` | Array/CSV | `[]` | `ENOLA_MCP_ALLOWED_TOOLS` / `--allow-tools` | Vacía = todas las mutantes; si no, nombres (`wp_create`) o rutas (`wp:create`; `family` pelado para hojas como `doctor`) |
+| `allowed_tools` | Array/CSV | `[]` | `ENOLA_MCP_ALLOWED_TOOLS` / `--allow-tools` | Obligatoria con `allow_write`: nombres (`wp_create`) o rutas (`wp:create`; `family` pelado para hojas como `doctor`) |
+| `allow_all_mutating` | Bool | `false` | `--allow-all-mutating` (sin env var) | Escape explícito: con `allow_write` y allowlist vacía habilita todas las mutantes (aviso) |
 | `max_output_bytes` | Integer | `65536` | `ENOLA_MCP_MAX_OUTPUT_BYTES` / `--max-output-bytes` | Límite de stdout/stderr por llamada |
 | `audit_log` | String | `stderr` | `ENOLA_MCP_AUDIT_LOG` / `--audit-log` | `"stderr"` o path absoluto de fichero (nunca stdout). Como root solo directamente en `/var/log/enola/` o `/var/lib/enola/` (si no, `mcp` no arranca) |
 | `request_timeout_secs` | Integer | `60` | `ENOLA_MCP_REQUEST_TIMEOUT_SECS` / `--request-timeout-secs` | Timeout por llamada a tool |
@@ -174,14 +177,15 @@ Política de escritura y límites del servidor MCP (`enola-cli mcp`).
 ```toml
 [mcp]
 # allow_write = false          # solo lectura (recomendado)
-# allowed_tools = []           # vacía = TODAS las mutantes con allow_write
+# allowed_tools = []           # obligatoria con allow_write (si no, mcp no arranca)
+# allow_all_mutating = false   # escape explícito: todas las mutantes sin allowlist
 # max_output_bytes = 65536
 # audit_log = "stderr"
 # request_timeout_secs = 60
 ```
 
-> ⚠️ `allowed_tools = []` con `allow_write = true` habilita **todas** las
-> tools mutantes — es una decisión explícita. El audit log registra cada
+> ⚠️ `allow_write = true` exige `allowed_tools` no vacía; habilitar **todas** las
+> tools mutantes requiere `allow_all_mutating = true` (o `--allow-all-mutating`). El audit log registra cada
 > llamada mutante con args saneados (secretos redactados).
 >
 > ℹ️ Independientemente de la allowlist, las tools **destructivas**
@@ -267,7 +271,6 @@ web_public_url = "https://github.com/user/enola-cli-lite"
 
 [distribution]
 binary_base_url = "https://github.com/user/enola-cli-lite/releases/latest/download"
-minisign_pubkey_url = "https://github.com/user/enola-cli-lite/releases/latest/download/minisign.pub"
 
 [update]
 feed_url = "https://example.com/releases/advisories.json"

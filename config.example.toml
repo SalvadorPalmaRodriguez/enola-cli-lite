@@ -34,16 +34,15 @@ web_public_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite"
 
 
 # ── 2. Distribución (descarga de binarios) ─────────────────────────────────
-# Env-vars equivalentes: ENOLA_BINARY_BASE_URL, ENOLA_MINISIGN_PUBKEY_URL
+# Env-var equivalente: ENOLA_BINARY_BASE_URL
 # Como root: solo desde /etc/enola/config.toml o --binary-base-url.
 [distribution]
 # Base URL desde donde se descargan los artefactos de release.
 # Si está vacío (default), se usa ruta relativa /releases/… sobre la web.
 binary_base_url     = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download"
-
-# URL para descargar la clave pública minisign (verificación de firmas).
-# Si está vacío, se usa la clave embebida en el binario (minisign.pub).
-minisign_pubkey_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/minisign.pub"
+# (minisign_pubkey_url se eliminó: la clave de verificación es la embebida en el
+#  binario, rotada solo por el feed firmado, o [update].minisign_pubkey en
+#  /etc/enola/config.toml.)
 
 
 # ── 3. Feed de actualizaciones / advisories (UPD-CLI-001) ─────────────────
@@ -119,9 +118,11 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 #
 # - allow_write        → false: solo lectura (default, recomendado);
 #                        true: habilita tools mutantes.
-# - allowed_tools      → vacía = TODAS las mutantes (explícito); si no,
-#                        nombres de tool (wp_create) o rutas (wp:create;
-#                        family pelado para hojas como doctor).
+# - allowed_tools      → OBLIGATORIA con allow_write: nombres de tool
+#                        (wp_create) o rutas (wp:create; family pelado para
+#                        hojas como doctor).
+# - allow_all_mutating → false; true = todas las mutantes sin allowlist
+#                        (escape explícito, aviso). Sin variable de entorno.
 #
 # MCP-009: las tools DESTRUCTIVAS (wp_hide, tor_remove, wp_publish,
 # tor_create, files_create, y vía enola_run_command todo `* delete|hide`,
@@ -146,6 +147,7 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 [mcp]
 # allow_write = false
 # allowed_tools = []
+# allow_all_mutating = false
 # max_output_bytes = 65536
 # audit_log = "stderr"
 # request_timeout_secs = 60

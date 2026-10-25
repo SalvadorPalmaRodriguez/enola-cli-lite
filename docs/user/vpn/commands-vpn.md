@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/vpn/commands-vpn.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -133,14 +133,14 @@ sudo enola-cli vpn peer add <INTERFAZ> <NOMBRE_PEER> --endpoint <HOST> [--dns <D
 | Argumento | Tipo | Obligatorio | Descripción |
 |-----------|------|-------------|-------------|
 | `<INTERFAZ>` | String | Sí | Nombre de la interfaz |
-| `<NOMBRE_PEER>` | String | Sí | Nombre del peer (ej: `laptop`, `phone`) |
+| `<NOMBRE_PEER>` | String | Sí | Nombre del peer (ej: `laptop`, `phone`): 1-32 letras, dígitos, `-` o `_` |
 
 | Flag | Tipo | Obligatorio | Descripción |
 |------|------|-------------|-------------|
 | `--endpoint` / `-e` | String | Sí | Hostname o IP del servidor para que el cliente conecte |
 | `--dns` | String | No | Servidores DNS para el peer (ej: `1.1.1.1`) |
 | `--psk` | Bool | No | Añade preshared key extra (capa adicional de seguridad) |
-| `--ip` | String | No | IP específica en la subred VPN (auto-asignada si se omite) |
+| `--ip` | String | No | IP específica en la subred VPN (auto-asignada si se omite). IPv4 sin prefijo, dentro de la subred del servidor; no la de red, broadcast ni la del servidor |
 | `--tor` | Bool | No | Genera además un config Tor (`Endpoint = 127.0.0.1`) con instrucciones |
 
 **Ejemplos:**
@@ -164,9 +164,9 @@ sudo enola-cli vpn peer add-pubkey <INTERFAZ> <NOMBRE_PEER> <PUBLIC_KEY> <IP>
 | Argumento | Tipo | Obligatorio | Descripción |
 |-----------|------|-------------|-------------|
 | `<INTERFAZ>` | String | Sí | Nombre de la interfaz |
-| `<NOMBRE_PEER>` | String | Sí | Nombre del peer |
+| `<NOMBRE_PEER>` | String | Sí | Nombre del peer (1-32 letras, dígitos, `-` o `_`) |
 | `<PUBLIC_KEY>` | String | Sí | Clave pública WireGuard (base64, 44 chars) |
-| `<IP>` | String | Sí | IP a asignar en la subred VPN (ej: `10.8.0.5`) |
+| `<IP>` | String | Sí | IP a asignar en la subred VPN (ej: `10.8.0.5`): IPv4 sin prefijo, dentro de la subred, no red/broadcast/servidor |
 
 **Ejemplo:**
 ```bash

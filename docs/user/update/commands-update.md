@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.5 | **Actualizado:** 2026-10-25
+> **Versión:** 3.6 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -234,17 +234,33 @@ clientes existentes.
 
 | Variable | Descripción |
 |----------|-------------|
-| `ENOLA_UPDATE_FEED_URL` | URL del advisory feed (override del default; bajo euid 0 exige `ENOLA_UPDATE_ENV_ANCHORS=1`) |
-| `ENOLA_UPDATE_SIGNATURE_URL` | URL de la firma del feed (default: `<feed>.minisig`; bajo euid 0 exige `ENOLA_UPDATE_ENV_ANCHORS=1`) |
-| `ENOLA_UPDATE_MINISIGN_PUBKEY` | Clave pública minisign (override, máxima prioridad; bajo euid 0 exige `ENOLA_UPDATE_ENV_ANCHORS=1`) |
-| `ENOLA_UPDATE_ENV_ANCHORS` | Si `1`, habilita los overrides `ENOLA_UPDATE_*` cuando el proceso corre con `euid 0` |
-| `ENOLA_ALLOW_UNSIGNED_UPDATE` | Si `1`, permite descargar/aplicar sin firma minisign (**peligroso**) |
+> **Como root (`sudo`) ninguna de estas variables tiene efecto**: se ignoran con un
+> aviso. Como root, el feed y la clave se configuran en `[update]` de
+> `/etc/enola/config.toml` (root-owned). Saltarse la firma solo es posible con el
+> flag `--allow-unsigned` (`ENOLA_ALLOW_UNSIGNED_UPDATE` se eliminó).
+
+| Variable (sin root) | Descripción |
+|----------|-------------|
+| `ENOLA_UPDATE_FEED_URL` | URL del advisory feed (override del default) |
+| `ENOLA_UPDATE_SIGNATURE_URL` | URL de la firma del feed (default: `<feed>.minisig`) |
+| `ENOLA_UPDATE_MINISIGN_PUBKEY` | Clave pública minisign (override, máxima prioridad) |
+| `ENOLA_UPDATE_ENV_ANCHORS` | Histórico: ya no tiene efecto como root (el entorno se ignora) |
 | `ENOLA_HTTP_DOWNLOAD_TIMEOUT` | Timeout en segundos para descargas grandes (default: 300) |
 | `ENOLA_TOR_SOCKS_PROXY` | Proxy Tor SOCKS5h para URLs .onion (default: `socks5h://127.0.0.1:9050`) |
 
 ---
 
 ## Seguridad del mecanismo de actualización
+
+### Frescura del feed (anti-replay)
+
+Además de la firma, Enola recuerda el `published_at` del último feed aceptado
+(`feed_state.json`, junto a `trusted_minisign_keys.json`; como root solo cuenta si
+es root-owned). Un feed **firmado pero más antiguo** que ese se rechaza (`update
+check` lo informa como feed inválido): así un mirror o un atacante no puede reponer
+un feed viejo para ocultar advisories o versiones nuevas. Si el feed tiene más de
+90 días se muestra un aviso de posible congelación. `update verify-feed` no aplica
+este control (sirve para verificar ficheros de feed concretos).
 
 ### Validación de `ENOLA_MINISIGN_BIN`
 

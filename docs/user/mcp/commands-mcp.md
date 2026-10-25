@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/mcp/commands-mcp.md`
-> **Versión:** 1.4 | **Actualizado:** 2026-10-18
+> **Versión:** 1.5 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md, config-reference.md
 
@@ -14,7 +14,7 @@ libre al filesystem y sin red sin restricciones.
 ## Sintaxis
 
 ```bash
-enola-cli mcp [--allow-write] [--allow-tools TOOLS]
+enola-cli mcp [--allow-write] [--allow-tools TOOLS] [--allow-all-mutating]
               [--max-output-bytes BYTES] [--audit-log PATH]
               [--request-timeout-secs SECS]
 ```
@@ -22,7 +22,8 @@ enola-cli mcp [--allow-write] [--allow-tools TOOLS]
 | Flag | Descripción |
 |------|-------------|
 | `--allow-write` | Permite tools que mutan el sistema. Por defecto: **read-only**. |
-| `--allow-tools` | Lista CSV de tools permitidas (`wp_create`) o rutas de comando (`wp:create`; `family` pelado para hojas como `doctor`). |
+| `--allow-tools` | Lista CSV de tools permitidas (`wp_create`) o rutas de comando (`wp:create`; `family` pelado para hojas como `doctor`). **Obligatoria** con `--allow-write`. |
+| `--allow-all-mutating` | Escape explícito: con `--allow-write`, habilita **todas** las mutantes sin allowlist (muestra un aviso). También `[mcp].allow_all_mutating = true`; no hay variable de entorno. |
 | `--max-output-bytes` | Límite de stdout/stderr devuelto por llamada (def: 65536). |
 | `--audit-log` | Fichero de auditoría para llamadas mutantes (def: `stderr`; nunca stdout). |
 | `--request-timeout-secs` | Timeout por llamada a tool (def: 60). |
@@ -136,8 +137,10 @@ la operación aprobada es exactamente la que se mostró.
 
 - **Read-only por defecto**: sin `--allow-write` ninguna tool puede mutar
   el sistema — el rechazo ocurre *antes* de invocar el caso de uso.
-- `allowed_tools` vacía + `--allow-write` → se permiten **todas** las
-  tools mutantes (decisión explícita, úsese con cuidado).
+- `--allow-write` exige allowlist (`--allow-tools` / `[mcp].allowed_tools`): sin
+  ella `mcp` no arranca. Para habilitar todas las mutantes hay que pedirlo
+  explícitamente con `--allow-all-mutating` (aviso al arrancar). Antes de
+  v0.10.x una allowlist vacía las habilitaba todas.
 - **Schemas estrictos**: cada tool declara `additionalProperties: false`;
   se rechazan parámetros desconocidos, tipos incorrectos y valores fuera
   de rango (`maxLength`, `minimum`/`maximum` en puertos).

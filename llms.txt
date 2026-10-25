@@ -32,8 +32,9 @@ Important notes:
 - [Verify downloads (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/verify-downloads): SHA256 + minisign + ML-DSA-65 verification guide
 - [MCP server (EN)](https://salvadorpalmarodriguez.github.io/enola-cli-lite/en/commands-mcp): Model Context Protocol server for AI agents
 
-MCP security: read-only by default. Mutations require `--allow-write` and may
-be restricted with `--allow-tools`; destructive operations additionally
+MCP security: read-only by default. Mutations require `--allow-write` plus an
+allowlist (`--allow-tools`; an empty allowlist needs the explicit
+`--allow-all-mutating`); destructive operations additionally
 require `force: true` and a single-use `confirm_token` bound to the exact
 arguments (300-second lifetime). `try_run: true` validates and simulates
 without side effects. `enola_run_command` uses typed argv and never dispatches
