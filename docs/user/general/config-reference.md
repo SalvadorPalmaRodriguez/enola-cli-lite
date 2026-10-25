@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/config-reference.md`
-> **Versión:** 1.6 | **Actualizado:** 2026-10-18
+> **Versión:** 1.7 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de configuración**
 > **Referencias:** commands.md
 
@@ -97,6 +97,10 @@ Proxy SOCKS5 para peticiones a URLs `.onion`.
 | Clave | Tipo | Default | Env var | Descripción |
 |-------|------|---------|---------|-------------|
 | `tor_socks_proxy` | String | `socks5h://127.0.0.1:9050` | `ENOLA_TOR_SOCKS_PROXY` | Proxy SOCKS5h para Tor |
+
+> **Bajo `sudo`:** `ENOLA_TOR_SOCKS_PROXY` y el `config.toml` del usuario solo admiten `socks5h://` en
+> `127.0.0.1`/`::1`/`localhost` (si no, se ignoran con aviso). Un proxy en otro host va en
+> `/etc/enola/config.toml` (root-owned) o con `--tor-socks`.
 
 ```toml
 [http]
@@ -218,7 +222,7 @@ Configuración del asistente de IA local (`enola-cli ask`) conectado a Ollama.
 | `ENOLA_AUTO_SETUP=1` | En modo no-TTY (script/servicio) permite que el preflight instale dependencias (`apt-get`) automáticamente | Mutación del sistema sin consentimiento interactivo |
 | `ENOLA_ALLOW_UNSIGNED_UPDATE=1` / `update apply --allow-unsigned` | Salta la verificación minisign del binario | Instala binario arbitrario como root |
 | `ENOLA_SKIP_ROOT_CHECK=1` | Omite la exigencia de root | Comandos fallarán o mutarán sin privilegios |
-| `ENOLA_MINISIGN_BIN` | Path alternativo al binario `minisign` | Solo validado por identity-check (`-V` contiene "minisign") |
+| `ENOLA_MINISIGN_BIN` | Path alternativo al binario `minisign` | Identity-check (`-V` contiene "minisign"); como root solo se acepta si el binario y todos sus directorios son root-owned y no escribibles por grupo/otros (se usa la ruta canónica) |
 | `ENOLA_WEB_TOKEN` | Fija el token del dashboard (tests) | Predecible si se filtra |
 | `ENOLA_UPDATE_FEED_URL` / `ENOLA_UPDATE_SIGNATURE_URL` / `ENOLA_UPDATE_MINISIGN_PUBKEY` (+ `ENOLA_UPDATE_ENV_ANCHORS=1`) | Overrides de trust anchors de update | Bajo euid 0 se ignoran salvo que `ENOLA_UPDATE_ENV_ANCHORS=1` esté presente, y emiten warning |
 | `ENOLA_TEST_TOKEN` | Token de test del dashboard (feature `testing`, ausente en release) | N/A en release |

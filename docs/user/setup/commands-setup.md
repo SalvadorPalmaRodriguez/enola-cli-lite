@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/setup/commands-setup.md`
-> **Versión:** 1.0 | **Actualizado:** 2026-08-07
+> **Versión:** 1.1 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -54,7 +54,7 @@ enola-cli doctor --security
 
 | Flag | Descripción | Default |
 |------|-------------|---------|
-| `--security` | Ejecuta auditoría de seguridad: hardening de contenedores, configs de Nginx, AppArmor, UFW y secrets en env vars | `false` |
+| `--security` | Ejecuta auditoría de seguridad: hardening de contenedores, configs de Nginx (incluido que los sites de Enola escuchen solo en `127.0.0.1`), puente VPN sobre Tor solo en `127.0.0.1` (en ambos casos muestra el comando de corrección), directorios de datos `/srv/enola-*` en `0700`, AppArmor, UFW y secrets en env vars | `false` |
 
 ### Salida
 

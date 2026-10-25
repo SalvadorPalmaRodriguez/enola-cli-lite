@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.4 | **Actualizado:** 2026-10-18
+> **Versión:** 3.5 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -89,13 +89,15 @@ sudo enola-cli update verify-feed https://host/advisories.json --json
 Descarga el último binario del update feed.
 
 Verifica SHA256 y **firma minisign obligatoria**. El binario se guarda en
-`~/.enola/downloads/enola-cli-<ver>` junto a su `.minisig` (hermano
+`/var/lib/enola/updates/downloads/enola-cli-<ver>` (con `sudo`; directorio de
+root `0700`, nunca en el `HOME` del usuario aunque uses `sudo -E`) o en
+`~/.enola/downloads/` si se ejecuta sin root, junto a su `.minisig` (hermano
 persistido para que `apply` pueda **re-verificar la firma** en lugar de
 fiarse de la metadata).
 
 Además descarga la **firma post-cuántica** del binario crudo (`<url>.pqsig`)
 en modo *best-effort*: si la release la publica, queda staged como hermano
-`<binario>.pqsig` en `~/.enola/downloads/`; si no (releases antiguas), se omite
+`<binario>.pqsig` en el mismo directorio; si no (releases antiguas), se omite
 sin error. minisign sigue siendo el trust anchor obligatorio — el `.pqsig` no
 se verifica inline.
 
@@ -122,8 +124,11 @@ sudo enola-cli update download [--yes] [--dry-run] [--json] [--force] [--allow-u
 Aplica un update descargado previamente.
 
 Reemplaza el binario actual atómicamente: hace backup del binario antiguo a
-`/usr/local/share/enola/enola-cli.bak`, mueve el nuevo binario, y actualiza
-`cli.sha256`. Requiere root.
+`/usr/local/share/enola/enola-cli.bak`, instala el nuevo y actualiza
+`cli.sha256`. Requiere root. El binario se lee **una sola vez**: SHA-256 y
+minisign se comprueban sobre esos bytes y lo que se instala son esos mismos
+bytes, como fichero nuevo de root (nunca se mueve el fichero descargado ni el
+de `--binary`, que se conserva).
 
 También sincroniza la firma post-cuántica instalada
 (`/usr/local/share/enola/cli.pqsig`):
@@ -142,10 +147,11 @@ También sincroniza la firma post-cuántica instalada
 > en descargas anteriores a este cambio), `apply` se **rechaza**: re-ejecuta
 > `sudo enola-cli update download`. Usar `--allow-unsigned` solo en testing.
 >
-> Además, corriendo como root (`euid 0`) la metadata y el directorio de
-> descargas deben ser **root-owned y no escribibles por grupo/otros** — un
-> `~/.enola/` del usuario preservado por `sudo -E` no puede forjar el
-> puntero al binario.
+> Además, corriendo como root (`euid 0`) la metadata, el directorio de
+> descargas, el binario staged y su `.minisig` deben ser **root-owned, no
+> enlaces simbólicos y no escribibles por grupo/otros**. Una descarga hecha con
+> una versión anterior (que la dejaba en `~/.enola/downloads/`) no se encuentra:
+> repite `sudo enola-cli update download`.
 >
 > Un `--binary <PATH>` pasado manualmente **siempre se considera no verificado**,
 > por lo que `apply --binary` exige `--allow-unsigned` (o

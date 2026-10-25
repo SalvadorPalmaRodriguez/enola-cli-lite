@@ -1,4 +1,4 @@
-> **Versión:** 1.0 | **Actualizado:** 2026-09-06
+> **Versión:** 1.1 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
@@ -105,7 +105,12 @@ file "$BIN" | grep -q stripped && echo OK
 - **Validación de minisign**: si se establece
   `ENOLA_MINISIGN_BIN` con un path absoluto, el CLI valida que el binario
   exista, sea ejecutable y sea realmente minisign (identity check via `<bin> -V`).
-  Si falla, emite warning y fallback a `minisign` del PATH.
+  Si falla, emite warning y fallback a `minisign` del PATH. Como root, además,
+  solo se acepta si el binario y todos sus directorios son root-owned y no
+  escribibles por grupo/otros.
+- **Entorno bajo root**: con `sudo -E` el CLI fija `PATH` a una ruta segura e
+  ignora overrides heredados que no son de confianza (`ENOLA_MANIFEST_PATH`,
+  proxies SOCKS que no son locales), avisando por stderr.
 - **Trust anchor del instalador**: si
   `ENOLA_INSTALL_PUBKEY` se establece con un valor distinto del default,
   el instalador emite un warning visible. `ENOLA_INSTALL_STRICT_PUBKEY=1`

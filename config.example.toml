@@ -78,6 +78,9 @@ minisign_pubkey_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/
 #   2. Variable de entorno       ENOLA_TOR_SOCKS_PROXY=socks5h://...
 #   3. Esta sección              [http].tor_socks_proxy = "..."
 #   4. Default del binario       socks5h://127.0.0.1:9050
+# Como root (sudo): la variable de entorno y el config.toml del usuario solo
+# admiten socks5h:// en 127.0.0.1/::1/localhost; un proxy en otro host va en
+# /etc/enola/config.toml (root-owned) o en --tor-socks.
 [http]
 # Tor local (por defecto):
 tor_socks_proxy = "socks5h://127.0.0.1:9050"
@@ -85,7 +88,7 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 # Tor Browser en la misma máquina (escucha en 9150):
 # tor_socks_proxy = "socks5h://127.0.0.1:9150"
 
-# Daemon Tor en host remoto de la LAN:
+# Daemon Tor en host remoto de la LAN (bajo sudo: en /etc/enola/config.toml):
 # tor_socks_proxy = "socks5h://10.0.0.5:9050"
 
 
@@ -192,7 +195,8 @@ tor_socks_proxy = "socks5h://127.0.0.1:9050"
 #   ENOLA_AUTO_SETUP=1          — preflight no-TTY instala deps (SEC-009)
 #   ENOLA_ALLOW_UNSIGNED_UPDATE=1 / --allow-unsigned — salta firma minisign
 #   ENOLA_SKIP_ROOT_CHECK=1     — omite exigencia de root
-#   ENOLA_MINISIGN_BIN=<path>   — minisign alternativo (identity-check)
+#   ENOLA_MINISIGN_BIN=<path>   — minisign alternativo (identity-check; como
+#                                 root solo si toda la ruta es root-owned)
 #   ENOLA_WEB_TOKEN=<token>     — fija token del dashboard (tests)
 #   ENOLA_UPDATE_FEED_URL / ENOLA_UPDATE_SIGNATURE_URL / ENOLA_UPDATE_MINISIGN_PUBKEY
 #                               — overrides de trust anchors (bajo root exigen

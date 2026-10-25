@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ssh/commands-ssh.md`
-> **Versión:** 1.0 | **Actualizado:** 2026-09-10
+> **Versión:** 1.1 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -15,6 +15,12 @@ Añade una clave pública al `~/.ssh/authorized_keys` de un usuario.
 
 - Deduplica por el cuerpo de la clave (no la añade si ya existe).
 - Escribe de forma atómica con permisos `0600` y lock anti-TOCTOU.
+- El fichero queda **propiedad del usuario destino** (y `~/.ssh`, si se crea, en `0700` y suyo).
+- Si `~/.ssh` es del usuario pero tiene permisos de más (p. ej. `775`), los **corrige a `0700`** y lo avisa
+  (como `ssh-copy-id` o Ansible; con esos permisos `sshd` rechaza además las claves). Solo quita permisos,
+  nunca los añade.
+- Se **niega** a escribir si `~/.ssh` o `authorized_keys` son enlaces simbólicos, o si `~/.ssh` pertenece a
+  otro usuario.
 
 ```bash
 sudo enola-cli ssh add-key --user alice --pubkey "ssh-ed25519 AAAA..."
