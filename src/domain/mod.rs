@@ -16,6 +16,7 @@ pub mod error;
 pub mod firewall;
 pub mod git;
 pub mod git_flattening;
+pub mod images; // A25-07/08 — tabla única de imágenes (tag fijo + digest + EOL + cap_add)
 pub(crate) mod license_acceptance; // LIC-002 — License acceptance on first run
 pub mod mcp; // MCP-001 — Tipos JSON-RPC 2.0 + MCP (servidor stdio)
 pub mod naming;

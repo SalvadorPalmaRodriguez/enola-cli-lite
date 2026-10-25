@@ -36,6 +36,11 @@ const DEFAULT_GIT_DATA_BASE: &str = "/srv/enola-git";
 
 /// Application Service for deploying a Git Server (Forgejo)
 /// Port logic from: scripts/git/deploy_git.sh
+/// A25-08: nombre de la red Docker dedicada de un servidor Git.
+pub fn git_network_name(service_name: &str) -> String {
+    format!("enola_net_git_{service_name}")
+}
+
 pub struct DeployGitServer {
     container_manager: Arc<dyn ContainerPort + Send + Sync>,
     #[allow(dead_code)]
@@ -236,15 +241,26 @@ impl DeployGitServer {
             security_opt.push(aa_opt);
         }
 
+        // A25-08 (P3.6): red dedicada — en la bridge por defecto Forgejo era
+        // alcanzable desde cualquier otro contenedor. Nginx sigue llegando por
+        // el binding 127.0.0.1 del host.
+        let net_name = git_network_name(service_name);
+        let _ = self.container_manager.create_network(&net_name).await;
+        let _ = self.manifest.append("docker_network", &net_name);
+
         let config = ContainerConfig {
             name: format!("enola-git-{}", service_name),
-            image: "codeberg.org/forgejo/forgejo:9.0".to_string(),
+            image: crate::domain::images::FORGEJO.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::FORGEJO.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::FORGEJO.cap_add_vec(),
             env,
             ports,
             volumes,
             command: None,
             gpu_support: false,
-            network: None,
+            network: Some(net_name),
             restart_policy: Some("unless-stopped".to_string()),
             auto_remove: false,
             working_dir: None,

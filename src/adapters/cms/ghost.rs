@@ -6,7 +6,7 @@
 // del propio contenedor Ghost en `/var/lib/ghost/content/`.
 //
 // Stack:
-//   - Web: `ghost:5-alpine`  (oficial)
+//   - Web: `domain::images::GHOST` (oficial, Ghost 6 + SQLite)
 //   - BD:  SQLite embebido en `/var/lib/ghost/content/data/ghost.db`
 //          (no hay contenedor MariaDB/Postgres separado)
 //
@@ -139,7 +139,7 @@ pub(crate) fn ghost_descriptor() -> CmsDescriptor {
     CmsDescriptor {
         kind: CmsKind::Ghost,
         display_name: "Ghost",
-        default_image: "ghost:5-alpine",
+        default_image: crate::domain::images::GHOST.image,
         db_stack: DbStack::Sqlite,
         // §13.1: Ghost durante boot devuelve 502/503 hasta que el server Node
         // arranca; tras boot, `/` redirige a `/ghost/` (302) o devuelve 200.
@@ -214,7 +214,11 @@ impl CmsLifecycle for GhostCmsAdapter {
 
         let web_config = ContainerConfig {
             name: web_name.clone(),
-            image: self.descriptor().default_image.to_string(),
+            image: crate::domain::images::GHOST.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::GHOST.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::GHOST.cap_add_vec(),
             command: None,
             env: web_env,
             ports: web_ports,
@@ -359,7 +363,7 @@ mod tests {
         let d = adapter.descriptor();
         assert_eq!(d.kind, CmsKind::Ghost);
         assert_eq!(d.kind.slug(), "ghost");
-        assert_eq!(d.default_image, "ghost:5-alpine");
+        assert_eq!(d.default_image, crate::domain::images::GHOST.image);
         assert_eq!(d.db_stack, DbStack::Sqlite);
         assert_eq!(d.container_prefix, "ghost-");
         assert_eq!(d.data_root, "/srv/enola-ghost");

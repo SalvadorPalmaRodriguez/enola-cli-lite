@@ -191,7 +191,7 @@ pub(crate) fn magnolia_descriptor() -> CmsDescriptor {
     CmsDescriptor {
         kind: CmsKind::Magnolia,
         display_name: "Magnolia",
-        default_image: "ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest",
+        default_image: crate::domain::images::MAGNOLIA.image,
         // H2 embebido en el JVM de Tomcat. Sin contenedor BD separado.
         db_stack: DbStack::None,
         // 13.1: Magnolia arranca Tomcat + JCR bootstrap. Durante ese proceso
@@ -276,7 +276,11 @@ impl CmsLifecycle for MagnoliaCmsAdapter {
 
         let config = ContainerConfig {
             name: container_name.clone(),
-            image: self.descriptor().default_image.to_string(),
+            image: crate::domain::images::MAGNOLIA.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::MAGNOLIA.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::MAGNOLIA.cap_add_vec(),
             command: None,
             env,
             ports,
@@ -447,10 +451,7 @@ mod tests {
         let d = adapter.descriptor();
         assert_eq!(d.kind, CmsKind::Magnolia);
         assert_eq!(d.kind.slug(), "magnolia");
-        assert_eq!(
-            d.default_image,
-            "ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest"
-        );
+        assert_eq!(d.default_image, crate::domain::images::MAGNOLIA.image);
         assert_eq!(d.db_stack, DbStack::None);
         assert_eq!(d.container_prefix, "magnolia-");
         assert_eq!(d.data_root, "/srv/enola-magnolia");

@@ -82,6 +82,40 @@ fn resolve_pids() -> Option<i64> {
     }
 }
 
+/// A25-08 (P3.5): argumentos de endurecimiento para las rutas que recrean un
+/// contenedor con `docker run` directo (edición de puertos), en paridad con
+/// `DockerAdapter::create_container`: `no-new-privileges`, `cap_drop ALL` +
+/// `cap_add` de la tabla de imágenes (por repositorio de `image_ref`) y los
+/// límites por defecto. Una imagen fuera de la tabla no recibe `cap_drop`
+/// (no se sabe qué necesita), pero sí `no-new-privileges` y límites.
+pub fn docker_run_hardening_args(image_ref: &str) -> Vec<String> {
+    let mut args = vec![
+        "--security-opt".to_string(),
+        "no-new-privileges:true".to_string(),
+    ];
+    if let Some(spec) = crate::domain::images::find_by_reference(image_ref) {
+        args.push("--cap-drop".to_string());
+        args.push("ALL".to_string());
+        for cap in spec.cap_add {
+            args.push("--cap-add".to_string());
+            args.push((*cap).to_string());
+        }
+    }
+    if let Some(m) = resolve_memory() {
+        args.push("--memory".to_string());
+        args.push(m.to_string());
+    }
+    if let Some(n) = resolve_nano_cpus() {
+        args.push("--cpus".to_string());
+        args.push(format!("{}.{:09}", n / 1_000_000_000, n % 1_000_000_000));
+    }
+    if let Some(p) = resolve_pids() {
+        args.push("--pids-limit".to_string());
+        args.push(p.to_string());
+    }
+    args
+}
+
 /// Aplica los límites por defecto a un `ContainerConfig` mutable. Solo
 /// rellena campos que el caller dejó en `None`; valores explícitos del
 /// caller se preservan intactos.
@@ -107,6 +141,24 @@ pub fn apply_default_limits(config: &mut ContainerConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docker_run_hardening_args_match_images_table() {
+        let _g = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let args = docker_run_hardening_args("codeberg.org/forgejo/forgejo:9.0");
+        let joined = args.join(" ");
+        assert!(joined.contains("--security-opt no-new-privileges:true"));
+        assert!(joined.contains("--cap-drop ALL"));
+        assert!(joined.contains("--cap-add SYS_CHROOT"));
+        assert!(joined.contains("--cap-add KILL"));
+        assert!(joined.contains("--pids-limit"));
+        assert!(joined.contains("--cpus 2.000000000") || joined.contains("--cpus"));
+        let unknown = docker_run_hardening_args("example/unknown:1").join(" ");
+        assert!(!unknown.contains("--cap-drop"));
+        assert!(unknown.contains("no-new-privileges:true"));
+    }
 
     fn clear_env() {
         std::env::remove_var("ENOLA_DOCKER_DEFAULT_MEMORY_BYTES");

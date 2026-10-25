@@ -188,6 +188,15 @@ impl AppArmorStatus {
 
 /// Generate the AppArmor profile content for a service.
 /// Pure function — no I/O, no side effects.
+/// A25-08: líneas `capability x,` de un perfil a partir del `cap_add` del
+/// contenedor — AppArmor solo permite las caps listadas, así que deben ser
+/// exactamente las que Docker concede (tabla `domain::images`).
+fn capability_lines(caps: &[&str]) -> String {
+    caps.iter()
+        .map(|c| format!("  capability {},\n", c.to_ascii_lowercase()))
+        .collect()
+}
+
 pub(crate) fn generate_profile_content(
     service_type: &AppArmorServiceType,
     instance_name: &str,
@@ -231,12 +240,8 @@ profile {name} flags=(attach_disconnected,mediate_deleted) {{
   #include <abstractions/base>
   #include <abstractions/nameservice>
 
-  # Capabilities needed by Forgejo's su-exec to drop privileges
-  capability chown,
-  capability setuid,
-  capability setgid,
-  capability dac_override,
-
+  # Capabilities: same set as the container's cap_add (domain::images::FORGEJO)
+{caps}
   # Access to OWN data directory
   {data}/** rw,
   {data}/ r,
@@ -254,7 +259,8 @@ profile {name} flags=(attach_disconnected,mediate_deleted) {{
 }}
 "#,
                 name = profile_name,
-                data = data_path
+                data = data_path,
+                caps = capability_lines(crate::domain::images::FORGEJO.cap_add)
             )
         }
 
@@ -266,12 +272,8 @@ profile {name} flags=(attach_disconnected,mediate_deleted) {{
 profile {name} flags=(attach_disconnected,mediate_deleted) {{
   #include <abstractions/base>
 
-  # Capabilities needed by WordPress docker-entrypoint.sh
-  capability chown,
-  capability setuid,
-  capability setgid,
-  capability dac_override,
-
+  # Capabilities: same set as the container's cap_add (domain::images::WORDPRESS)
+{caps}
   # Access to OWN data directory
   {data}/** rw,
   {data}/ r,
@@ -288,7 +290,8 @@ profile {name} flags=(attach_disconnected,mediate_deleted) {{
 }}
 "#,
                 name = profile_name,
-                data = data_path
+                data = data_path,
+                caps = capability_lines(crate::domain::images::WORDPRESS.cap_add)
             )
         }
 
@@ -634,5 +637,24 @@ mod tests {
         };
         let s = status.summary();
         assert!(s.contains("Violations (24h): 1"));
+    }
+
+    /// A25-08: el perfil permite exactamente las caps que concede Docker.
+    #[test]
+    fn profile_capabilities_match_container_cap_add() {
+        let git = generate_profile_content(&AppArmorServiceType::Git, "x");
+        for c in crate::domain::images::FORGEJO.cap_add {
+            assert!(
+                git.contains(&format!("capability {},", c.to_ascii_lowercase())),
+                "git: {c}"
+            );
+        }
+        let wp = generate_profile_content(&AppArmorServiceType::WordPress, "x");
+        for c in crate::domain::images::WORDPRESS.cap_add {
+            assert!(
+                wp.contains(&format!("capability {},", c.to_ascii_lowercase())),
+                "wp: {c}"
+            );
+        }
     }
 }

@@ -9,7 +9,9 @@ pub(crate) const DOCKERFILE_STRAPI: &str = include_str!("scripts/Dockerfile.stra
 /// Nombre canónico del Dockerfile de Strapi extraído al disco.
 pub const STRAPI_DOCKERFILE_NAME: &str = "Dockerfile.strapi";
 /// Tag de la imagen Strapi construida localmente.
-pub const STRAPI_IMAGE_TAG: &str = "enola/strapi:5.49.0";
+/// A25-07: tag ligado a la base Node del Dockerfile (cambiarla obliga a
+/// reconstruir; ver `domain::images::STRAPI`).
+pub const STRAPI_IMAGE_TAG: &str = crate::domain::images::STRAPI.image;
 
 // ── Strapi Dockerfile ─────────────────────────────────────────────────────
 /// Devuelve la ruta del `Dockerfile.strapi`, extrayéndolo del binario si no existe.
@@ -103,9 +105,16 @@ mod tests {
             !DOCKERFILE_STRAPI.is_empty(),
             "Dockerfile.strapi debe estar embebido"
         );
+        // A25-07: base Node LTS soportada y pineada por digest.
         assert!(
-            DOCKERFILE_STRAPI.contains("FROM node:"),
-            "debe basarse en node"
+            DOCKERFILE_STRAPI.contains("ARG NODE_IMAGE=node:22.")
+                && DOCKERFILE_STRAPI.contains("-bookworm-slim@sha256:"),
+            "debe basarse en node 22 LTS pineado por digest"
+        );
+        assert!(DOCKERFILE_STRAPI.contains("FROM ${NODE_IMAGE} AS runtime"));
+        assert!(
+            STRAPI_IMAGE_TAG.ends_with("-node22"),
+            "el tag debe cambiar con la base para forzar la reconstrucción"
         );
         assert!(
             DOCKERFILE_STRAPI.contains("create-strapi-app"),

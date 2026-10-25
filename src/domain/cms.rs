@@ -19,9 +19,9 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DbStack {
-    /// MySQL/MariaDB. Imagen por defecto: `mariadb:10.11`.
+    /// MySQL/MariaDB. Imagen por defecto: `domain::images::MARIADB_DRUPAL`.
     MariaDB,
-    /// PostgreSQL. Imagen por defecto: `postgres:16-alpine`.
+    /// PostgreSQL. Imagen por defecto: `domain::images::POSTGRES`.
     Postgres,
     /// SQLite embebido en el contenedor del CMS (sin BD externa).
     Sqlite,
@@ -35,8 +35,9 @@ impl DbStack {
     /// Imagen Docker por defecto para este stack, o `None` si no aplica BD externa.
     pub fn default_image(self) -> Option<&'static str> {
         match self {
-            DbStack::MariaDB => Some("mariadb:10.11"),
-            DbStack::Postgres => Some("postgres:16-alpine"),
+            // A25-07: misma referencia que la tabla única de imágenes.
+            DbStack::MariaDB => Some(crate::domain::images::MARIADB_DRUPAL.image),
+            DbStack::Postgres => Some(crate::domain::images::POSTGRES.image),
             DbStack::MongoDB => Some("mongo:7"),
             DbStack::Sqlite | DbStack::None => None,
         }
@@ -116,7 +117,7 @@ pub struct CmsDescriptor {
     pub kind: CmsKind,
     /// Nombre legible para humanos ("WordPress", "Drupal", "Ghost").
     pub display_name: &'static str,
-    /// Imagen Docker por defecto (p.ej. `wordpress:6-php8.2-apache`).
+    /// Imagen Docker por defecto (de `domain::images`).
     pub default_image: &'static str,
     /// Stack de BD requerido. Si != `None`, el adapter debe gestionar el
     /// contenedor de BD vinculado.
@@ -198,10 +199,13 @@ mod tests {
 
     #[test]
     fn db_stack_default_images_are_consistent() {
-        assert_eq!(DbStack::MariaDB.default_image(), Some("mariadb:10.11"));
+        assert_eq!(
+            DbStack::MariaDB.default_image(),
+            Some(crate::domain::images::MARIADB_DRUPAL.image)
+        );
         assert_eq!(
             DbStack::Postgres.default_image(),
-            Some("postgres:16-alpine")
+            Some(crate::domain::images::POSTGRES.image)
         );
         assert_eq!(DbStack::MongoDB.default_image(), Some("mongo:7"));
         assert_eq!(DbStack::Sqlite.default_image(), None);

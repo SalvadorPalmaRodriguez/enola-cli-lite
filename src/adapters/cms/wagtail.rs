@@ -155,7 +155,7 @@ pub(crate) fn wagtail_descriptor() -> CmsDescriptor {
     CmsDescriptor {
         kind: CmsKind::Wagtail,
         display_name: "Wagtail",
-        default_image: "wagtail/bakerydemo:latest",
+        default_image: crate::domain::images::WAGTAIL.image,
         db_stack: DbStack::Postgres,
         // §13.1: Django/Wagtail durante boot puede devolver 500 mientras se
         // aplican migraciones; tras boot, `/` redirige a `/admin/` (302) o
@@ -237,20 +237,13 @@ impl CmsLifecycle for WagtailCmsAdapter {
             db_pass_path.to_string_lossy().to_string(),
         );
 
-        let db_image = self
-            .descriptor()
-            .db_stack
-            .default_image()
-            .ok_or_else(|| {
-                EnolaError::InfrastructureError(
-                    "Wagtail descriptor missing DB image (DbStack::Postgres)".to_string(),
-                )
-            })?
-            .to_string();
-
         let db_config = ContainerConfig {
             name: db_name.clone(),
-            image: db_image,
+            image: crate::domain::images::POSTGRES.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::POSTGRES.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::POSTGRES.cap_add_vec(),
             command: None,
             env: db_env,
             ports: HashMap::new(),
@@ -336,7 +329,11 @@ exec "$@"
 
         let web_config = ContainerConfig {
             name: web_name.clone(),
-            image: self.descriptor().default_image.to_string(),
+            image: crate::domain::images::WAGTAIL.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::WAGTAIL.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::WAGTAIL.cap_add_vec(),
             // SEC-001: Use entrypoint wrapper to inject secrets from files
             command: Some(vec![
                 "/bin/sh".to_string(),
@@ -542,7 +539,7 @@ mod tests {
         let d = adapter.descriptor();
         assert_eq!(d.kind, CmsKind::Wagtail);
         assert_eq!(d.kind.slug(), "wagtail");
-        assert_eq!(d.default_image, "wagtail/bakerydemo:latest");
+        assert_eq!(d.default_image, crate::domain::images::WAGTAIL.image);
         assert_eq!(d.db_stack, DbStack::Postgres);
         assert_eq!(d.container_prefix, "wagtail-");
         assert_eq!(d.data_root, "/srv/enola-wagtail");

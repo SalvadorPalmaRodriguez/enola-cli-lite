@@ -137,7 +137,7 @@ impl CmsAdapter for DrupalCmsAdapter {
         CmsDescriptor {
             kind: CmsKind::Drupal,
             display_name: "Drupal",
-            default_image: "drupal:10-apache",
+            default_image: crate::domain::images::DRUPAL.image,
             db_stack: DbStack::MariaDB,
             // §13.1: Drupal wizard web acepta 200/301/302/304/403 hasta completarse.
             // 403 puede ocurrir por permisos o configuración Apache inicial (TEST-COV-DRUPAL-019).
@@ -223,20 +223,13 @@ impl CmsLifecycle for DrupalCmsAdapter {
             db_pass_path.to_string_lossy().to_string(),
         );
 
-        let db_image = self
-            .descriptor()
-            .db_stack
-            .default_image()
-            .ok_or_else(|| {
-                EnolaError::InfrastructureError(
-                    "Drupal descriptor missing DB image (DbStack::MariaDB)".to_string(),
-                )
-            })?
-            .to_string();
-
         let db_config = ContainerConfig {
             name: db_name.clone(),
-            image: db_image,
+            image: crate::domain::images::MARIADB_DRUPAL.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::MARIADB_DRUPAL.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::MARIADB_DRUPAL.cap_add_vec(),
             command: None,
             env: db_env,
             ports: HashMap::new(),
@@ -290,7 +283,11 @@ impl CmsLifecycle for DrupalCmsAdapter {
 
         let web_config = ContainerConfig {
             name: web_name.clone(),
-            image: self.descriptor().default_image.to_string(),
+            image: crate::domain::images::DRUPAL.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::DRUPAL.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::DRUPAL.cap_add_vec(),
             command: None,
             env: web_env,
             ports: web_ports,
@@ -529,7 +526,7 @@ mod tests {
         let d = adapter.descriptor();
         assert_eq!(d.kind, CmsKind::Drupal);
         assert_eq!(d.kind.slug(), "drupal");
-        assert_eq!(d.default_image, "drupal:10-apache");
+        assert_eq!(d.default_image, crate::domain::images::DRUPAL.image);
         assert_eq!(d.db_stack, DbStack::MariaDB);
         assert_eq!(d.container_prefix, "drupal-");
         assert_eq!(d.data_root, "/srv/enola-drupal");

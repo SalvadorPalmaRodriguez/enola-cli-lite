@@ -1189,7 +1189,7 @@
       ]
     },
     {
-      "description": "Stack: drupal:10-apache + mariadb:10.11.",
+      "description": "Stack: drupal:11.4 + mariadb:10.11 (pinned by digest).",
       "flags": [],
       "name": "drupal",
       "subcommands": [
@@ -1384,7 +1384,7 @@
       ]
     },
     {
-      "description": "Stack: ghost:5-alpine + SQLite embedded (no separate DB container). Internal port: 2368 (Ghost default).",
+      "description": "Stack: ghost:6 + SQLite embedded (no separate DB container). Internal port: 2368 (Ghost default).",
       "flags": [],
       "name": "ghost",
       "subcommands": [
@@ -1579,7 +1579,7 @@
       ]
     },
     {
-      "description": "Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2. Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.",
+      "description": "Stack: magnolia-docker (Tomcat, Java; upstream image unmaintained since 2020) with embedded H2. Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.",
       "flags": [],
       "name": "magnolia",
       "subcommands": [
@@ -1749,7 +1749,7 @@
       ]
     },
     {
-      "description": "Stack: enola/strapi:5.49.0 + postgres:16-alpine. Generates 6 secrets (0600) per instance: app keys, API token, JWT, admin JWT, transfer token, db password (SEC-EXT-DOCKER-040).",
+      "description": "Stack: enola/strapi:5.49.0-node22 + postgres:16. Generates 6 secrets (0600) per instance: app keys, API token, JWT, admin JWT, transfer token, db password (SEC-EXT-DOCKER-040).",
       "flags": [],
       "name": "strapi",
       "subcommands": [
@@ -1917,7 +1917,7 @@
           "subcommands": []
         },
         {
-          "description": "Build the Strapi production Docker image (multi-stage, Node 20, Strapi 5.49).",
+          "description": "Build the Strapi production Docker image (multi-stage, Node 22 LTS, Strapi 5.49).",
           "flags": [
             {
               "boolean": true,
@@ -1938,7 +1938,7 @@
       ]
     },
     {
-      "description": "Stack: wagtail/bakerydemo:latest (demo site, Python/Django) + postgres:16-alpine.",
+      "description": "Stack: wagtail/bakerydemo (demo site, Python/Django; upstream image unmaintained since 2021) + postgres:16.",
       "flags": [],
       "name": "wagtail",
       "subcommands": [

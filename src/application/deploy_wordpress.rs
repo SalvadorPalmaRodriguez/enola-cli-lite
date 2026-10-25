@@ -132,7 +132,11 @@ impl DeployWordPress {
 
         let db_config = ContainerConfig {
             name: db_host.clone(),
-            image: "mariadb:10.6".to_string(),
+            image: crate::domain::images::MARIADB_WORDPRESS.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::MARIADB_WORDPRESS.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::MARIADB_WORDPRESS.cap_add_vec(),
             command: None,
             env: db_env,
             ports: HashMap::new(), // Not exposed to host
@@ -197,7 +201,11 @@ impl DeployWordPress {
 
         let wp_config = ContainerConfig {
             name: wp_container_name.clone(),
-            image: "wordpress:latest".to_string(),
+            image: crate::domain::images::WORDPRESS.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::WORDPRESS.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::WORDPRESS.cap_add_vec(),
             command: None,
             env: wp_env,
             ports: wp_ports,

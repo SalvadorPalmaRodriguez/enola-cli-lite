@@ -92,7 +92,7 @@ pub struct PlannedPort {
 pub struct PlannedContainer {
     /// Container name: "wp-foo", "db-foo", "enola-git-foo".
     pub name: String,
-    /// Docker image: "wordpress:latest", "mariadb:10.6", "codeberg.org/forgejo/forgejo:9.0".
+    /// Docker image (`domain::images`, `repo:tag@sha256:…`).
     pub image: String,
     /// Internal container port (the app listens here): 80, 3000, 22.
     pub internal_port: u16,
@@ -366,8 +366,8 @@ impl ServiceBlueprint {
         match self.kind {
             PlanKind::WordPress => {
                 // KEEP-IN-SYNC: deploy_wordpress.rs
-                //   wp container:  image "wordpress:latest", internal 80, host http_port
-                //   db container:  image "mariadb:10.6", no host port
+                //   wp container:  images::WORDPRESS, internal 80, host http_port
+                //   db container:  images::MARIADB_WORDPRESS, no host port
                 //   network: enola_net_{name}
                 let http_port = resolved
                     .iter()
@@ -378,7 +378,7 @@ impl ServiceBlueprint {
                 vec![
                     PlannedContainer {
                         name: format!("wp-{}", name),
-                        image: "wordpress:latest".to_string(),
+                        image: crate::domain::images::WORDPRESS.reference(),
                         internal_port: 80,
                         host_port: Some(http_port),
                         volumes: vec![(
@@ -389,7 +389,7 @@ impl ServiceBlueprint {
                     },
                     PlannedContainer {
                         name: format!("db-{}", name),
-                        image: "mariadb:10.6".to_string(),
+                        image: crate::domain::images::MARIADB_WORDPRESS.reference(),
                         internal_port: 3306,
                         host_port: None,
                         volumes: vec![(
@@ -402,7 +402,7 @@ impl ServiceBlueprint {
             }
             PlanKind::Git => {
                 // KEEP-IN-SYNC: deploy_git_server.rs
-                //   container: enola-git-{name}, image codeberg.org/forgejo/forgejo:9.0
+                //   container: enola-git-{name}, image images::FORGEJO
                 //   internal ports: 3000 (http), 22 (ssh)
                 //   volume: /srv/enola-git/{name} -> /data
                 let http_port = resolved
@@ -412,13 +412,12 @@ impl ServiceBlueprint {
                     .unwrap_or(0);
                 vec![PlannedContainer {
                     name: format!("enola-git-{}", name),
-                    image: "codeberg.org/forgejo/forgejo:9.0".to_string(),
+                    image: crate::domain::images::FORGEJO.reference(),
                     internal_port: 3000,
                     host_port: Some(http_port),
                     volumes: vec![(format!("/srv/enola-git/{}", name), "/data".to_string())],
-                    // KEEP-IN-SYNC: deploy_git_server.rs — ContainerConfig { network: None }
-                    // (default Docker bridge).
-                    network: None,
+                    // KEEP-IN-SYNC: deploy_git_server.rs — red dedicada (A25-08).
+                    network: Some(format!("enola_net_git_{}", name)),
                 }]
             }
             PlanKind::Tor => {
@@ -674,7 +673,7 @@ mod tests {
 
         let wp = &plan.containers[0];
         assert_eq!(wp.name, "wp-myblog");
-        assert_eq!(wp.image, "wordpress:latest"); // KEEP-IN-SYNC deploy_wordpress.rs:191
+        assert_eq!(wp.image, crate::domain::images::WORDPRESS.reference()); // KEEP-IN-SYNC deploy_wordpress.rs
         assert_eq!(wp.internal_port, 80); // KEEP-IN-SYNC deploy_wordpress.rs:160
         assert_eq!(wp.host_port, Some(8090));
         assert_eq!(wp.network, Some("enola_net_myblog".to_string())); // KEEP-IN-SYNC deploy_wordpress.rs
@@ -688,7 +687,10 @@ mod tests {
 
         let db = &plan.containers[1];
         assert_eq!(db.name, "db-myblog");
-        assert_eq!(db.image, "mariadb:10.6"); // KEEP-IN-SYNC deploy_wordpress.rs:127
+        assert_eq!(
+            db.image,
+            crate::domain::images::MARIADB_WORDPRESS.reference()
+        ); // KEEP-IN-SYNC deploy_wordpress.rs
         assert_eq!(db.host_port, None);
         assert_eq!(
             db.volumes[0],
@@ -752,12 +754,12 @@ mod tests {
         assert_eq!(plan.containers.len(), 1);
         let c = &plan.containers[0];
         assert_eq!(c.name, "enola-git-repo"); // KEEP-IN-SYNC deploy_git_server.rs:218
-        assert_eq!(c.image, "codeberg.org/forgejo/forgejo:9.0"); // KEEP-IN-SYNC deploy_git_server.rs:219
+        assert_eq!(c.image, crate::domain::images::FORGEJO.reference()); // KEEP-IN-SYNC deploy_git_server.rs
         assert_eq!(c.internal_port, 3000); // KEEP-IN-SYNC deploy_git_server.rs:128
         assert_eq!(c.host_port, Some(10500));
         assert_eq!(c.volumes[0], ("/srv/enola-git/repo".into(), "/data".into()));
-        // KEEP-IN-SYNC: deploy_git_server.rs — ContainerConfig { network: None }
-        assert_eq!(c.network, None);
+        // KEEP-IN-SYNC: deploy_git_server.rs — red dedicada (A25-08).
+        assert_eq!(c.network.as_deref(), Some("enola_net_git_repo"));
     }
 
     #[test]

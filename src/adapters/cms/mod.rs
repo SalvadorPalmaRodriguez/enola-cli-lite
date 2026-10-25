@@ -59,7 +59,7 @@ fn drupal_descriptor_static() -> CmsDescriptor {
     CmsDescriptor {
         kind: CmsKind::Drupal,
         display_name: "Drupal",
-        default_image: "drupal:10-apache",
+        default_image: crate::domain::images::DRUPAL.image,
         db_stack: crate::domain::cms::DbStack::MariaDB,
         // §13.1: Drupal wizard web acepta 200/301/302/304/403 hasta completarse.
         // 403 puede ocurrir por permisos o configuración Apache inicial (TEST-COV-DRUPAL-019).
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn catalog_contains_drupal() {
         let d = descriptor_by_kind(CmsKind::Drupal).expect("Drupal must be registered");
-        assert_eq!(d.default_image, "drupal:10-apache");
+        assert_eq!(d.default_image, crate::domain::images::DRUPAL.image);
         assert_eq!(d.container_prefix, "drupal-");
     }
 
@@ -137,7 +137,7 @@ mod tests {
     fn catalog_contains_ghost() {
         // CMS-GHOST-001: Ghost registrado con SQLite (sin BD externa).
         let d = descriptor_by_kind(CmsKind::Ghost).expect("Ghost must be registered");
-        assert_eq!(d.default_image, "ghost:5-alpine");
+        assert_eq!(d.default_image, crate::domain::images::GHOST.image);
         assert_eq!(d.container_prefix, "ghost-");
         assert_eq!(d.data_root, "/srv/enola-ghost");
         assert!(
@@ -174,7 +174,7 @@ mod tests {
     fn catalog_contains_wagtail() {
         // CMS-WAGTAIL-001: Wagtail registrado con Postgres (primer Postgres del catálogo).
         let d = descriptor_by_kind(CmsKind::Wagtail).expect("Wagtail must be registered");
-        assert_eq!(d.default_image, "wagtail/bakerydemo:latest");
+        assert_eq!(d.default_image, crate::domain::images::WAGTAIL.image);
         assert_eq!(d.container_prefix, "wagtail-");
         assert_eq!(d.data_root, "/srv/enola-wagtail");
         assert_eq!(d.db_stack, crate::domain::cms::DbStack::Postgres);
@@ -209,7 +209,7 @@ mod tests {
     fn catalog_contains_strapi() {
         // CMS-STRAPI-001: Strapi v5 registrado con Postgres (Node.js headless).
         let d = descriptor_by_kind(CmsKind::Strapi).expect("Strapi must be registered");
-        assert_eq!(d.default_image, "enola/strapi:5.49.0");
+        assert_eq!(d.default_image, crate::domain::images::STRAPI.image);
         assert_eq!(d.container_prefix, "strapi-");
         assert_eq!(d.data_root, "/srv/enola-strapi");
         assert_eq!(d.db_stack, crate::domain::cms::DbStack::Postgres);
@@ -244,10 +244,7 @@ mod tests {
     fn catalog_contains_magnolia() {
         // CMS-MAGNOLIA-001: Magnolia registrado con H2 embebido (sin BD externa).
         let d = descriptor_by_kind(CmsKind::Magnolia).expect("Magnolia must be registered");
-        assert_eq!(
-            d.default_image,
-            "ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest"
-        );
+        assert_eq!(d.default_image, crate::domain::images::MAGNOLIA.image);
         assert_eq!(d.container_prefix, "magnolia-");
         assert_eq!(d.data_root, "/srv/enola-magnolia");
         assert_eq!(d.db_stack, crate::domain::cms::DbStack::None);

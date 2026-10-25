@@ -28,7 +28,7 @@ impl CmsAdapter for WordPressCmsAdapter {
         CmsDescriptor {
             kind: CmsKind::Wordpress,
             display_name: "WordPress",
-            default_image: "wordpress:6-php8.2-apache",
+            default_image: crate::domain::images::WORDPRESS.image,
             db_stack: DbStack::MariaDB,
             setup_wizard_status_codes: &[200, 301, 302, 304, 500],
             container_prefix: "wp-",
@@ -65,10 +65,10 @@ mod tests {
     }
 
     #[test]
-    fn wordpress_default_image_is_lts_php82() {
+    fn wordpress_default_image_comes_from_images_table() {
         assert_eq!(
             WordPressCmsAdapter.default_image(),
-            "wordpress:6-php8.2-apache"
+            crate::domain::images::WORDPRESS.image
         );
     }
 }

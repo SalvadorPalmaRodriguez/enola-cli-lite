@@ -2300,6 +2300,12 @@ pub mod git {
             .remove_container(&format!("enola-git-{}", name))
             .await
             .map_err(|e| CliError::Generic(e.to_string()))?;
+        // A25-08: red dedicada (best-effort: instancias previas usaban la bridge).
+        let _ = docker_adapter
+            .remove_network(&crate::application::deploy_git_server::git_network_name(
+                name,
+            ))
+            .await;
 
         // Clean up /srv data directory.
         let srv_dir = format!("/srv/enola-git/{}", name);
@@ -2576,6 +2582,11 @@ pub mod git {
                 current_http
             };
             let apparmor_profile = format!("enola-git-{}", name);
+            // A25-08: mismas caps que la creación (tabla de imágenes): sin
+            // NET_BIND_SERVICE/SYS_CHROOT/KILL el sshd de git no arrancaba o
+            // fallaba en cada conexión tras editar el puerto SSH.
+            let net_name = crate::application::deploy_git_server::git_network_name(name);
+            let _ = docker_adapter.create_network(&net_name).await;
             let run_result = std::process::Command::new("docker")
                 .args([
                     "run",
@@ -2584,18 +2595,11 @@ pub mod git {
                     &container_name,
                     "--restart",
                     "unless-stopped",
-                    "--cap-drop",
-                    "ALL",
-                    "--cap-add",
-                    "CHOWN",
-                    "--cap-add",
-                    "SETUID",
-                    "--cap-add",
-                    "SETGID",
-                    "--cap-add",
-                    "DAC_OVERRIDE",
-                    "--security-opt",
-                    "no-new-privileges:true",
+                    "--network",
+                    &net_name,
+                ])
+                .args(crate::infrastructure::container_limits::docker_run_hardening_args(&image))
+                .args([
                     "--security-opt",
                     &format!("apparmor={}", apparmor_profile),
                     "-v",
@@ -4305,6 +4309,10 @@ pub mod drupal {
                 "unless-stopped",
                 "--network",
                 &net_name,
+            ])
+            // A25-08: paridad con la creación (no-new-privileges, caps, límites).
+            .args(crate::infrastructure::container_limits::docker_run_hardening_args(&image))
+            .args([
                 "-v",
                 &format!("{}:/var/www/html", web_volume),
                 "-v",
@@ -4653,6 +4661,10 @@ pub mod ghost {
                 "unless-stopped",
                 "--network",
                 &net_name,
+            ])
+            // A25-08: paridad con la creación (no-new-privileges, caps, límites).
+            .args(crate::infrastructure::container_limits::docker_run_hardening_args(&image))
+            .args([
                 "-v",
                 &volume_mapping,
                 "-p",

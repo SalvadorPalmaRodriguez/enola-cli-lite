@@ -180,7 +180,7 @@ pub(crate) fn strapi_descriptor() -> CmsDescriptor {
     CmsDescriptor {
         kind: CmsKind::Strapi,
         display_name: "Strapi",
-        default_image: "enola/strapi:5.49.0",
+        default_image: crate::domain::images::STRAPI.image,
         db_stack: DbStack::Postgres,
         // 13.1: Strapi en el primer arranque puede devolver 500 mientras
         // aplica migraciones de BD; el admin wizard vive en `/admin/` (302).
@@ -270,20 +270,13 @@ impl CmsLifecycle for StrapiCmsAdapter {
             db_pass_path.to_string_lossy().to_string(),
         );
 
-        let db_image = self
-            .descriptor()
-            .db_stack
-            .default_image()
-            .ok_or_else(|| {
-                EnolaError::InfrastructureError(
-                    "Strapi descriptor missing DB image (DbStack::Postgres)".to_string(),
-                )
-            })?
-            .to_string();
-
         let db_config = ContainerConfig {
             name: db_name.clone(),
-            image: db_image,
+            image: crate::domain::images::POSTGRES.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::POSTGRES.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::POSTGRES.cap_add_vec(),
             command: None,
             env: db_env,
             ports: HashMap::new(),
@@ -393,7 +386,11 @@ exec "$@"
 
         let web_config = ContainerConfig {
             name: web_name.clone(),
-            image: self.descriptor().default_image.to_string(),
+            image: crate::domain::images::STRAPI.image.to_string(),
+            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            image_digest: crate::domain::images::STRAPI.digest_string(),
+            cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
+            cap_add: crate::domain::images::STRAPI.cap_add_vec(),
             // SEC-001: Use entrypoint wrapper to inject secrets from files
             command: Some(vec![
                 "/bin/sh".to_string(),
@@ -597,7 +594,7 @@ mod tests {
         let d = adapter.descriptor();
         assert_eq!(d.kind, CmsKind::Strapi);
         assert_eq!(d.kind.slug(), "strapi");
-        assert_eq!(d.default_image, "enola/strapi:5.49.0");
+        assert_eq!(d.default_image, crate::domain::images::STRAPI.image);
         assert_eq!(d.db_stack, DbStack::Postgres);
         assert_eq!(d.container_prefix, "strapi-");
         assert_eq!(d.data_root, "/srv/enola-strapi");

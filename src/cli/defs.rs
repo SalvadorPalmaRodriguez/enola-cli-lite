@@ -76,7 +76,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/drupal/commands-drupal.md
     /// Manage Drupal sites (CMS)
     ///
-    /// Stack: drupal:10-apache + mariadb:10.11.
+    /// Stack: drupal:11.4 + mariadb:10.11 (pinned by digest).
     ///
     /// Examples:
     ///   sudo enola-cli drupal create --name myblog --http-port 8090
@@ -91,7 +91,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/ghost/commands-ghost.md
     /// Manage Ghost blogs (CMS) — CMS-GHOST-002
     ///
-    /// Stack: ghost:5-alpine + SQLite embedded (no separate DB container).
+    /// Stack: ghost:6 + SQLite embedded (no separate DB container).
     /// Internal port: 2368 (Ghost default).
     ///
     /// Examples:
@@ -107,7 +107,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/magnolia/commands-magnolia.md
     /// Manage Magnolia CMS instances (CMS-MAGNOLIA-CLI)
     ///
-    /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2.
+    /// Stack: magnolia-docker (Tomcat, Java; upstream image unmaintained since 2020) with embedded H2.
     /// Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.
     ///
     /// Examples:
@@ -123,7 +123,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/strapi/commands-strapi.md
     /// Manage Strapi headless CMS instances (CMS-STRAPI-CLI)
     ///
-    /// Stack: enola/strapi:5.49.0 + postgres:16-alpine.
+    /// Stack: enola/strapi:5.49.0-node22 + postgres:16.
     /// Generates 6 secrets (0600) per instance: app keys, API token, JWT,
     /// admin JWT, transfer token, db password (SEC-EXT-DOCKER-040).
     ///
@@ -140,7 +140,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/wagtail/commands-wagtail.md
     /// Manage Wagtail CMS instances (CMS-WAGTAIL-CLI)
     ///
-    /// Stack: wagtail/bakerydemo:latest (demo site, Python/Django) + postgres:16-alpine.
+    /// Stack: wagtail/bakerydemo (demo site, Python/Django; upstream image unmaintained since 2021) + postgres:16.
     ///
     /// Examples:
     ///   sudo enola-cli wagtail create --name mysite --http-port 8200
@@ -1448,7 +1448,7 @@ pub enum DrupalCommands {
 
     /// Create a new Drupal site
     ///
-    /// Stack: drupal:10-apache + mariadb:10.11.
+    /// Stack: drupal:11.4 + mariadb:10.11 (pinned by digest).
     /// Data root: /srv/enola-drupal/{name}/{web,db,secrets}/
     Create {
         /// Site name (alphanumeric + `_-`)
@@ -1532,7 +1532,7 @@ pub enum DrupalCommands {
 // GHOST SUBCOMMANDS — CMS-GHOST-002
 //
 // Mismo lifecycle que Drupal pero con UN solo contenedor (SQLite embebido).
-// Stack: ghost:5-alpine, puerto interno 2368.
+// Stack: ghost:6 (SQLite), puerto interno 2368.
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[derive(Subcommand, Debug)]
@@ -1542,7 +1542,7 @@ pub enum GhostCommands {
 
     /// Create a new Ghost blog
     ///
-    /// Stack: ghost:5-alpine + SQLite embedded.
+    /// Stack: ghost:6 + SQLite embedded.
     /// Data root: /srv/enola-ghost/{name}/content/
     /// Internal port (container): 2368.
     Create {
@@ -1627,7 +1627,7 @@ pub enum MagnoliaCommands {
 
     /// Create a new Magnolia instance
     ///
-    /// Stack: ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat) with embedded H2. Needs ≥1.5 GB RAM (warns if <1536 MB); 4 GB recommended.
+    /// Stack: magnolia-docker (Tomcat; upstream image unmaintained since 2020) with embedded H2. Needs ≥1.5 GB RAM (warns if <1536 MB); 4 GB recommended.
     /// Container prefix: `magnolia-`.
     Create {
         /// Instance name (alphanumeric + `_-`)
@@ -1735,7 +1735,7 @@ pub enum StrapiCommands {
     /// Hide Strapi instance from Tor (remove hidden service)
     Hide { name: String },
 
-    /// Build the Strapi production Docker image (multi-stage, Node 20, Strapi 5.49).
+    /// Build the Strapi production Docker image (multi-stage, Node 22 LTS, Strapi 5.49).
     ///
     /// Must be run once before `create`. The Dockerfile is embedded in the binary
     /// and extracted automatically. Build takes ~5-10 minutes.

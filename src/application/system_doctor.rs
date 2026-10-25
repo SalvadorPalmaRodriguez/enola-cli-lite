@@ -336,6 +336,8 @@ async fn section_hardware(probe: &dyn HardwareProbePort) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityFindingLevel {
     Ok,
+    /// Recomendación: se muestra pero no cuenta como warning (no cambia el exit code).
+    Info,
     Warning,
     Critical,
 }
@@ -380,6 +382,10 @@ pub fn security_report() -> (String, i32) {
     findings.extend(check_vpn_bridge_loopback());
     // (j) /srv/enola-* data dirs are 0700 (SEC-A7)
     findings.extend(check_service_data_dirs());
+    // (k) Imágenes fuera de soporte en contenedores de enola (A25-07)
+    findings.extend(check_image_eol());
+    // (l) userns-remap del daemon Docker (A25-08, recomendación)
+    findings.extend(check_userns_remap());
 
     // Render findings
     let mut warnings = 0;
@@ -389,6 +395,7 @@ pub fn security_report() -> (String, i32) {
     for f in &findings {
         let (icon, count_flag) = match f.level {
             SecurityFindingLevel::Ok => ("✅", 0),
+            SecurityFindingLevel::Info => ("ℹ️ ", 3),
             SecurityFindingLevel::Warning => ("⚠️ ", 1),
             SecurityFindingLevel::Critical => ("❌", 2),
         };
@@ -419,6 +426,96 @@ pub fn security_report() -> (String, i32) {
     };
 
     (s, exit_code)
+}
+
+/// (k) A25-07: contenedores cuya imagen es de la tabla de enola (o una versión
+/// antigua publicada por enola) y está fuera de soporte. Se identifica por
+/// IMAGEN, no por nombre: los CMS se llaman `wp-*`, `drupal-*`, `db-*`…
+fn check_image_eol() -> Vec<SecurityFinding> {
+    let out = std::process::Command::new("docker")
+        .args(["ps", "-a", "--format", "{{.Names}}\t{{.Image}}"])
+        .output();
+    let Some(out) = out.ok().filter(|o| o.status.success()) else {
+        return vec![SecurityFinding {
+            check: "image-eol",
+            level: SecurityFindingLevel::Warning,
+            message: "`docker ps` failed — cannot check container images".to_string(),
+        }];
+    };
+    // `docker ps` muestra la imagen tal como se creó; para las pineadas por
+    // digest puede mostrar solo el repo@digest: se completa con Config.Image.
+    let rows: Vec<(String, String)> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(n, i)| {
+            let full = std::process::Command::new("docker")
+                .args(["inspect", "--format", "{{.Config.Image}}", n])
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| i.to_string());
+            (n.to_string(), full)
+        })
+        .collect();
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    image_eol_findings(&rows, &today)
+}
+
+/// Parte pura de [`check_image_eol`].
+pub(crate) fn image_eol_findings(rows: &[(String, String)], today: &str) -> Vec<SecurityFinding> {
+    let flagged: Vec<String> = rows
+        .iter()
+        .filter_map(|(name, image)| {
+            crate::domain::images::eol_reason(image, today).map(|why| format!("{name} ({why})"))
+        })
+        .collect();
+    if flagged.is_empty() {
+        return vec![SecurityFinding {
+            check: "image-eol",
+            level: SecurityFindingLevel::Ok,
+            message: "No enola service container runs an out-of-support image".to_string(),
+        }];
+    }
+    vec![SecurityFinding {
+        check: "image-eol",
+        level: SecurityFindingLevel::Warning,
+        message: format!(
+            "{} container(s) run an out-of-support image: {}. Data is not migrated \
+             automatically — back up and follow docs/user/general/SECURITY.md \
+             (\"Imágenes fuera de soporte\").",
+            flagged.len(),
+            flagged.join("; ")
+        ),
+    }]
+}
+
+/// (l) A25-08: recomendación de `userns-remap` en el daemon Docker (root del
+/// contenedor ≠ root del host). Informativo: no cambia el exit code.
+fn check_userns_remap() -> Vec<SecurityFinding> {
+    let out = std::process::Command::new("docker")
+        .args(["info", "--format", "{{json .SecurityOptions}}"])
+        .output();
+    let Some(out) = out.ok().filter(|o| o.status.success()) else {
+        return Vec::new();
+    };
+    let enabled = String::from_utf8_lossy(&out.stdout).contains("name=userns");
+    vec![SecurityFinding {
+        check: "userns-remap",
+        level: if enabled {
+            SecurityFindingLevel::Ok
+        } else {
+            SecurityFindingLevel::Info
+        },
+        message: if enabled {
+            "Docker daemon runs with userns-remap".to_string()
+        } else {
+            "Recommendation: enable userns-remap in /etc/docker/daemon.json \
+             (\"userns-remap\": \"default\") so root inside a container is not root on \
+             the host. Existing containers and volumes must be recreated after enabling it."
+                .to_string()
+        },
+    }]
 }
 
 /// (a) Check that all enola-* containers have no-new-privileges:true
@@ -1294,5 +1391,33 @@ mod tests {
         assert!(r.contains("Config Validation"));
         assert!(r.contains("Runtime Services"));
         assert!(r.contains("Hardware"));
+    }
+
+    /// A25-07: image-eol marca versiones antiguas de enola y no toca
+    /// contenedores ajenos (p. ej. un mysql del usuario).
+    #[test]
+    fn image_eol_findings_flag_only_enola_images() {
+        let rows = vec![
+            (
+                "enola-git-a".to_string(),
+                "codeberg.org/forgejo/forgejo:9.0".to_string(),
+            ),
+            ("ghost-b".to_string(), "ghost:5-alpine".to_string()),
+            ("gestion-mysql".to_string(), "mysql:5.7".to_string()),
+            (
+                "enola-git-c".to_string(),
+                crate::domain::images::FORGEJO.reference(),
+            ),
+        ];
+        let f = image_eol_findings(&rows, "2026-10-25");
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].level, SecurityFindingLevel::Warning);
+        assert!(f[0].message.contains("enola-git-a"));
+        assert!(f[0].message.contains("ghost-b"));
+        assert!(!f[0].message.contains("gestion-mysql"));
+        assert!(!f[0].message.contains("enola-git-c"));
+
+        let ok = image_eol_findings(&rows[2..], "2026-10-25");
+        assert_eq!(ok[0].level, SecurityFindingLevel::Ok);
     }
 }
