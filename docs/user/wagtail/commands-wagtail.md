@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/wagtail/commands-wagtail.md`
-> **Versión:** 2.3 | **Actualizado:** 2026-10-24
+> **Versión:** 2.4 | **Actualizado:** 2026-10-26
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -26,6 +26,11 @@ sudo enola-cli wagtail list
 Sin flags ni argumentos.
 
 ---
+
+> ⚠️ **Imagen sin mantenimiento upstream**: la demo oficial `wagtail/bakerydemo` no se
+> actualiza desde 2021 (Python 3.7, sin parches de seguridad). Enola la mantiene fijada
+> por digest y muestra un aviso al crear y al publicar; `doctor --security` la señala.
+> Evita publicarla en Tor o asume el riesgo.
 
 ## `wagtail create`
 

@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/magnolia/commands-magnolia.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-10-24
+> **Versión:** 2.3 | **Actualizado:** 2026-10-26
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -24,6 +24,11 @@ sudo enola-cli magnolia list
 Sin flags ni argumentos.
 
 ---
+
+> ⚠️ **Imagen sin mantenimiento upstream**: la imagen oficial de Magnolia no se
+> actualiza desde 2020 (OpenJDK 11.0.8, Tomcat 9.0.38, sin parches de seguridad). Enola
+> la mantiene fijada por digest y muestra un aviso al crear y al publicar; `doctor
+> --security` la señala. Evita publicarla en Tor o asume el riesgo.
 
 ## `magnolia create`
 

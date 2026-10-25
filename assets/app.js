@@ -819,7 +819,9 @@
         const http_port = parseInt(portVal);
         try {
             const result = await apiPostJson('/api/cms/' + type + '/create', { name, http_port });
-            toast('Created: ' + (result || 'ok'));
+            toast('Created: ' + name);
+            // A25-N3: imagen upstream sin mantenimiento (Wagtail, Magnolia).
+            if (result && result.warning) showConfirm('Unmaintained image', result.warning, () => {});
             cmsList();
         } catch (e) { toast(e.message, true); }
     };

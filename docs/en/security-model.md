@@ -144,7 +144,9 @@ Containers start with no capabilities (`cap_drop: ALL`) except the minimum each 
 needs, and the Git server runs on its own Docker network. New instances use
 WordPress 6.9 (PHP 8.3) + MariaDB 11.4 LTS, Forgejo 15 LTS, Drupal 11.4 + MariaDB
 10.11 LTS, Ghost 6 (SQLite), Strapi on Node 22 LTS + PostgreSQL 16. The upstream
-Wagtail demo image (since 2021) and Magnolia image (since 2020) are unmaintained.
+Wagtail demo image (since 2021) and Magnolia image (since 2020) are unmaintained; they
+are kept (no maintained alternative exists) and Enola warns when creating or publishing
+them.
 
 Existing instances created by earlier Enola versions are **not migrated
 automatically**; `sudo enola-cli doctor --security` lists them under `image-eol`.

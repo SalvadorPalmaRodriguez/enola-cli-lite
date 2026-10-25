@@ -1875,18 +1875,29 @@ struct CmsCreateRequest {
     http_port: Option<u16>,
 }
 
+#[derive(Serialize)]
+struct CmsCreateResponse {
+    #[serde(flatten)]
+    instance: crate::domain::cms::CmsInstance,
+    /// A25-N3: aviso si la imagen upstream no se mantiene.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
+}
+
 async fn api_cms_create(
     Path(cms_type): Path<String>,
     Json(req): Json<CmsCreateRequest>,
-) -> ApiResult<crate::domain::cms::CmsInstance> {
+) -> ApiResult<CmsCreateResponse> {
     let adapter = build_cms_adapter(&cms_type)?;
     let create_req = crate::domain::cms::CmsCreateRequest {
         name: req.name.clone(),
         http_port: req.http_port,
         db_password: None,
     };
-    let inst = adapter.create(create_req).await.map_err(ApiError::from)?;
-    Ok(Json(inst))
+    let instance = adapter.create(create_req).await.map_err(ApiError::from)?;
+    let warning = crate::domain::images::find_by_reference(adapter.descriptor().default_image)
+        .and_then(crate::domain::images::unmaintained_warning);
+    Ok(Json(CmsCreateResponse { instance, warning }))
 }
 
 async fn api_cms_start(Path((cms_type, name)): Path<(String, String)>) -> ApiResult<()> {

@@ -2295,12 +2295,16 @@ async fn execute_magnolia(cmd: MagnoliaCommands, format: &str) -> CliResult<Stri
                  Open http://127.0.0.1:{}/ to complete the setup wizard.\n   \
                  Stack: {} (Tomcat — needs ≥4 GB RAM).\n\
                  ⚠️  Complete the setup FIRST, then publish on Tor:\n\
-                    enola-cli magnolia publish {}",
+                    enola-cli magnolia publish {}{}",
                 name,
                 inst.status,
                 http_port,
                 adapter.descriptor().default_image,
                 name,
+                // A25-N3: imagen sin mantenimiento upstream — se mantiene con aviso.
+                crate::domain::images::unmaintained_warning(&crate::domain::images::MAGNOLIA)
+                    .map(|w| format!("\n{w}"))
+                    .unwrap_or_default(),
             ))
         }
         M::Start { name } => {
@@ -2537,12 +2541,16 @@ async fn execute_wagtail(cmd: WagtailCommands, format: &str) -> CliResult<String
                  Open http://127.0.0.1:{}/admin/ to complete the setup.\n   \
                  Stack: {} (Postgres 16).\n\
                  ⚠️  Complete the setup FIRST, then publish on Tor:\n\
-                    enola-cli wagtail publish {}",
+                    enola-cli wagtail publish {}{}",
                 name,
                 inst.status,
                 http_port,
                 adapter.descriptor().default_image,
                 name,
+                // A25-N3: imagen sin mantenimiento upstream — se mantiene con aviso.
+                crate::domain::images::unmaintained_warning(&crate::domain::images::WAGTAIL)
+                    .map(|w| format!("\n{w}"))
+                    .unwrap_or_default(),
             ))
         }
         W::Start { name } => {

@@ -232,6 +232,19 @@ pub const STRAPI: ImageSpec = ImageSpec {
     cap_add: &[],
 };
 
+/// A25-N3 (decisión del operador 2026-10-26: mantener con aviso): texto que se
+/// muestra al crear/publicar un servicio cuya imagen upstream no se mantiene.
+pub fn unmaintained_warning(spec: &ImageSpec) -> Option<String> {
+    spec.unmaintained.map(|why| {
+        format!(
+            "⚠️  Unmaintained image ({}): {why}. The software inside receives no security \
+             fixes; avoid publishing it on Tor or accept the risk. `doctor --security` \
+             reports it (image-eol).",
+            spec.image
+        )
+    })
+}
+
 /// Todas las imágenes de producción de servicios publicables.
 pub const ALL: &[ImageSpec] = &[
     MARIADB_WORDPRESS,
@@ -380,6 +393,14 @@ mod tests {
             }
             assert!(!s.eol_source.is_empty(), "{}: falta fuente EOL", s.key);
         }
+    }
+
+    #[test]
+    fn unmaintained_warning_only_for_residual_images() {
+        assert!(unmaintained_warning(&WAGTAIL).is_some());
+        assert!(unmaintained_warning(&MAGNOLIA).is_some());
+        assert!(unmaintained_warning(&GHOST).is_none());
+        assert!(unmaintained_warning(&FORGEJO).is_none());
     }
 
     #[test]

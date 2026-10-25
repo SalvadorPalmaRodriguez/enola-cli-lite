@@ -4858,10 +4858,18 @@ pub mod magnolia {
             https_range: (15001, 20000),
         })
         .await?;
-        Ok(format!(
+        let mut msg = format!(
             "✅ Magnolia '{}' published!\n🧅 Address: {}",
             name, res.onion_address
-        ))
+        );
+        // A25-N3: imagen sin mantenimiento upstream — se mantiene con aviso.
+        if let Some(w) =
+            crate::domain::images::unmaintained_warning(&crate::domain::images::MAGNOLIA)
+        {
+            msg.push_str("\n");
+            msg.push_str(&w);
+        }
+        Ok(msg)
     }
 
     pub async fn hide(name: &str) -> CliResult<()> {
@@ -4973,10 +4981,18 @@ pub mod wagtail {
             https_range: (15001, 20000),
         })
         .await?;
-        Ok(format!(
+        let mut msg = format!(
             "✅ Wagtail '{}' published!\n🧅 Address: {}",
             name, res.onion_address
-        ))
+        );
+        // A25-N3: imagen sin mantenimiento upstream — se mantiene con aviso.
+        if let Some(w) =
+            crate::domain::images::unmaintained_warning(&crate::domain::images::WAGTAIL)
+        {
+            msg.push_str("\n");
+            msg.push_str(&w);
+        }
+        Ok(msg)
     }
 
     pub async fn hide(name: &str) -> CliResult<()> {

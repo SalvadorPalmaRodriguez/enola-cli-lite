@@ -158,6 +158,11 @@ Versiones para instancias **nuevas** (2026-10-25):
 | Wagtail | `wagtail/bakerydemo` (demo oficial) | ⚠️ sin mantenimiento upstream desde 2021 |
 | Magnolia | `magnolia-docker` (oficial) | ⚠️ sin mantenimiento upstream desde 2020 |
 
+Wagtail y Magnolia se mantienen porque no existe una imagen pública mantenida que las
+sustituya: Enola las fija por digest, sin capabilities extra, y **avisa al crearlas y
+al publicarlas**. Evita publicarlas en Tor o asume que el software interno no recibe
+parches de seguridad.
+
 **Instancias existentes** creadas con versiones anteriores de Enola **no se migran
 solas** (sus datos podrían no ser compatibles). `sudo enola-cli doctor --security`
 las señala en `image-eol`. En particular:
