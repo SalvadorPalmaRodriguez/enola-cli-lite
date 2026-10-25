@@ -112,8 +112,10 @@ file "$BIN" | grep -q stripped && echo OK
   `ENOLA_INSTALL_PUBKEY` is set to a value different from the default,
   the installer emits a visible warning. `ENOLA_INSTALL_STRICT_PUBKEY=1`
   aborts installation (CI mode).
-- **Self-integrity check**: the binary verifies its own hash on startup
-  (`check_self_integrity()` in `build.rs` + runtime).
+- **Self-integrity check**: the binary compares its hash with `cli.sha256` on
+  startup and warns on mismatch. This **detects accidental corruption only**, not
+  tampering: whoever can replace the binary (root) can also replace that hash. The
+  real guarantee is verifying the signature before installing.
 - **Runtime anti-debug**: on startup, the binary:
   - Calls `prctl(PR_SET_DUMPABLE, 0)` → blocks **core dumps** and **ptrace attach**.
     If the process crashes, no `core` file with process memory is written —

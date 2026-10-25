@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/web/README.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-10-25
+> **Versión:** 2.3 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 
 # Enola Web Dashboard
@@ -14,14 +14,33 @@ sudo enola-cli web --port 8090
 ```
 
 The server binds to `127.0.0.1` only (no remote access). A random token is
-generated and printed in the terminal. Open `http://127.0.0.1:8090` in your
-browser and enter the token to connect.
+generated and written to `~/.enola/web-token` (the terminal shows the path). Open
+`http://127.0.0.1:8090` in your browser and enter the token to connect.
 
 ## Security Model
 
-- **Token-based auth**: A 32-character token is generated at server start.
-  All API requests must include it in the `Authorization` header.
-- **Localhost only**: The server never binds to `0.0.0.0`.
+- **Token-based auth**: A random 32-character token is generated at server start
+  and written to `~/.enola/web-token` (`0600`). All API requests must include it in
+  the `Authorization` header. It cannot be fixed from the environment.
+- **Token lifetime**: the token rotates every 12 hours (`[web].token_ttl_secs`,
+  300 s – 7 days; as root only from `/etc/enola/config.toml`) and the new one is
+  rewritten to `~/.enola/web-token` — no restart needed. When it rotates, the
+  browser asks for it again. **System → Rotate Token** (`POST /api/token/rotate`)
+  rotates it on demand.
+- **Localhost only**: The server never binds to `0.0.0.0`, and requests whose `Host`
+  header is not `127.0.0.1`, `localhost` or `[::1]` get `421` (protects against DNS
+  rebinding; the port is not checked, so an SSH tunnel like
+  `ssh -L 9000:127.0.0.1:8090` still works).
+- **Security headers** on every response: `Content-Security-Policy` (`default-src
+  'self'`, `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'self'`),
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, and `Cache-Control: no-store` on `/api`.
+  **Known limitation:** the CSP still allows `'unsafe-inline'` in `script-src` and
+  `style-src`, because the dashboard uses about 80 inline `onclick` handlers.
+  Removing it requires moving those handlers to `addEventListener` (pending
+  refactor).
+- **Same command policy as MCP** for the console, and no custom/unsigned updates
+  from the web (see the API notes below).
 - **Root required**: The server requires root privileges (same as CLI commands).
 
 ## Features
@@ -329,6 +348,12 @@ Running, benchmarking and cleaning tests is CLI-only (`sudo enola-cli test run`)
 |--------|------|-------------|
 | POST | `/api/setup` | Install dependencies (requires `"confirm": "setup"`); with `pqc_tls` starts the PQC-TLS installer and returns a stream ticket |
 | GET | `/api/setup/pqc-tls/events?ticket=…` | Observe the PQC-TLS installer (SSE, single-use ticket) |
+
+### Token
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/token/rotate` | Issue a new token (returned and rewritten to `~/.enola/web-token`); the old one stops working |
 
 ### Update
 
@@ -729,6 +754,7 @@ Response: `{"output": "...", "pqc_tls_ticket": "<32 hex>"}` — open
 | 403 | Forbidden — command not available from the web (use the CLI) |
 | 404 | Not found — resource doesn't exist |
 | 409 | Confirmation required — resend with `"confirm": "<value>"` |
+| 421 | Misdirected request — `Host` header is not a loopback name |
 | 429 | Too many console commands running |
 | 500 | Internal server error — message in response body |
 

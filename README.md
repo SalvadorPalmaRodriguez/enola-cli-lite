@@ -99,14 +99,20 @@ Traffic model for every service: `.onion:VIRTUAL_PORT â†’ Nginx:INTERNAL_PORT â†
 ### From GitHub Releases (production)
 
 ```bash
-# Download and verify (recommended)
-curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
-
-# Or inspect the script first, then run it:
-curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh -o install.sh
+# Recommended: download, inspect and verify first, then run
+curl -fsSLO https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh
+curl -fsSLO https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh.minisig
+minisign -Vm install.sh -P "$(curl -fsSL https://raw.githubusercontent.com/SalvadorPalmaRodriguez/enola-cli-lite/main/minisign.pub | sed -n 2p)"
 less install.sh
 sudo bash install.sh
+
+# Quick (less safe): piping into a root shell runs the script before you can
+# check it, and a truncated download could run partially
+curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
 ```
+
+The public key comes from this repository (not from the release itself), so a
+tampered release cannot also replace the key used to check it.
 
 The installer downloads the binary, verifies SHA256 + minisign signature, and installs everything.
 

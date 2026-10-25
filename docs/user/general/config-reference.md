@@ -59,11 +59,13 @@ URLs públicas del proyecto. Se usan en mensajes del CLI (quickref, errores).
 |-------|------|---------|---------|-------------|
 | `web_public_url` | String | (vacío) | `ENOLA_WEB_URL` | URL pública de la web del proyecto |
 | `docs_url` | String | (vacío) | `ENOLA_DOCS_URL` | URL de documentación (opcional) |
+| `token_ttl_secs` | Integer | `43200` (12 h) | — | Vida del token del dashboard (`enola-cli web`); al caducar se rota y se reescribe en `~/.enola/web-token`. Rango 300–604800. Como root solo se lee de `/etc/enola/config.toml` |
 
 ```toml
 [web]
 web_public_url = "https://github.com/user/enola-cli-lite"
 # docs_url = "https://github.com/user/enola-cli-lite#docs"
+# token_ttl_secs = 43200   # dashboard web: rotación del token (12 h)
 ```
 
 > Si se dejan vacías, el CLI no muestra enlaces en mensajes.

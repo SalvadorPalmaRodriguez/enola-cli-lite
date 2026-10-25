@@ -101,14 +101,20 @@ Modelo de tráfico para cada servicio: `.onion:VIRTUAL_PORT → Nginx:INTERNAL_P
 ### Desde GitHub Releases (Producción)
 
 ```bash
-# Descargar y verificar (recomendado)
-curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
-
-# O inspeccionar el script primero, y luego ejecutarlo:
-curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh -o install.sh
+# Recomendado: descargar, revisar y verificar primero; después ejecutar
+curl -fsSLO https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh
+curl -fsSLO https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh.minisig
+minisign -Vm install.sh -P "$(curl -fsSL https://raw.githubusercontent.com/SalvadorPalmaRodriguez/enola-cli-lite/main/minisign.pub | sed -n 2p)"
 less install.sh
 sudo bash install.sh
+
+# Rápido (menos seguro): con la tubería el script se ejecuta como root antes de
+# poder revisarlo, y una descarga cortada podría ejecutarse a medias
+curl -fsSL https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/latest/download/install.sh | sudo bash
 ```
+
+La clave pública se toma de este repositorio (no de la propia release), así que una
+release manipulada no puede sustituir también la clave con la que se comprueba.
 
 El instalador descarga el binario, verifica SHA256 + firma minisign, e instala todo.
 

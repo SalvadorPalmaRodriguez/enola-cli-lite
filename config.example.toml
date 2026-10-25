@@ -32,6 +32,11 @@ web_public_url = "https://github.com/SalvadorPalmaRodriguez/enola-cli-lite"
 # Variante .onion:
 # web_public_url = "http://tudominio-abc123…56chars.onion"
 
+# Dashboard web (`enola-cli web`): vida del token en segundos (300–604800).
+# Al caducar se rota y se reescribe en ~/.enola/web-token. Como root, esta clave
+# solo se lee de /etc/enola/config.toml.
+# token_ttl_secs = 43200
+
 
 # ── 2. Distribución (descarga de binarios) ─────────────────────────────────
 # Env-var equivalente: ENOLA_BINARY_BASE_URL

@@ -105,18 +105,20 @@ file "$BIN" | grep -q stripped && echo OK
 - **Validación de minisign**: si se establece
   `ENOLA_MINISIGN_BIN` con un path absoluto, el CLI valida que el binario
   exista, sea ejecutable y sea realmente minisign (identity check via `<bin> -V`).
-  Si falla, emite warning y fallback a `minisign` del PATH. Como root, además,
-  solo se acepta si el binario y todos sus directorios son root-owned y no
-  escribibles por grupo/otros.
-- **Entorno bajo root**: con `sudo -E` el CLI fija `PATH` a una ruta segura e
-  ignora overrides heredados que no son de confianza (`ENOLA_MANIFEST_PATH`,
-  proxies SOCKS que no son locales), avisando por stderr.
+  Si falla, emite warning y fallback a `minisign` del PATH. Como root la
+  variable se ignora (ver el punto siguiente).
+- **Entorno bajo root**: con `sudo -E` el CLI fija `PATH` a una ruta segura y
+  solo conserva `ENOLA_ACCEPT_LICENSE`, `ENOLA_MCP_CHILD` y `ENOLA_AUTO_SETUP`;
+  cualquier otra `ENOLA_*` heredada se ignora con un aviso. Las claves de
+  seguridad de configuración solo se leen de `/etc/enola/config.toml`.
 - **Trust anchor del instalador**: si
   `ENOLA_INSTALL_PUBKEY` se establece con un valor distinto del default,
   el instalador emite un warning visible. `ENOLA_INSTALL_STRICT_PUBKEY=1`
   aborta la instalación (modo CI).
-- **Self-integrity check**: el binario verifica su propio hash al arrancar
-  (`check_self_integrity()` en `build.rs` + runtime).
+- **Self-integrity check**: el binario compara su hash con `cli.sha256` al
+  arrancar y avisa si no coincide. Es **detección de corrupción accidental**, no un
+  control anti-manipulación: quien pueda reemplazar el binario (root) también puede
+  reemplazar ese hash. La garantía real es verificar la firma antes de instalar.
 - **Anti-debug runtime**: al arrancar, el binario:
   - Llama `prctl(PR_SET_DUMPABLE, 0)` → bloquea **core dumps** y **ptrace attach**.
     Si el proceso crashea, no se escribe `core` con la memoria del proceso —

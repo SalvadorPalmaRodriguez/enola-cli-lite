@@ -50,6 +50,13 @@ imprime el endpoint efectivo y su origen, por ejemplo
 está en esta máquina: ese modelo decide qué herramientas de enola se ejecutan y recibe
 su salida.
 
+**Endpoint no local** (ni `127.0.0.1`/`localhost` ni `--instance`): además, cada
+herramienta de lectura que pueda revelar algo del equipo (direcciones `.onion`, logs,
+configuración, puertos, VPN, estado de servicios…) pide `[s/N]` antes de ejecutarse,
+porque su salida se envía a ese servidor. Solo la documentación embebida, el
+catálogo de comandos y `plan` se ejecutan sin preguntar. `--yes` las aprueba; sin TTY
+se rechazan y el modelo recibe el motivo.
+
 ```toml
 [ai]
 endpoint = "http://127.0.0.1:11434"
