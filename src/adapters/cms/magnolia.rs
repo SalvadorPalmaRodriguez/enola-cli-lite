@@ -228,6 +228,14 @@ impl CmsLifecycle for MagnoliaCmsAdapter {
 
         // 2. Secreto de admin (mismo patrón SEC-005).
         let base = magnolia_base_dir(self.base_dir.as_deref());
+        // SEC-A7: directorio base de datos en 0700 (secretos escritos por los contenedores).
+        crate::infrastructure::safe_dir::secure_service_base_dir(&base).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Insecure data directory {}: {}",
+                base.display(),
+                e
+            ))
+        })?;
         let inst_dir = base.join(&request.name);
         let secrets_dir = inst_dir.join("secrets");
         let admin_pass = request

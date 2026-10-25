@@ -23,23 +23,30 @@ pub struct AppState {
 /// por `journalctl` (y por la tool `logs view --source system`, ReadOnly).
 /// Devuelve la ruta si se persistió; el valor del token nunca va a stderr.
 #[cfg(unix)]
+fn persist_web_token_in(
+    dir: &std::path::Path,
+    token: &str,
+    owner: Option<(u32, u32)>,
+) -> Option<std::path::PathBuf> {
+    let sd = crate::infrastructure::safe_dir::open_user_config_dir(dir, owner).ok()?;
+    sd.write_atomic("web-token", token.as_bytes(), 0o600, owner)
+        .ok()?;
+    Some(dir.join("web-token"))
+}
+
+#[cfg(unix)]
 fn persist_web_token(token: &str) -> Option<std::path::PathBuf> {
-    use crate::infrastructure::drop_privs::{invoking_user, resolve_user_home};
+    use crate::infrastructure::drop_privs::resolve_user_home;
 
     let home = resolve_user_home(None)?;
     let dir = std::path::Path::new(&home).join(".enola");
-    std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join("web-token");
-
-    crate::infrastructure::atomic_secret_file::write_secret_atomically(&path, token.as_bytes())
-        .ok()?;
-
-    // El fichero lo escribe root; ceder la propiedad al usuario invocador
-    // para que pueda leerlo sin sudo.
-    if let Some(user) = invoking_user() {
-        let _ = std::os::unix::fs::chown(&path, Some(user.uid), Some(user.gid));
-    }
-    Some(path)
+    // SEC-A6: el fichero nace del usuario invocador (fchown sobre el fd antes
+    // del rename) para que pueda leerlo sin sudo; nunca chown por ruta.
+    persist_web_token_in(
+        &dir,
+        token,
+        crate::infrastructure::safe_dir::invoker_owner(),
+    )
 }
 
 pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -48,6 +55,12 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
         eprintln!("Try: sudo enola-cli web --port {}", port);
         return Err("not running as root".into());
     }
+
+    // SEC-A7 (D3): la web gestiona todos los servicios; corregir al arrancar
+    // los directorios base de datos que ya existan.
+    crate::infrastructure::safe_dir::secure_existing_service_bases(
+        &crate::infrastructure::safe_dir::SERVICE_DATA_BASES,
+    );
 
     // Token: randomly generated unless ENOLA_WEB_TOKEN env var is set.
     // ENOLA_WEB_TOKEN is intended for automated testing only.
@@ -221,6 +234,32 @@ fn token_matches(provided: &str, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // SEC-A6: el token se escribe dentro de ~/.enola validado y nunca sigue
+    // un symlink plantado en `web-token`.
+    #[test]
+    fn persist_web_token_does_not_follow_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(".enola");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let victim = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(victim.path(), "keep").unwrap();
+        std::os::unix::fs::symlink(victim.path(), dir.join("web-token")).unwrap();
+
+        let p = persist_web_token_in(&dir, "abcdefghijklmnopqrstuvwxyzabcdef", None)
+            .expect("token persisted");
+
+        assert_eq!(std::fs::read_to_string(victim.path()).unwrap(), "keep");
+        let md = std::fs::symlink_metadata(&p).unwrap();
+        assert!(md.file_type().is_file());
+        assert_eq!(md.permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            "abcdefghijklmnopqrstuvwxyzabcdef"
+        );
+    }
 
     #[test]
     fn token_matches_equal_tokens() {

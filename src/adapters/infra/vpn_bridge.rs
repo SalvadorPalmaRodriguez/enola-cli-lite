@@ -66,7 +66,7 @@ impl SocatBridgeAdapter {
              ProtectHome=true\n\
              PrivateTmp=true\n\
              {}\
-             ExecStart=/usr/bin/socat TCP-LISTEN:{},fork,reuseaddr UDP:127.0.0.1:{}\n\
+             ExecStart=/usr/bin/socat TCP-LISTEN:{},bind=127.0.0.1,fork,reuseaddr UDP:127.0.0.1:{}\n\
              Restart=on-failure\n\
              RestartSec=5\n\n\
              [Install]\n\
@@ -140,6 +140,17 @@ mod tests {
         // Puerto bajo → solo CAP_NET_BIND_SERVICE.
         let low = SocatBridgeAdapter::unit_content("wg0", 443, 51820);
         assert!(low.contains("AmbientCapabilities=CAP_NET_BIND_SERVICE"));
+    }
+
+    // SEC-A4: el puente solo debe aceptar conexiones de Tor (loopback).
+    #[test]
+    fn test_unit_content_binds_loopback() {
+        let content = SocatBridgeAdapter::unit_content("wg0", 51821, 51820);
+        assert!(
+            content.contains("TCP-LISTEN:51821,bind=127.0.0.1,"),
+            "socat debe escuchar solo en 127.0.0.1:\n{content}"
+        );
+        assert!(!content.contains("TCP-LISTEN:51821,fork"));
     }
 
     #[test]

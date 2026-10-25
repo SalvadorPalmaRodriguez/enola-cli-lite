@@ -563,8 +563,7 @@ pub fn update_minisign_pubkey() -> String {
         .to_string()
 }
 pub fn cache_path() -> Result<PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    Ok(PathBuf::from(home).join(".enola").join("update_cache.json"))
+    Ok(update_state_dir().join("update_cache.json"))
 }
 
 fn now_ts() -> i64 {
@@ -731,11 +730,12 @@ fn write_cache(cache: &UpdateCache) {
         Ok(p) => p,
         Err(_) => return,
     };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if ensure_update_state_dirs().is_err() {
+        return;
     }
     if let Ok(json) = serde_json::to_string_pretty(cache) {
-        let _ = std::fs::write(&path, json);
+        let _ =
+            crate::infrastructure::atomic_secret_file::write_atomic(&path, json.as_bytes(), 0o600);
     }
 }
 pub fn cache_is_fresh() -> bool {
@@ -891,6 +891,24 @@ fn resolve_minisign_binary() -> String {
     if !raw.contains('/') {
         return raw;
     }
+
+    // SEC-A9: como root solo se acepta una ruta cuya cadena completa sea
+    // root-owned (se usa la canónica); nunca se ejecuta antes de comprobarlo.
+    let raw = if current_euid() == 0 {
+        match crate::infrastructure::root_env::trusted_root_binary(&raw) {
+            Some(canon) => canon.to_string_lossy().to_string(),
+            None => {
+                eprintln!(
+                    "⚠️  ENOLA_MINISIGN_BIN '{}' is not root-owned along its whole path; \
+                     ignored when running as root, falling back to 'minisign' from PATH.",
+                    raw
+                );
+                return "minisign".to_string();
+            }
+        }
+    } else {
+        raw
+    };
 
     // Absolute or relative path — validate identity.
     let path = std::path::Path::new(&raw);
@@ -1218,16 +1236,12 @@ pub struct DownloadResult {
 
 /// Path for the last downloaded binary metadata.
 fn last_download_meta_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    PathBuf::from(home)
-        .join(".enola")
-        .join("last_download.json")
+    update_state_dir().join("last_download.json")
 }
 
 /// Directory where downloaded binaries are persisted between `download` and `apply`.
 fn downloads_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    PathBuf::from(home).join(".enola").join("downloads")
+    update_state_dir().join("downloads")
 }
 
 /// T10: valida `latest_version` (que viene del feed firmado) antes de usarlo
@@ -1288,10 +1302,19 @@ fn prune_download_residuals() {
 fn sync_installed_pqsig(bin_path: &str, share_dir: &Path) {
     let dst = share_dir.join("cli.pqsig");
     let src = format!("{}.pqsig", bin_path);
-    if std::path::Path::new(&src).exists() {
-        let _ = std::fs::copy(&src, &dst);
-    } else {
-        let _ = std::fs::remove_file(&dst);
+    // SEC-A5: solo un fichero regular (lstat, sin seguir symlinks) y pequeño;
+    // se escribe atómico en lugar de `fs::copy` (que sigue enlaces).
+    const MAX_PQSIG_BYTES: u64 = 64 * 1024;
+    let regular_small = std::fs::symlink_metadata(&src)
+        .map(|m| m.file_type().is_file() && m.len() <= MAX_PQSIG_BYTES)
+        .unwrap_or(false);
+    match regular_small.then(|| std::fs::read(&src).ok()).flatten() {
+        Some(bytes) => {
+            let _ = crate::infrastructure::atomic_secret_file::write_atomic(&dst, &bytes, 0o644);
+        }
+        None => {
+            let _ = std::fs::remove_file(&dst);
+        }
     }
 }
 
@@ -1311,12 +1334,15 @@ fn save_last_download(path: &str, sha256: &str, signature_verified: bool, sig_pa
         meta["sig_path"] = serde_json::json!(sig);
     }
     let meta_path = last_download_meta_path();
-    if let Some(parent) = meta_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if ensure_update_state_dirs().is_err() {
+        return;
     }
-    let _ = std::fs::write(
+    let _ = crate::infrastructure::atomic_secret_file::write_atomic(
         &meta_path,
-        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+        serde_json::to_string_pretty(&meta)
+            .unwrap_or_default()
+            .as_bytes(),
+        0o600,
     );
 }
 
@@ -1472,7 +1498,7 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
 
     // Persist binary to a stable location (not tempdir which gets cleaned up)
     let persist_dir = downloads_dir();
-    std::fs::create_dir_all(&persist_dir).ok();
+    ensure_update_state_dirs()?;
     // T10: valida latest_version antes de interpolar en el path.
     let latest = safe_latest_version(&report.latest_version)?;
     let persist_path = persist_dir.join(format!("enola-cli-{}", latest));
@@ -1530,6 +1556,95 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
     })
 }
 
+/// SEC-A5 (D14): directorio de estado de update bajo root (binario staged,
+/// firmas, `last_download.json`, caché). Root-owned `0700`: ningún otro
+/// usuario puede crear, sustituir ni enlazar nada dentro.
+pub const ROOT_UPDATE_STATE_DIR: &str = "/var/lib/enola/updates";
+
+/// SEC-A5: dónde vive el estado de update. Bajo root nunca en el `HOME`
+/// (con `sudo -E` sería el del usuario); sin root, `~/.enola` como siempre.
+fn update_state_dir_for(euid: u32, home: &Path) -> PathBuf {
+    if euid == 0 {
+        PathBuf::from(ROOT_UPDATE_STATE_DIR)
+    } else {
+        home.join(".enola")
+    }
+}
+
+fn update_state_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+    update_state_dir_for(current_euid(), Path::new(&home))
+}
+
+/// SEC-A5: crea (si falta) el directorio de estado y `downloads/`. Bajo root,
+/// cada nivel se valida con `SafeDir` (real, root-owned, sin escritura de
+/// grupo/otros): `/var/lib/enola` 0755 → `updates` 0700 → `downloads` 0700.
+fn ensure_update_state_dirs() -> std::result::Result<(), String> {
+    use crate::infrastructure::safe_dir::{OwnerPolicy, SafeDir};
+    if current_euid() == 0 {
+        let state = Path::new(ROOT_UPDATE_STATE_DIR);
+        let levels: [(&Path, u32); 3] = [
+            (state.parent().unwrap_or(state), 0o755),
+            (state, 0o700),
+            (&downloads_dir(), 0o700),
+        ];
+        for (dir, mode) in levels {
+            SafeDir::open_or_create(dir, mode, OwnerPolicy::Euid)
+                .map_err(|e| format!("update state dir {}: {}", dir.display(), e))?;
+        }
+        Ok(())
+    } else {
+        std::fs::create_dir_all(downloads_dir())
+            .map_err(|e| format!("create {}: {}", downloads_dir().display(), e))
+    }
+}
+
+/// SEC-A5: binario ya verificado en memoria — lo que se instala son
+/// exactamente estos bytes, nunca se reabre la ruta de origen.
+struct VerifiedBinary {
+    bytes: Vec<u8>,
+    sha256: String,
+}
+
+/// SEC-A5: instala `bin` en `install_path` como fichero NUEVO (temporal
+/// `O_EXCL` 0755 en el mismo directorio + fsync + rename): el dueño es el
+/// euid (root), no el del fichero descargado.
+fn install_verified(bin: &VerifiedBinary, install_path: &Path) -> std::result::Result<(), String> {
+    use crate::infrastructure::safe_dir::{OwnerPolicy, SafeDir};
+    let parent = install_path
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", install_path.display()))?;
+    let name = install_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("{}: invalid file name", install_path.display()))?;
+    let dir = SafeDir::open(parent, OwnerPolicy::Euid)
+        .map_err(|e| format!("install dir {}: {}", parent.display(), e))?;
+    dir.write_atomic(name, &bin.bytes, 0o755, None)
+        .map_err(|e| format!("install {}: {}", install_path.display(), e))
+}
+
+/// SHA-256 hexadecimal de `bytes`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// SEC-A5: verifica la firma minisign sobre EXACTAMENTE `bytes` (copiados a
+/// un fichero privado), no sobre una ruta que podría cambiar después.
+fn verify_bytes_minisign(bytes: &[u8], sig_path: &Path, pubkey: &str) -> bool {
+    let Ok(dir) = tempfile::tempdir() else {
+        return false;
+    };
+    let msg = dir.path().join("enola-cli.verify");
+    if crate::infrastructure::atomic_secret_file::write_atomic(&msg, bytes, 0o600).is_err() {
+        return false;
+    }
+    verify_file_minisign(&msg, sig_path, pubkey)
+}
+
 /// R-7/G-1: con euid 0, los artefactos staged deben ser root-owned y no
 /// escribibles por grupo/otros.
 ///
@@ -1540,9 +1655,10 @@ pub async fn download_update(force_feed: bool) -> std::result::Result<DownloadRe
 fn staged_artifacts_root_owned(paths: &[PathBuf]) -> std::result::Result<(), String> {
     use std::os::unix::fs::MetadataExt;
     for path in paths {
-        let md = std::fs::metadata(path)
+        // SEC-A5: lstat — un symlink del usuario hacia algo root-owned no pasa.
+        let md = std::fs::symlink_metadata(path)
             .map_err(|e| format!("cannot stat {}: {}", path.display(), e))?;
-        if md.uid() != 0 || md.mode() & 0o022 != 0 {
+        if md.file_type().is_symlink() || md.uid() != 0 || md.mode() & 0o022 != 0 {
             return Err(format!(
                 "Refusing to apply update: {} must be root-owned and not \
                  group/world-writable when running as root. \
@@ -1561,10 +1677,9 @@ pub fn apply_update(
     expected_sha: Option<&str>,
     known_verified: bool,
 ) -> std::result::Result<DownloadResult, String> {
-    use std::os::unix::fs::PermissionsExt;
-
-    // Determine which binary to apply
-    let (bin_path, expected_sha, sig_verified) = match binary_path {
+    // Determine which binary to apply. SEC-A5: the file is read ONCE; every
+    // check (SHA-256, minisign) and the install use those same bytes.
+    let (bin_path, verified, sig_verified) = match binary_path {
         Some(p) => {
             // T2: reject an unverified explicit path unless the escape hatch is set.
             if !known_verified && std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1")
@@ -1580,13 +1695,8 @@ pub fn apply_update(
                     "⚠️  WARNING: applying binary by explicit path without signature verification."
                 );
             }
-            let sha = {
-                use sha2::{Digest, Sha256};
-                let data = std::fs::read(p).map_err(|e| format!("Read binary: {}", e))?;
-                let mut hasher = Sha256::new();
-                hasher.update(&data);
-                format!("{:x}", hasher.finalize())
-            };
+            let data = std::fs::read(p).map_err(|e| format!("Read binary: {}", e))?;
+            let sha = sha256_hex(&data);
             // T3: if an expected hash was provided (download --yes), verify integrity.
             if let Some(h) = expected_sha {
                 if !h.is_empty() && sha != h {
@@ -1597,7 +1707,14 @@ pub fn apply_update(
                     ));
                 }
             }
-            (p.to_string(), sha, known_verified)
+            (
+                p.to_string(),
+                VerifiedBinary {
+                    bytes: data,
+                    sha256: sha,
+                },
+                known_verified,
+            )
         }
         None => {
             let (p, stored_sha, _sig_hint, meta_sig) = load_last_download().ok_or_else(|| {
@@ -1607,10 +1724,6 @@ pub fn apply_update(
             // R-7/G-1: con euid 0 el meta y el directorio staged deben ser
             // root-owned y no escribibles por grupo/otros — un HOME de
             // usuario preservado por `sudo -E` no puede forjarlos.
-            if unsafe { libc::geteuid() } == 0 {
-                staged_artifacts_root_owned(&[downloads_dir(), last_download_meta_path()])?;
-            }
-
             // R-7: el flag `signature_verified` del JSON es solo un hint de
             // UX, no un trust anchor — se re-verifica la firma minisign REAL
             // del binario staged contra el `.minisig` persistido por
@@ -1618,8 +1731,21 @@ pub fn apply_update(
             let sig_path = meta_sig
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(format!("{}.minisig", p)));
+            if unsafe { libc::geteuid() } == 0 {
+                // SEC-A5: también el propio binario staged y su firma.
+                let mut staged = vec![
+                    downloads_dir(),
+                    last_download_meta_path(),
+                    PathBuf::from(&p),
+                ];
+                if sig_path.exists() {
+                    staged.push(sig_path.clone());
+                }
+                staged_artifacts_root_owned(&staged)?;
+            }
+            let data = std::fs::read(&p).map_err(|e| format!("Read binary: {}", e))?;
             let pubkey = update_minisign_pubkey();
-            let sig = verify_file_minisign(Path::new(&p), &sig_path, &pubkey);
+            let sig = verify_bytes_minisign(&data, &sig_path, &pubkey);
             if !sig {
                 if std::env::var("ENOLA_ALLOW_UNSIGNED_UPDATE").as_deref() != Ok("1") {
                     return Err(
@@ -1633,13 +1759,7 @@ pub fn apply_update(
                 eprintln!("⚠️  WARNING: applying update without minisign signature verification.");
             }
             // T3: re-verify integrity at apply time (anti-TOCTOU).
-            let actual_sha = {
-                use sha2::{Digest, Sha256};
-                let data = std::fs::read(&p).map_err(|e| format!("Read binary: {}", e))?;
-                let mut hasher = Sha256::new();
-                hasher.update(&data);
-                format!("{:x}", hasher.finalize())
-            };
+            let actual_sha = sha256_hex(&data);
             if !stored_sha.is_empty() && actual_sha != stored_sha {
                 return Err(format!(
                     "Cannot apply update: binary at {} has been modified since download (SHA256 mismatch). \
@@ -1647,14 +1767,16 @@ pub fn apply_update(
                     p
                 ));
             }
-            (p, actual_sha, sig)
+            (
+                p,
+                VerifiedBinary {
+                    bytes: data,
+                    sha256: actual_sha,
+                },
+                sig,
+            )
         }
     };
-
-    // Verify the binary exists
-    if !std::path::Path::new(&bin_path).exists() {
-        return Err(format!("Binary not found: {}", bin_path));
-    }
 
     // Find current binary
     let current_exe = std::env::current_exe()
@@ -1676,18 +1798,13 @@ pub fn apply_update(
             .map_err(|e| format!("Backup current binary: {}", e))?;
     }
 
-    // Make new binary executable
-    let perms = std::fs::Permissions::from_mode(0o755);
-    std::fs::set_permissions(&bin_path, perms)
-        .map_err(|e| format!("Set permissions on new binary: {}", e))?;
-
-    // Atomic replace: rename new binary to install path.
-    // If rename fails (cross-device, common in WSL2), fall back to copy + remove.
-    if let Err(e) = std::fs::rename(&bin_path, &install_path) {
-        std::fs::copy(&bin_path, &install_path)
-            .map_err(|e2| format!("Rename failed: {}, copy also failed: {}", e, e2))?;
-        let _ = std::fs::remove_file(&bin_path);
-    }
+    // SEC-A5: install the verified bytes as a NEW root-owned file in the
+    // install directory (atomic rename within it). Never rename the staged
+    // or user-supplied file: that would keep its owner and allow a swap
+    // between verification and install. Same directory → no cross-device
+    // fallback needed.
+    install_verified(&verified, Path::new(&install_path))?;
+    let expected_sha = verified.sha256;
 
     // Update cli.sha256
     if let Some(parent) = sha256_path.parent() {
@@ -3232,5 +3349,63 @@ mod tests {
         );
         assert!(!dir.exists(), "downloads dir vacío debe eliminarse");
         teardown_test_home(tmp, guard);
+    }
+
+    // ── SEC-A5 ────────────────────────────────────────────────────────────
+    #[test]
+    fn update_state_dir_is_root_owned_path_under_euid0() {
+        let home = Path::new("/home/alice");
+        assert_eq!(
+            update_state_dir_for(0, home),
+            PathBuf::from(ROOT_UPDATE_STATE_DIR),
+            "con sudo -E el HOME es del usuario: root no debe usarlo"
+        );
+        assert_eq!(update_state_dir_for(1000, home), home.join(".enola"));
+    }
+
+    #[test]
+    fn install_verified_installs_bytes_not_the_source_file() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let src_dir = tempfile::tempdir().unwrap();
+        let src = src_dir.path().join("enola-cli-new");
+        std::fs::write(&src, b"VERIFIED").unwrap();
+        let bin = VerifiedBinary {
+            bytes: std::fs::read(&src).unwrap(),
+            sha256: String::new(),
+        };
+        // El origen cambia DESPUÉS de verificar: no debe afectar a lo instalado.
+        std::fs::write(&src, b"TAMPERED").unwrap();
+
+        let dst_dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dst_dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let dst = dst_dir.path().join("enola-cli");
+        std::fs::write(&dst, b"OLD").unwrap();
+        install_verified(&bin, &dst).expect("install");
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"VERIFIED");
+        assert_eq!(
+            std::fs::read(&src).unwrap(),
+            b"TAMPERED",
+            "source untouched"
+        );
+        let md = std::fs::metadata(&dst).unwrap();
+        assert_eq!(md.permissions().mode() & 0o777, 0o755);
+        assert_ne!(
+            md.ino(),
+            std::fs::metadata(&src).unwrap().ino(),
+            "new file, not a rename"
+        );
+    }
+
+    #[test]
+    fn staged_artifacts_root_owned_does_not_follow_symlinks() {
+        // Un symlink del usuario hacia un fichero root-owned no debe pasar el
+        // check (antes `metadata` seguía el enlace y lo daba por bueno).
+        let tmp = tempfile::tempdir().unwrap();
+        let link = tmp.path().join("last_download.json");
+        std::os::unix::fs::symlink("/etc/hostname", &link).unwrap();
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(staged_artifacts_root_owned(&[link]).is_err());
+        }
     }
 }

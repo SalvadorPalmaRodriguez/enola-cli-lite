@@ -162,7 +162,22 @@ fn set_key_in_path(
     key: &str,
     value: &str,
 ) -> Result<(), String> {
-    let content = std::fs::read_to_string(path).unwrap_or_default();
+    // SEC-A6: leer y escribir DENTRO del directorio validado (sin seguir
+    // symlinks); bajo sudo el fichero queda del invocador (fchown antes del rename).
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{:?} no tiene directorio padre", path))?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("{:?}: nombre de fichero no válido", path))?;
+    let owner = crate::infrastructure::safe_dir::invoker_owner();
+    let dir = crate::infrastructure::safe_dir::open_user_config_dir(parent, owner)
+        .map_err(|e| format!("directorio de configuración inseguro {:?}: {}", parent, e))?;
+    let content = dir
+        .read_to_string_nofollow(name, MAX_CONFIG_BYTES)
+        .map_err(|e| format!("leer {:?}: {}", path, e))?
+        .unwrap_or_default();
     let mut root: toml::Value = if content.trim().is_empty() {
         toml::Value::Table(toml::map::Map::new())
     } else {
@@ -189,44 +204,14 @@ fn set_key_in_path(
     let rendered = toml::to_string_pretty(&root)
         .map_err(|e| format!("no se pudo serializar config.toml: {}", e))?;
 
-    let mut created_dir = None;
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            created_dir = Some(parent.to_path_buf());
-        }
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("no se pudo crear {:?}: {}", parent, e))?;
-    }
     // T4: escritura atómica (O_EXCL + 0600 + fsync + rename) en lugar del
     // anti-patrón fs::write + set_permissions (ventana TOCTOU CWE-377).
-    crate::infrastructure::atomic_secret_file::write_atomic(path, rendered.as_bytes(), 0o600)
-        .map_err(|e| format!("escribir {:?}: {}", path, e))?;
-
-    // Si escribimos como root vía sudo, devolver la propiedad al invocador:
-    // si no, ~/.enola/config.toml quedaría root-owned y el usuario no podría
-    // ni leer su propia config.
-    if unsafe { libc::geteuid() } == 0 {
-        chown_sudo_user(path);
-        if let Some(dir) = created_dir {
-            chown_sudo_user(&dir);
-        }
-    }
-    Ok(())
+    dir.write_atomic(name, rendered.as_bytes(), 0o600, owner)
+        .map_err(|e| format!("escribir {:?}: {}", path, e))
 }
 
-/// `chown uid:gid` numérico según `SUDO_UID`/`SUDO_GID`. No-op fuera de sudo.
-fn chown_sudo_user(path: &std::path::Path) {
-    let (Ok(uid), Ok(gid)) = (std::env::var("SUDO_UID"), std::env::var("SUDO_GID")) else {
-        return;
-    };
-    if uid.parse::<u32>().is_err() || gid.parse::<u32>().is_err() {
-        return;
-    }
-    let _ = std::process::Command::new("chown")
-        .arg(format!("{}:{}", uid, gid))
-        .arg(path)
-        .status();
-}
+/// Tamaño máximo aceptado para `config.toml`.
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 
 /// Convierte un `toml::Value` escalar a `String`.
 ///
@@ -389,6 +374,29 @@ binary_base_url = "https://dl.example.com"  # inline
         let r = set_key_in_path(&path, "backup", "max_backups", "3");
         assert!(r.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), bad);
+    }
+
+    // SEC-A6: un config.toml sustituido por un symlink no se lee ni se escribe.
+    #[test]
+    fn set_key_does_not_follow_symlinked_config() {
+        let tmp = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let victim_dir = tempfile::tempdir().unwrap(); // unwrap: test-only
+        let victim = victim_dir.path().join("secret.toml");
+        std::fs::write(&victim, "[root]\ntoken = \"s3cr3t\"\n").unwrap();
+        let path = tmp.path().join("config.toml");
+        std::os::unix::fs::symlink(&victim, &path).unwrap();
+
+        let r = set_key_in_path(&path, "backup", "max_backups", "3");
+
+        assert!(r.is_err(), "symlinked config.toml must be refused");
+        assert_eq!(
+            std::fs::read_to_string(&victim).unwrap(),
+            "[root]\ntoken = \"s3cr3t\"\n"
+        );
+        assert!(std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]

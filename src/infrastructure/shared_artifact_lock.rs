@@ -8,27 +8,13 @@
 // Politica "solo ante colision real": si el artefacto aun no existe, no se
 // toma lock; si existe (edicion/reemplazo), se toma flock exclusivo.
 
-use crate::infrastructure::file_lock::FileLock;
+use crate::infrastructure::file_lock::{secure_lock_dir, FileLock};
 use std::io;
 use std::path::Path;
 
-fn lock_root_dir() -> std::path::PathBuf {
-    if let Ok(custom) = std::env::var("ENOLA_LOCK_DIR") {
-        let p = std::path::PathBuf::from(custom);
-        let _ = std::fs::create_dir_all(&p);
-        return p;
-    }
-    let primary = std::path::PathBuf::from("/var/lock/enola");
-    lock_root_dir_with_primary(&primary)
-}
-
-fn lock_root_dir_with_primary(primary: &std::path::Path) -> std::path::PathBuf {
-    if primary.exists() || std::fs::create_dir_all(primary).is_ok() {
-        primary.to_path_buf()
-    } else {
-        std::path::PathBuf::from("/tmp/enola-locks")
-    }
-}
+/// Variable de entorno que fija el directorio de locks de artefactos
+/// (validado igual que el default `/run/enola/locks`, SEC-A2).
+pub const ARTIFACT_LOCK_DIR_ENV: &str = "ENOLA_LOCK_DIR";
 
 fn sanitize_key(raw: &str) -> String {
     raw.chars()
@@ -47,8 +33,8 @@ fn maybe_lock_existing_artifact(artifact: &Path, scope: &str) -> io::Result<Opti
         return Ok(None);
     }
     let key = sanitize_key(scope);
-    let lock_path = lock_root_dir().join(format!("artifact_{}.lock", key));
-    FileLock::try_acquire(lock_path).map(Some)
+    let dir = secure_lock_dir(ARTIFACT_LOCK_DIR_ENV)?;
+    FileLock::try_acquire_in(&dir, &format!("artifact_{}.lock", key)).map(Some)
 }
 
 pub fn maybe_lock_nginx_site(path: &Path) -> io::Result<Option<FileLock>> {
@@ -86,6 +72,9 @@ mod tests {
     }
 
     fn set_lock_dir(dir: &std::path::Path) -> LockDirGuard {
+        // SEC-A2: el override se valida; TempDir respeta el umask (002 → 0775).
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
         let guard = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         std::env::set_var("ENOLA_LOCK_DIR", dir);
         LockDirGuard { _guard: guard }
@@ -165,33 +154,18 @@ mod tests {
         );
     }
 
+    // SEC-A2: directorio de locks inseguro → error, nunca fallback a /tmp.
     #[test]
-    fn lock_root_returns_primary_when_exists() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let primary = tmp.path().join("enola_root");
-        std::fs::create_dir_all(&primary).unwrap();
-        let d = lock_root_dir_with_primary(&primary);
-        assert_eq!(d, primary.to_path_buf());
-    }
-
-    #[test]
-    fn lock_root_creates_primary_when_possible() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let primary = tmp.path().join("enola_create_me");
-        let d = lock_root_dir_with_primary(&primary);
-        assert_eq!(d, primary.to_path_buf());
-    }
-
-    #[test]
-    fn lock_root_falls_back_to_tmp_when_cant_create() {
+    fn lock_rejects_world_writable_lock_dir() {
         use std::os::unix::fs::PermissionsExt;
-        let tmp = tempfile::TempDir::new().unwrap();
-        let ro = tmp.path().join("ro");
-        std::fs::create_dir_all(&ro).unwrap();
-        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o444)).unwrap();
-        let primary = ro.join("enola_fail");
-        let d = lock_root_dir_with_primary(&primary);
-        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(d, std::path::PathBuf::from("/tmp/enola-locks"));
+        let tmp = tempfile::TempDir::new().expect("tmp");
+        let lock_dir = tempfile::TempDir::new().expect("lock_dir");
+        let _env_guard = set_lock_dir(lock_dir.path());
+        std::fs::set_permissions(lock_dir.path(), std::fs::Permissions::from_mode(0o777))
+            .expect("chmod");
+        let path = tmp.path().join("existing.conf");
+        std::fs::write(&path, "x").expect("write");
+        let err = maybe_lock_nginx_site(&path).expect_err("insecure lock dir");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
     }
 }

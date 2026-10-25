@@ -157,6 +157,72 @@ pub fn resolve_user_home(name: Option<&str>) -> Option<String> {
     std::env::var("HOME").ok()
 }
 
+/// Cuenta del usuario destino de una operación (uid, gid y home).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserAccount {
+    pub uid: u32,
+    pub gid: u32,
+    pub home: String,
+}
+
+/// SEC-A8: como [`resolve_user_home`], pero devuelve también uid/gid para
+/// poder validar el dueño de los directorios del usuario y asignárselo.
+/// Prioridad: `name` explícito (NSS) → usuario invocador de sudo → proceso.
+pub fn resolve_user_account(name: Option<&str>) -> Option<UserAccount> {
+    if let Some(n) = name.filter(|s| !s.is_empty()) {
+        return lookup_account_for_name(n);
+    }
+    if let Some(user) = invoking_user() {
+        let home = user.home?;
+        return Some(UserAccount {
+            uid: user.uid,
+            gid: user.gid,
+            home,
+        });
+    }
+    // SAFETY: geteuid/getegid no tienen precondiciones.
+    let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+    let home = lookup_home_for_uid(uid).or_else(|| std::env::var("HOME").ok())?;
+    Some(UserAccount { uid, gid, home })
+}
+
+/// `getpwnam_r` → (uid, gid, home). `None` si el usuario no existe.
+#[cfg(unix)]
+fn lookup_account_for_name(name: &str) -> Option<UserAccount> {
+    use std::ffi::{CStr, CString};
+
+    let cname = CString::new(name).ok()?;
+    let mut buf = vec![0 as libc::c_char; 4096];
+    // SAFETY: estructura POD rellenada por getpwnam_r.
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: punteros válidos durante la llamada; `buf` vive hasta el final.
+    let rc = unsafe {
+        libc::getpwnam_r(
+            cname.as_ptr(),
+            &mut pwd,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut result,
+        )
+    };
+    if rc != 0 || result.is_null() {
+        return None;
+    }
+    // SAFETY: pw_dir apunta dentro de `buf`, que sigue vivo.
+    let dir = unsafe { CStr::from_ptr(pwd.pw_dir) };
+    Some(UserAccount {
+        uid: pwd.pw_uid,
+        gid: pwd.pw_gid,
+        home: dir.to_str().ok()?.to_string(),
+    })
+}
+
+#[cfg(not(unix))]
+fn lookup_account_for_name(_name: &str) -> Option<UserAccount> {
+    None
+}
+
 /// Logica interna de `should_drop_for_auxiliary` con euid inyectable para tests.
 /// Permite cubrir la rama "euid == 0" sin necesitar privilegios reales.
 #[cfg(unix)]
@@ -255,6 +321,19 @@ mod tests {
         let _g = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
         clear_sudo_env();
         assert!(invoking_user().is_none());
+    }
+
+    #[test]
+    fn resolve_user_account_by_name_returns_root_identity() {
+        let acc = resolve_user_account(Some("root")).expect("root exists");
+        assert_eq!(acc.uid, 0);
+        assert_eq!(acc.gid, 0);
+        assert!(!acc.home.is_empty());
+    }
+
+    #[test]
+    fn resolve_user_account_unknown_name_is_none() {
+        assert!(resolve_user_account(Some("enola-no-such-user-xyz")).is_none());
     }
 
     #[test]

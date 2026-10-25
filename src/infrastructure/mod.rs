@@ -16,6 +16,10 @@ pub mod http; // CONFIG-009 — centralized reqwest builder with Tor SOCKS5 auto
 pub mod port_lock; // SEC-EXT-RACE-011  per-port flock to close TOCTOU between is_port_free and docker run
 pub mod pqc_tls;
 pub mod privileges;
+#[cfg(unix)]
+pub mod root_env; // SEC-A9 — entorno heredado no confiable bajo root (PATH, overrides sensibles)
+#[cfg(unix)]
+pub mod safe_dir; // SEC-A2/A6/A8 — operaciones relativas a un fd de directorio validado (O_NOFOLLOW, openat/renameat)
 pub mod security_opt; // SEC-007 — default Docker --security-opt hardening (WSL2-safe)
 #[cfg(unix)]
 pub mod shared_artifact_lock; // SEC-EXT-RACE-012  lock condicional para artefactos compartidos (/etc/nginx, /etc/systemd, /opt/enola)

@@ -9,56 +9,38 @@
 // Con `acquire_port_lock(8080)`, el segundo despliegue obtiene WouldBlock
 // inmediatamente y aborta con un mensaje claro al usuario, sin tocar Docker.
 //
-// **Path de los lockfiles**:
-//   - Default: /var/lock/enola/port_<PORT>.lock  (el CLI corre como root via sudo).
-//   - Override (tests / no-root): env `ENOLA_PORT_LOCK_DIR=/path`.
-//   - Fallback: si /var/lock/enola/ no es writable, /tmp/enola-locks/.
+// **Path de los lockfiles** (SEC-A2):
+//   - Default: /run/enola/locks/port_<PORT>.lock  (el CLI corre como root via sudo).
+//   - Override (tests / dev): env `ENOLA_PORT_LOCK_DIR=/path` — validado igual
+//     que el default (dueño = euid, sin symlink, sin escritura de grupo/otros).
+//   - Sin root y sin override → error (sin fallback a /tmp).
 //
 // **Reglas (extiende file_lock.rs):**
 //   1. Tomar el lock ANTES de validar el puerto y de lanzar `docker run`.
 //   2. Mantener el guard vivo hasta DESPUES de que docker termine de hacer el bind.
 //   3. NO compartir un mismo PortLock entre dos hilos concurrentes (cada uno debe
 //      llamar `acquire_port_lock` con su Drop scope propio).
-use crate::infrastructure::file_lock::FileLock;
+use crate::infrastructure::file_lock::{secure_lock_dir, FileLock};
 use std::io;
 use std::path::PathBuf;
-/// Directorio canonico de lockfiles de puertos.
-///
-/// Resolucion:
-/// 1. `ENOLA_PORT_LOCK_DIR` (env) -> uso forzado (tests, dev sin root).
-/// 2. /var/lock/enola/  -> default produccion (root).
-/// 3. /tmp/enola-locks/ -> fallback si /var/lock no es accesible.
-pub fn lock_dir() -> PathBuf {
-    if let Ok(custom) = std::env::var("ENOLA_PORT_LOCK_DIR") {
-        if !custom.is_empty() {
-            return PathBuf::from(custom);
-        }
-    }
-    let primary = PathBuf::from("/var/lock/enola");
-    lock_dir_from_primary(&primary)
+
+/// Variable de entorno que fija el directorio de locks de puertos.
+pub const PORT_LOCK_DIR_ENV: &str = "ENOLA_PORT_LOCK_DIR";
+
+/// Directorio canonico de lockfiles de puertos, ya validado (ver cabecera).
+pub fn lock_dir() -> io::Result<PathBuf> {
+    secure_lock_dir(PORT_LOCK_DIR_ENV).map(|d| d.path().to_path_buf())
 }
 
-fn lock_dir_from_primary(primary: &std::path::Path) -> PathBuf {
-    // Probar a crear /var/lock/enola/. Si falla (no-root, FS read-only),
-    // caer a /tmp/enola-locks/. La creacion real (con permisos) la hace
-    // FileLock::try_acquire al primer uso.
-    if primary.exists() {
-        return primary.to_path_buf();
-    }
-    match std::fs::create_dir_all(primary) {
-        Ok(_) => primary.to_path_buf(),
-        Err(_) => PathBuf::from("/tmp/enola-locks"),
-    }
+fn lock_name(port: u16) -> String {
+    format!("port_{}.lock", port)
 }
 
-#[cfg(feature = "testing")]
-pub fn lock_dir_from_primary_for_testing(primary: &std::path::Path) -> PathBuf {
-    lock_dir_from_primary(primary)
+/// Path del lockfile para un puerto dado (solo diagnóstico).
+pub fn lock_path_for_port(port: u16) -> io::Result<PathBuf> {
+    Ok(lock_dir()?.join(lock_name(port)))
 }
-/// Path del lockfile para un puerto dado.
-pub fn lock_path_for_port(port: u16) -> PathBuf {
-    lock_dir().join(format!("port_{}.lock", port))
-}
+
 /// Intenta reservar un puerto adquiriendo un lock exclusivo no bloqueante.
 ///
 /// Devuelve un guard RAII; mantenerlo vivo durante toda la operacion que
@@ -67,10 +49,11 @@ pub fn lock_path_for_port(port: u16) -> PathBuf {
 /// # Errores
 /// - `io::ErrorKind::WouldBlock`: otro proceso del CLI ya esta reservando
 ///   este puerto. El caller debe abortar con mensaje al usuario.
-/// - Otros: problemas de permisos / I/O al crear el lockfile.
+/// - `PermissionDenied`: directorio de locks inseguro o CLI sin root.
+/// - Otros: problemas de I/O al crear el lockfile.
 pub fn acquire_port_lock(port: u16) -> io::Result<FileLock> {
-    let path = lock_path_for_port(port);
-    FileLock::try_acquire(&path)
+    let dir = secure_lock_dir(PORT_LOCK_DIR_ENV)?;
+    FileLock::try_acquire_in(&dir, &lock_name(port))
 }
 #[cfg(test)]
 mod tests {
@@ -108,6 +91,9 @@ mod tests {
     }
 
     fn set_lock_dir_override(dir: &std::path::Path) -> EnvVarRestore {
+        // SEC-A2: el override se valida; TempDir respeta el umask (002 → 0775).
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
         let guard = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         std::env::set_var("ENOLA_PORT_LOCK_DIR", dir);
@@ -151,7 +137,7 @@ mod tests {
     fn lock_path_for_port_uses_env_override() {
         let tmp = TempDir::new().unwrap();
         let _restore = set_lock_dir_override(tmp.path());
-        let p = lock_path_for_port(12345);
+        let p = lock_path_for_port(12345).unwrap();
         assert!(p.starts_with(tmp.path()));
         assert!(p.to_string_lossy().ends_with("port_12345.lock"));
     }
@@ -182,47 +168,52 @@ mod tests {
         let _g1 = acquire_port_lock(54323).expect("port a");
         let _g2 = acquire_port_lock(54324).expect("port b independent");
     }
+    // SEC-A2: sin override, el default exige root; nunca cae a /tmp.
     #[test]
-    fn lock_dir_default_falls_back_when_var_lock_unavailable() {
-        // Sin override, lock_dir() devuelve algo valido (/var/lock/enola o /tmp/enola-locks).
+    fn lock_dir_without_override_never_falls_back_to_tmp() {
         let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
-        std::env::set_var("ENOLA_PORT_LOCK_DIR", "/tmp/enola-prev");
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
         std::env::remove_var("ENOLA_PORT_LOCK_DIR");
         let d = lock_dir();
-        let is_expected = d == *"/var/lock/enola" || d == *"/tmp/enola-locks";
-        assert!(is_expected);
-        if let Some(v) = prev {
-            std::env::set_var("ENOLA_PORT_LOCK_DIR", v);
+        restore_lock_dir_env(prev);
+        match d {
+            Ok(p) => assert_eq!(p, PathBuf::from("/run/enola/locks")),
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::PermissionDenied),
         }
     }
 
     #[test]
-    fn lock_dir_default_restores_to_unset_when_no_previous_override() {
+    fn lock_dir_ignores_empty_env_var() {
         let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
-        std::env::remove_var("ENOLA_PORT_LOCK_DIR");
         let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
-        assert!(prev.is_none());
-        std::env::remove_var("ENOLA_PORT_LOCK_DIR");
-        let _ = lock_dir();
-        std::env::remove_var("ENOLA_PORT_LOCK_DIR");
-        assert!(std::env::var("ENOLA_PORT_LOCK_DIR").is_err());
+        std::env::set_var("ENOLA_PORT_LOCK_DIR", ""); // vacío → default
+        let d = lock_dir();
+        restore_lock_dir_env(prev);
+        if let Ok(p) = d {
+            assert_eq!(p, PathBuf::from("/run/enola/locks"));
+        }
     }
 
-    // TEST-COV-UNIT-003: cubrir lock_dir() con env var vacía (rama !custom.is_empty() = false)
     #[test]
-    fn lock_dir_ignores_empty_env_var_and_falls_back() {
-        let _g = recover_poison(crate::infrastructure::TEST_ENV_LOCK.lock());
-        std::env::set_var("ENOLA_PORT_LOCK_DIR", "/tmp/enola-prev");
-        let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok();
-        std::env::set_var("ENOLA_PORT_LOCK_DIR", ""); // vacío → ignorado
-        let d = lock_dir();
-        // Debe caer al default, no a ""
-        assert!(d != *"", "lock_dir vacío debe rechazarse: {:?}", d);
-        std::env::remove_var("ENOLA_PORT_LOCK_DIR");
-        if let Some(v) = prev {
-            std::env::set_var("ENOLA_PORT_LOCK_DIR", v);
-        }
+    fn acquire_rejects_world_writable_override_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let _restore = set_lock_dir_override(tmp.path());
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        let err = acquire_port_lock(54330).expect_err("insecure dir must be rejected");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn acquire_rejects_symlinked_port_lockfile() {
+        let tmp = TempDir::new().unwrap();
+        let _restore = set_lock_dir_override(tmp.path());
+        let victim_dir = TempDir::new().unwrap();
+        let victim = victim_dir.path().join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, tmp.path().join("port_54331.lock")).unwrap();
+        assert!(acquire_port_lock(54331).is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
     }
 
     // TEST-COV-UNIT-003: lock se libera al salir del scope y puede ser re-adquirido
@@ -236,49 +227,6 @@ mod tests {
         }
         // Ahora debe poder re-adquirir
         let _g2 = acquire_port_lock(59999).expect("re-adquisición tras release");
-    }
-
-    // TEST-COV-UNIT-003: cubrir L80 (rama Some en with_lock_dir) y L43-46 (logica lock_dir)
-
-    #[test]
-    fn lock_dir_primary_returned_when_already_exists() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let primary = tmp.path().join("enola_primary");
-        std::fs::create_dir_all(&primary).unwrap(); // primary existe
-        let d = lock_dir_from_primary(&primary);
-        assert_eq!(
-            d,
-            primary.to_path_buf(),
-            "debe regresar primary si ya existe"
-        );
-    }
-
-    #[test]
-    fn lock_dir_creates_primary_when_possible() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let primary = tmp.path().join("enola_new");
-        // primary NO existe pero su padre (tmp) si existe y es escribible
-        let d = lock_dir_from_primary(&primary);
-        assert_eq!(d, primary.to_path_buf(), "debe crear y retornar primary");
-    }
-
-    #[test]
-    fn lock_dir_falls_back_when_create_fails() {
-        use std::os::unix::fs::PermissionsExt;
-        let tmp = tempfile::TempDir::new().unwrap();
-        let ro_parent = tmp.path().join("ro_parent");
-        std::fs::create_dir_all(&ro_parent).unwrap();
-        // Hacer el padre solo-lectura para que create_dir_all sobre el hijo falle
-        std::fs::set_permissions(&ro_parent, std::fs::Permissions::from_mode(0o444)).unwrap();
-        let primary = ro_parent.join("enola_fail");
-        let d = lock_dir_from_primary(&primary);
-        // Restaurar permisos antes de que TempDir intente limpiar
-        std::fs::set_permissions(&ro_parent, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(
-            d,
-            std::path::PathBuf::from("/tmp/enola-locks"),
-            "debe caer al fallback"
-        );
     }
 
     // TEST-COV-UNIT-003: cubrir restore de env var en rama Some(v)
@@ -295,8 +243,13 @@ mod tests {
             // Establecer variable antes de capturar prev (cubre el Some arm en match al restaurar)
             std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_prev.path());
             let prev = std::env::var("ENOLA_PORT_LOCK_DIR").ok(); // Some(tmp_prev)
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(tmp_actual.path(), std::fs::Permissions::from_mode(0o700))
+                    .unwrap();
+            }
             std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp_actual.path());
-            let d = lock_dir();
+            let d = lock_dir().unwrap();
             assert_eq!(d, tmp_actual.path().to_path_buf());
             // Restaurar: cubre L80, L131, L145 (rama Some(v))
             std::env::remove_var("ENOLA_PORT_LOCK_DIR");

@@ -163,6 +163,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::process::exit(2);
     }
 
+    // SEC-A9 (D12/D16): como root, validar el entorno HEREDADO (PATH fijo,
+    // overrides sensibles) antes de ejecutar nada y antes de exportar los
+    // flags globales — lo que el operador escribe en la línea de comandos
+    // (`--tor-socks`, …) se aplica después y se respeta.
+    enola_core::infrastructure::root_env::sanitize_inherited_env();
+
     // INT-008: Self-integrity check (warning only, does not abort)
     check_self_integrity();
 

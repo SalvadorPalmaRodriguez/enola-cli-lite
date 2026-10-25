@@ -118,15 +118,47 @@ pub(crate) fn resolve_tor_socks_proxy() -> String {
         }
     }
     // 2. config.toml → [http].tor_socks_proxy
+    //    SEC-A9/B7: como root, `/etc/enola/config.toml` (root-owned) admite
+    //    cualquier valor; el `~/.enola/config.toml` del usuario solo un proxy
+    //    socks5h:// en loopback. El entorno heredado ya se validó en main.
+    // SAFETY: geteuid no tiene precondiciones.
+    let is_root = unsafe { libc::geteuid() } == 0;
+    if is_root {
+        let root_section = crate::infrastructure::config_loader::load_section_root_owned("http");
+        if let Some(v) = root_section.get("tor_socks_proxy") {
+            let trimmed = v.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
     let section = crate::infrastructure::config_loader::load_section("http");
     if let Some(v) = section.get("tor_socks_proxy") {
         let trimmed = v.trim();
-        if !trimmed.is_empty() {
+        if !trimmed.is_empty() && (!is_root || socks_proxy_ok_for_root(trimmed)) {
             return trimmed.to_string();
+        }
+        if !trimmed.is_empty() {
+            eprintln!(
+                "⚠️  [http].tor_socks_proxy '{}' in the user config ignored when running as root \
+                 (only socks5h:// on 127.0.0.1/::1/localhost; set other proxies in \
+                 /etc/enola/config.toml or with --tor-socks)",
+                trimmed
+            );
         }
     }
     // 3. Default
     DEFAULT_TOR_SOCKS_PROXY.to_string()
+}
+
+#[cfg(unix)]
+fn socks_proxy_ok_for_root(v: &str) -> bool {
+    crate::infrastructure::root_env::socks_proxy_is_loopback(v)
+}
+
+#[cfg(not(unix))]
+fn socks_proxy_ok_for_root(_v: &str) -> bool {
+    true
 }
 
 fn ensure_socks5h_for_onion(proxy_url: &str) -> Result<()> {

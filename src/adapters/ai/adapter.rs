@@ -404,6 +404,15 @@ impl AiAdapterPort for EnolaAiAdapter {
         let _api_port_lock = Self::reserve_port(config.api_port, "api-port")?;
         let _webui_port_lock = Self::reserve_port(config.webui_port, "webui-port")?;
 
+        // SEC-A7: directorio base de datos en 0700 (webui.db, claves de sesión).
+        crate::infrastructure::safe_dir::secure_service_base_dir(&self.base_dir).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Directorio de datos inseguro {}: {}",
+                self.base_dir.display(),
+                e
+            ))
+        })?;
+
         // 2. Comprobar que la instancia no exista ya.
         let inst_dir = self.instance_dir(&config.name);
         let ollama_name = ollama_container_name(&config.name);
@@ -1256,6 +1265,11 @@ mod tests {
         let guard = crate::infrastructure::TEST_ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        // SEC-A2: el directorio de locks se valida (sin escritura de grupo/otros);
+        // TempDir respeta el umask (002 → 0775).
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("chmod lock dir");
         std::env::set_var("ENOLA_PORT_LOCK_DIR", tmp.path());
         guard
     }
@@ -1390,6 +1404,16 @@ mod tests {
         stack_cfg.ollama_image_digest = Some("sha256:111122223333".into());
 
         let inst = adapter.create_instance(stack_cfg).await.unwrap();
+        // SEC-A7: el directorio base de datos queda 0700.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(tmp.path().join("ai_data"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o700, "ai base must be 0700, got {:o}", mode);
+        }
         assert_eq!(inst.name, "dev");
         assert_eq!(inst.api_port, Some(11435));
         assert_eq!(inst.webui_port, Some(8081));

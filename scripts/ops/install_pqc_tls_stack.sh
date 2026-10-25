@@ -11,15 +11,31 @@ set -euo pipefail
 #   sudo bash install_pqc_tls_stack.sh
 #   bash install_pqc_tls_stack.sh --dry-run
 
-OPENSSL_VERSION="3.5.7"
-NGINX_VERSION="1.28.3"
+# SEC-A1: versiones y valores de verificación FIJADOS en el script (no se fía de
+# nada descargado del mismo origen). Al subir de versión, actualizar los cuatro
+# valores contrastando dos canales (ver skill `security`, "Instalador PQC TLS").
+#   OpenSSL 3.5.9: SHA-256 = .sha256 de la release de GitHub; firma PGP válida de
+#                  la clave B146647E… listada en openssl-library.org/source/.
+#   nginx 1.30.6:  firma PGP válida (2026-10-02) de D6786CE3… (nginx.org/keys,
+#                  contrastada en keyserver.ubuntu.com); SHA-256 calculado tras ella.
+OPENSSL_VERSION="3.5.9"
+OPENSSL_SHA256="603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+NGINX_VERSION="1.30.6"
+NGINX_SHA256="3cf46f5ed7504d460125866b7bea99fb357f31d887e2e63b35503310e9b8b6c8"
+# Huellas primarias de los firmantes de releases de nginx aceptados (nginx.org/en/pgp_keys.html).
+NGINX_SIGNER_FPRS=(
+    "D6786CE303D9A9022998DC6CC8464D549AF75C0A" # Sergey Kandaurov (pluknet.key) — firma 1.30.6
+    "43387825DDB1BB97EC36BA5D007C8D7C15D87369" # Roman Arutyunyan (arut.key)
+)
+NGINX_SIGNER_KEY_URLS=(
+    "https://nginx.org/keys/pluknet.key"
+    "https://nginx.org/keys/arut.key"
+)
 OPENSSL_BASE_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}"
 OPENSSL_TARBALL="openssl-${OPENSSL_VERSION}.tar.gz"
-OPENSSL_SHA256_FILE="${OPENSSL_TARBALL}.sha256"
 NGINX_BASE_URL="https://nginx.org/download"
 NGINX_TARBALL="nginx-${NGINX_VERSION}.tar.gz"
 NGINX_ASC="${NGINX_TARBALL}.asc"
-NGINX_KEY_URL="https://nginx.org/keys/nginx_signing.key"
 OPENSSL_PREFIX="/opt/enola/openssl-${OPENSSL_VERSION}"
 MARKER_DIR="/usr/local/share/enola"
 MARKER_FILE="${MARKER_DIR}/pqc_tls.env"
@@ -114,17 +130,62 @@ install_prereqs() {
 }
 
 current_openssl_is_pqc() {
-    command -v openssl >/dev/null 2>&1 && openssl version 2>/dev/null | grep -q "OpenSSL 3.5"
+    command -v openssl >/dev/null 2>&1 && openssl version 2>/dev/null | grep -q "OpenSSL ${OPENSSL_VERSION}"
 }
 
 current_nginx_is_pqc() {
-    command -v nginx >/dev/null 2>&1 && nginx -V 2>&1 | grep -q "OpenSSL 3.5"
+    command -v nginx >/dev/null 2>&1 \
+        && nginx -V 2>&1 | grep -q "nginx/${NGINX_VERSION}" \
+        && nginx -V 2>&1 | grep -q "OpenSSL ${OPENSSL_VERSION}"
 }
+
+# SEC-A1: compara el SHA-256 de un fichero con el valor FIJADO en este script.
+verify_sha256() {
+    local file="$1" expected="$2" actual
+    actual="$(sha256sum "$file" | awk '{print $1}')"
+    if [ "$actual" != "$expected" ]; then
+        echo "❌ SHA256 no coincide: $file"
+        echo "   Expected: $expected"
+        echo "   Got:      $actual"
+        return 1
+    fi
+}
+
+# SEC-A1: 0 si la salida --status-fd de gpg (fichero $1) contiene un VALIDSIG
+# cuya huella PRIMARIA (último campo) está en NGINX_SIGNER_FPRS.
+nginx_signer_is_pinned() {
+    local status_file="$1" fpr pinned
+    fpr="$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" {print $NF; exit}' "$status_file")"
+    [ -n "$fpr" ] || return 1
+    for pinned in "${NGINX_SIGNER_FPRS[@]}"; do
+        [ "$fpr" = "$pinned" ] && return 0
+    done
+    return 1
+}
+
+# SEC-A1: el directorio de trabajo debe ser de root y privado antes de compilar.
+assert_private_tmpdir() {
+    local dir="$1" owner mode
+    owner="$(stat -c '%u' "$dir")"
+    mode="$(stat -c '%a' "$dir")"
+    if [ ! -d "$dir" ] || [ -L "$dir" ] || [ "$owner" != "0" ] || [ "$mode" != "700" ]; then
+        echo "❌ Directorio temporal inseguro: $dir (uid=$owner modo=$mode)"
+        exit 1
+    fi
+}
+
+# Cargado con `source` (tests): solo definir funciones, no instalar nada.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    return 0
+fi
 
 TMPDIR="$(mktemp -d /tmp/enola-pqc-tls-XXXXXX)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 require_root
+if [ "$DRY_RUN" != "1" ]; then
+    assert_private_tmpdir "$TMPDIR"
+fi
 PM="$(detect_pm)"
 
 echo "══════════════════════════════════════════════════════════"
@@ -146,65 +207,33 @@ echo "📦 Instalando prerrequisitos del sistema..."
 install_prereqs "$PM"
 
 echo "⬇️  Descargando OpenSSL ${OPENSSL_VERSION} desde fuente oficial..."
-PRECACHE_DIR="/tmp/enola-pqc-precache"
-if [ -f "${PRECACHE_DIR}/${OPENSSL_TARBALL}" ] && [ -f "${PRECACHE_DIR}/${OPENSSL_SHA256_FILE}" ]; then
-    cp "${PRECACHE_DIR}/${OPENSSL_TARBALL}" "${TMPDIR}/${OPENSSL_TARBALL}"
-    cp "${PRECACHE_DIR}/${OPENSSL_SHA256_FILE}" "${TMPDIR}/${OPENSSL_SHA256_FILE}"
-    echo "   (usando copia pre-descargada)"
-else
-    run curl -fsSL --retry 3 --retry-delay 5 "${OPENSSL_BASE_URL}/${OPENSSL_TARBALL}" -o "${TMPDIR}/${OPENSSL_TARBALL}"
-    run curl -fsSL --retry 3 --retry-delay 5 "${OPENSSL_BASE_URL}/${OPENSSL_SHA256_FILE}" -o "${TMPDIR}/${OPENSSL_SHA256_FILE}"
-fi
-
+run curl -fsSL --retry 3 --retry-delay 5 "${OPENSSL_BASE_URL}/${OPENSSL_TARBALL}" -o "${TMPDIR}/${OPENSSL_TARBALL}"
 if [ "$DRY_RUN" != "1" ]; then
-    EXPECTED_SHA="$(awk '{print $1}' "${TMPDIR}/${OPENSSL_SHA256_FILE}")"
-    ACTUAL_SHA="$(sha256sum "${TMPDIR}/${OPENSSL_TARBALL}" | awk '{print $1}')"
-    if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
-        echo "❌ SHA256 de OpenSSL no coincide"
-        echo "   Expected: $EXPECTED_SHA"
-        echo "   Got:      $ACTUAL_SHA"
-        exit 1
-    fi
+    verify_sha256 "${TMPDIR}/${OPENSSL_TARBALL}" "${OPENSSL_SHA256}" || exit 1
 fi
 
 echo "✅ OpenSSL descargado y verificado"
 
 echo "⬇️  Descargando Nginx ${NGINX_VERSION} desde fuente oficial..."
-if [ -f "${PRECACHE_DIR}/${NGINX_TARBALL}" ] && [ -f "${PRECACHE_DIR}/${NGINX_ASC}" ] && [ -f "${PRECACHE_DIR}/nginx_signing.key" ]; then
-    cp "${PRECACHE_DIR}/${NGINX_TARBALL}" "${TMPDIR}/${NGINX_TARBALL}"
-    cp "${PRECACHE_DIR}/${NGINX_ASC}" "${TMPDIR}/${NGINX_ASC}"
-    cp "${PRECACHE_DIR}/nginx_signing.key" "${TMPDIR}/nginx_signing.key"
-    echo "   (usando copia pre-descargada)"
-else
-    run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_BASE_URL}/${NGINX_TARBALL}" -o "${TMPDIR}/${NGINX_TARBALL}"
-    run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_BASE_URL}/${NGINX_ASC}" -o "${TMPDIR}/${NGINX_ASC}"
-    run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_KEY_URL}" -o "${TMPDIR}/nginx_signing.key"
-fi
+run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_BASE_URL}/${NGINX_TARBALL}" -o "${TMPDIR}/${NGINX_TARBALL}"
+run curl -fsSL --retry 3 --retry-delay 5 "${NGINX_BASE_URL}/${NGINX_ASC}" -o "${TMPDIR}/${NGINX_ASC}"
 
 if [ "$DRY_RUN" != "1" ]; then
+    verify_sha256 "${TMPDIR}/${NGINX_TARBALL}" "${NGINX_SHA256}" || exit 1
+    # Defensa en profundidad: firma de un firmante de releases FIJADO.
     export GNUPGHOME="${TMPDIR}/gnupg"
     mkdir -p "$GNUPGHOME"
     chmod 700 "$GNUPGHOME"
-    gpg --batch --import "${TMPDIR}/nginx_signing.key" >/dev/null 2>&1
-    # Importar clave de firma nueva (rotación de claves de Nginx 2026)
-    if [ -f "${PRECACHE_DIR}/nginx_signing_new.key" ]; then
-        gpg --batch --import "${PRECACHE_DIR}/nginx_signing_new.key" >/dev/null 2>&1
+    for i in "${!NGINX_SIGNER_KEY_URLS[@]}"; do
+        curl -fsSL --retry 3 --retry-delay 5 "${NGINX_SIGNER_KEY_URLS[$i]}" -o "${TMPDIR}/nginx_signer_${i}.key"
+        gpg --batch --import "${TMPDIR}/nginx_signer_${i}.key" >/dev/null 2>&1
+    done
+    gpg --batch --status-fd 1 --verify "${TMPDIR}/${NGINX_ASC}" "${TMPDIR}/${NGINX_TARBALL}" \
+        > "${TMPDIR}/nginx_verify.status" 2>/dev/null || true
+    if ! nginx_signer_is_pinned "${TMPDIR}/nginx_verify.status"; then
+        echo "❌ Firma GPG de Nginx no válida o de un firmante no fijado"
+        exit 1
     fi
-    gpg --batch --verify "${TMPDIR}/${NGINX_ASC}" "${TMPDIR}/${NGINX_TARBALL}" >/dev/null 2>&1 || {
-        # Fallback: la clave de firma puede no estar en nginx_signing.key
-        # (rotación de claves). Intentar recuperar desde keyserver.
-        SIGNER_KEY=$(gpg --batch --status-fd 1 --verify "${TMPDIR}/${NGINX_ASC}" "${TMPDIR}/${NGINX_TARBALL}" 2>&1 | grep "NO_PUBKEY" | awk '{print $NF}' | head -1)
-        if [ -n "$SIGNER_KEY" ]; then
-            gpg --keyserver keyserver.ubuntu.com --recv-key "$SIGNER_KEY" >/dev/null 2>&1
-            gpg --batch --verify "${TMPDIR}/${NGINX_ASC}" "${TMPDIR}/${NGINX_TARBALL}" >/dev/null 2>&1 || {
-                echo "❌ Firma GPG de Nginx no válida (clave $SIGNER_KEY no encontrada)"
-                exit 1
-            }
-        else
-            echo "❌ Firma GPG de Nginx no válida"
-            exit 1
-        fi
-    }
 fi
 
 echo "✅ Nginx descargado y verificado"

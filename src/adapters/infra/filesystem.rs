@@ -2,7 +2,7 @@
 // with privileges can leave files/dirs in inconsistent state.
 #![warn(clippy::unwrap_used, clippy::expect_used)]
 use crate::domain::error::{EnolaError, Result};
-use crate::ports::file::{AtomicFilePort, FileManagerPort};
+use crate::ports::file::{AtomicFilePort, FileEdit, FileManagerPort, UserDirFilePort, UserOwner};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
@@ -332,6 +332,62 @@ fn validate_tar_members(listing: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Tamaño máximo de un fichero de usuario editado por root (authorized_keys…).
+const MAX_USER_FILE_BYTES: u64 = 1024 * 1024;
+
+#[async_trait::async_trait]
+impl UserDirFilePort for EnolaFileAdapter {
+    async fn edit_locked(
+        &self,
+        dir: &Path,
+        owner: UserOwner,
+        dir_mode: u32,
+        lock_name: &str,
+        name: &str,
+        file_mode: u32,
+        edit: FileEdit,
+    ) -> Result<()> {
+        use crate::infrastructure::file_lock::FileLock;
+        use crate::infrastructure::safe_dir::{open_user_dir, OwnerPolicy};
+
+        let dir = dir.to_path_buf();
+        let lock_name = lock_name.to_string();
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let io_err = |what: &str, e: std::io::Error| {
+                EnolaError::InfrastructureError(format!("{} {}: {}", what, dir.display(), e))
+            };
+            // Decisión 2026-10-25: un dir propio con permisos de más se corrige
+            // a `dir_mode` (con aviso); symlink o dueño ajeno → rechazo.
+            let sd = open_user_dir(
+                &dir,
+                dir_mode,
+                (owner.uid, owner.gid),
+                OwnerPolicy::RootOrUid(owner.uid),
+            )
+            .map_err(|e| io_err("unsafe user directory", e))?;
+            let _lock =
+                FileLock::try_acquire_in(&sd, &lock_name).map_err(|e| io_err("cannot lock", e))?;
+            let current = sd
+                .read_to_string_nofollow(&name, MAX_USER_FILE_BYTES)
+                .map_err(|e| io_err("cannot read", e))?
+                .unwrap_or_default();
+            if let Some(new_content) = edit(&current)? {
+                sd.write_atomic(
+                    &name,
+                    new_content.as_bytes(),
+                    file_mode,
+                    Some((owner.uid, owner.gid)),
+                )
+                .map_err(|e| io_err("cannot write", e))?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| EnolaError::InfrastructureError(format!("spawn_blocking failed: {}", e)))?
+    }
 }
 
 #[async_trait::async_trait]
@@ -732,5 +788,185 @@ mod tests {
     fn validate_tar_members_rejects_embedded_parent_traversal() {
         let listing = "a/../../evil\n";
         assert!(validate_tar_members(listing).is_err());
+    }
+
+    // ── SEC-A8: UserDirFilePort ───────────────────────────────────────────
+    fn own_owner() -> UserOwner {
+        // SAFETY: geteuid/getegid no tienen precondiciones.
+        unsafe {
+            UserOwner {
+                uid: libc::geteuid(),
+                gid: libc::getegid(),
+            }
+        }
+    }
+
+    fn append_line(line: &'static str) -> FileEdit {
+        Box::new(move |cur: &str| Ok(Some(format!("{cur}{line}\n"))))
+    }
+
+    #[tokio::test]
+    async fn edit_locked_creates_private_dir_and_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let ssh = home.path().join(".ssh");
+        EnolaFileAdapter::new()
+            .edit_locked(
+                &ssh,
+                own_owner(),
+                0o700,
+                ".lock",
+                "authorized_keys",
+                0o600,
+                append_line("k1"),
+            )
+            .await
+            .expect("edit");
+        assert_eq!(
+            std::fs::metadata(&ssh).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        let f = ssh.join("authorized_keys");
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "k1\n");
+        assert_eq!(
+            std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_locked_appends_to_existing_content() {
+        let home = tempfile::tempdir().unwrap();
+        let a = EnolaFileAdapter::new();
+        let ssh = home.path().join(".ssh");
+        a.edit_locked(
+            &ssh,
+            own_owner(),
+            0o700,
+            ".lock",
+            "ak",
+            0o600,
+            append_line("k1"),
+        )
+        .await
+        .unwrap();
+        a.edit_locked(
+            &ssh,
+            own_owner(),
+            0o700,
+            ".lock",
+            "ak",
+            0o600,
+            append_line("k2"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(ssh.join("ak")).unwrap(), "k1\nk2\n");
+    }
+
+    // SEC-A8 (decisión 2026-10-25): un ~/.ssh propio pero abierto (775) se
+    // corrige a 0700 en vez de rechazarse (como Ansible/ssh-copy-id).
+    #[tokio::test]
+    async fn edit_locked_clamps_open_ssh_dir_to_0700() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let ssh = home.path().join(".ssh");
+        std::fs::create_dir(&ssh).unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o775)).unwrap();
+        EnolaFileAdapter::new()
+            .edit_locked(
+                &ssh,
+                own_owner(),
+                0o700,
+                ".lock",
+                "authorized_keys",
+                0o600,
+                append_line("k1"),
+            )
+            .await
+            .expect("own open ~/.ssh must be fixed, not refused");
+        assert_eq!(
+            std::fs::metadata(&ssh).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::read_to_string(ssh.join("authorized_keys")).unwrap(),
+            "k1\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_locked_rejects_symlinked_dir() {
+        let home = tempfile::tempdir().unwrap();
+        let victim_dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(victim_dir.path(), home.path().join(".ssh")).unwrap();
+        let r = EnolaFileAdapter::new()
+            .edit_locked(
+                &home.path().join(".ssh"),
+                own_owner(),
+                0o700,
+                ".lock",
+                "authorized_keys",
+                0o600,
+                append_line("k1"),
+            )
+            .await;
+        assert!(r.is_err(), "symlinked ~/.ssh must be rejected");
+        assert!(!victim_dir.path().join("authorized_keys").exists());
+    }
+
+    #[tokio::test]
+    async fn edit_locked_does_not_follow_symlinked_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let ssh = home.path().join(".ssh");
+        std::fs::create_dir(&ssh).unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let victim = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(victim.path(), "victim\n").unwrap();
+        std::os::unix::fs::symlink(victim.path(), ssh.join("authorized_keys")).unwrap();
+        let r = EnolaFileAdapter::new()
+            .edit_locked(
+                &ssh,
+                own_owner(),
+                0o700,
+                ".lock",
+                "authorized_keys",
+                0o600,
+                append_line("k1"),
+            )
+            .await;
+        assert!(r.is_err(), "symlinked authorized_keys must be rejected");
+        assert_eq!(std::fs::read_to_string(victim.path()).unwrap(), "victim\n");
+    }
+
+    #[tokio::test]
+    async fn edit_locked_none_leaves_file_untouched() {
+        let home = tempfile::tempdir().unwrap();
+        let ssh = home.path().join(".ssh");
+        let a = EnolaFileAdapter::new();
+        a.edit_locked(
+            &ssh,
+            own_owner(),
+            0o700,
+            ".lock",
+            "ak",
+            0o600,
+            append_line("k1"),
+        )
+        .await
+        .unwrap();
+        a.edit_locked(
+            &ssh,
+            own_owner(),
+            0o700,
+            ".lock",
+            "ak",
+            0o600,
+            Box::new(|_| Ok(None)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(ssh.join("ak")).unwrap(), "k1\n");
     }
 }

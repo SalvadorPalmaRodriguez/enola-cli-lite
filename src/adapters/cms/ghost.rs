@@ -172,6 +172,14 @@ impl CmsLifecycle for GhostCmsAdapter {
 
         // 2. Volumen persistente (`content/` lleva SQLite db, themes, imágenes).
         let base = ghost_base_dir(self.base_dir.as_deref());
+        // SEC-A7: directorio base de datos en 0700 (secretos escritos por los contenedores).
+        crate::infrastructure::safe_dir::secure_service_base_dir(&base).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Insecure data directory {}: {}",
+                base.display(),
+                e
+            ))
+        })?;
         let inst_dir = base.join(&request.name);
         let content_volume = inst_dir.join("content");
 
@@ -446,6 +454,12 @@ mod tests {
             db_password: None, // ignorado: SQLite no usa password
         };
         let inst = adapter.create(req).await.expect("create should succeed");
+        // SEC-A7: el directorio base de datos queda 0700.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(tmp.path()).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "base dir must be 0700, got {:o}", mode);
+        }
         assert_eq!(inst.kind, CmsKind::Ghost);
         assert_eq!(inst.name, "myblog");
         assert_eq!(inst.status, CmsStatus::Initializing);

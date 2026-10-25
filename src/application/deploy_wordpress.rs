@@ -85,6 +85,15 @@ impl DeployWordPress {
         // SEC-005: Write secrets to host files (mode 0600) instead of env vars.
         // MariaDB and WordPress official images support the _FILE suffix convention.
         let base_dir = wordpress_base_dir();
+        // SEC-A7: directorio base de datos en 0700 (wp-config.php lo escribe el
+        // contenedor con 0644).
+        crate::infrastructure::safe_dir::secure_service_base_dir(&base_dir).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Insecure data directory {}: {}",
+                base_dir.display(),
+                e
+            ))
+        })?;
         let secrets_dir = base_dir.join(format!("{}_secrets", service_name));
         let db_root_pass_path = write_secret_file(&secrets_dir, "db_root_password", &db_root_pass)?;
         let db_pass_path = write_secret_file(&secrets_dir, "db_password", &db_pass)?;
@@ -477,7 +486,7 @@ mod tests {
     #[tokio::test]
     async fn test_deploy_wordpress_success() {
         let _guard = crate::infrastructure::TEST_ENV_LOCK.lock().unwrap();
-        let _tmp = setup_test_base_dir();
+        let tmp = setup_test_base_dir();
 
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
@@ -488,6 +497,12 @@ mod tests {
         teardown_test_base_dir();
 
         assert!(result.is_ok());
+        // SEC-A7: el directorio base de datos queda 0700.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(tmp.path()).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "wordpress base must be 0700, got {:o}", mode);
+        }
         let address = result.unwrap();
         assert!(address.contains("localhost"));
         // Should have created 2 containers: db and wp

@@ -38,9 +38,14 @@ impl FileManifestAdapter {
     /// (`/usr/local/share/enola/manifest`), or the path in the
     /// `ENOLA_MANIFEST_PATH` env var if set (useful for tests).
     pub fn new() -> Self {
+        // SEC-A9: el override (solo tests) no se respeta como root.
+        // SAFETY: geteuid no tiene precondiciones.
+        let is_root = unsafe { libc::geteuid() } == 0;
         let path = std::env::var("ENOLA_MANIFEST_PATH")
+            .ok()
+            .filter(|_| !is_root)
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(DEFAULT_MANIFEST_PATH));
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_MANIFEST_PATH));
         Self {
             manifest_path: path,
         }

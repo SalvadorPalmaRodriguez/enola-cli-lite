@@ -31,6 +31,9 @@ fn is_port_free_for_docker(port: u16) -> bool {
     true
 }
 
+/// Directorio base de datos de los servidores Git.
+const DEFAULT_GIT_DATA_BASE: &str = "/srv/enola-git";
+
 /// Application Service for deploying a Git Server (Forgejo)
 /// Port logic from: scripts/git/deploy_git.sh
 pub struct DeployGitServer {
@@ -40,6 +43,8 @@ pub struct DeployGitServer {
     nginx_manager: Option<Arc<dyn NginxManagerPort + Send + Sync>>,
     port_checker: Option<Arc<dyn PortCheckerPort + Send + Sync>>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    /// Directorio base de datos (`/srv/enola-git`); inyectable en tests.
+    data_base: PathBuf,
 }
 
 impl DeployGitServer {
@@ -55,7 +60,15 @@ impl DeployGitServer {
             nginx_manager,
             port_checker: None,
             manifest,
+            data_base: PathBuf::from(DEFAULT_GIT_DATA_BASE),
         }
+    }
+
+    /// Tests: directorio base de datos en un tempdir.
+    #[cfg(test)]
+    pub fn with_data_base(mut self, base: PathBuf) -> Self {
+        self.data_base = base;
+        self
     }
 
     pub fn with_port_checker(mut self, pc: Arc<dyn PortCheckerPort + Send + Sync>) -> Self {
@@ -111,7 +124,16 @@ impl DeployGitServer {
         }
 
         // 3. Prepare Container Config — /srv/enola-git/{name}
-        let host_data_path = PathBuf::from("/srv/enola-git").join(service_name);
+        // SEC-A7: directorio base en 0700 (app.ini con SECRET_KEY lo escribe
+        // Forgejo con 0644).
+        crate::infrastructure::safe_dir::secure_service_base_dir(&self.data_base).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Insecure data directory {}: {}",
+                self.data_base.display(),
+                e
+            ))
+        })?;
+        let host_data_path = self.data_base.join(service_name);
 
         // Create the data directory with correct ownership BEFORE starting the container.
         // Forgejo runs as UID/GID 1000 and needs write access to /data.
@@ -587,19 +609,31 @@ mod tests {
     async fn test_deploy_git_server_success() {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
+        let data_base = tempfile::tempdir().unwrap();
         let use_case = DeployGitServer::new(
             container.clone(),
             tor.clone(),
             None,
             Arc::new(mock_manifest()),
         )
-        .with_port_checker(Arc::new(FreePortChecker));
+        .with_port_checker(Arc::new(FreePortChecker))
+        .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("mygit", 58500, 58501, false, None, None)
             .await;
 
         assert!(result.is_ok(), "execute failed: {:?}", result.err());
+        // SEC-A7: el directorio base de datos queda 0700.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(data_base.path())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o700, "git data base must be 0700, got {:o}", mode);
+        }
         let addr = result.unwrap();
         assert!(addr.contains("localhost"));
 
@@ -620,7 +654,9 @@ mod tests {
     async fn test_deploy_git_server_empty_name() {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case.execute("", 58510, 58511, false, None, None).await;
 
@@ -667,7 +703,9 @@ mod tests {
     async fn test_deploy_git_server_invalid_name_with_spaces() {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("my git server", 58506, 58507, false, None, None)
@@ -686,7 +724,9 @@ mod tests {
     async fn test_deploy_git_server_invalid_name_with_special_chars() {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("git@server!", 58508, 58509, false, None, None)
@@ -705,7 +745,9 @@ mod tests {
     async fn test_deploy_git_server_valid_name_with_underscore() {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("my_git_server", 58502, 58503, false, None, None)
@@ -718,7 +760,9 @@ mod tests {
     async fn test_deploy_git_server_valid_name_with_hyphen() {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("my-git-server", 58504, 58505, false, None, None)
@@ -731,7 +775,9 @@ mod tests {
     async fn test_deploy_git_server_container_create_failure() {
         let container = Arc::new(MockContainerManager::failing());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         // Puertos únicos para evitar race condition con tests paralelos (§flaky-ports)
         let result = use_case
@@ -751,7 +797,9 @@ mod tests {
     async fn test_deploy_git_server_container_start_failure() {
         let container = Arc::new(MockContainerManager::failing_on_start());
         let tor = Arc::new(MockTorManager::new());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         // Puertos únicos para evitar race condition con tests paralelos (§flaky-ports)
         let result = use_case
@@ -773,7 +821,9 @@ mod tests {
         // A failing Tor manager should not affect deployment at all.
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::failing());
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()));
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
+            .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("mygit", 59500, 59501, false, None, None)

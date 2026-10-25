@@ -1683,7 +1683,7 @@ pub mod ssh {
     use super::*;
     use crate::application::add_ssh_key::AddSshKey;
     use crate::application::deploy_ssh_hidden_service::DeploySshHiddenService;
-    use crate::infrastructure::drop_privs::resolve_user_home;
+    use crate::infrastructure::drop_privs::resolve_user_account;
 
     /// Add a public key to a user's `~/.ssh/authorized_keys`.
     pub async fn add_key(
@@ -1691,22 +1691,25 @@ pub mod ssh {
         pubkey: &str,
         comment: Option<&str>,
     ) -> CliResult<String> {
-        let home = resolve_user_home(user).ok_or_else(|| {
+        let account = resolve_user_account(user).ok_or_else(|| {
             CliError::InvalidInput(
                 "Could not resolve the target user's home directory. \
                  Use --user <name> or run without sudo."
                     .to_string(),
             )
         })?;
+        let home = account.home.clone();
+        let owner = crate::ports::file::UserOwner {
+            uid: account.uid,
+            gid: account.gid,
+        };
 
-        let file_adapter: Arc<dyn crate::ports::file::FileManagerPort + Send + Sync> =
-            Arc::new(EnolaFileAdapter::new());
-        let atomic_adapter: Arc<dyn crate::ports::file::AtomicFilePort + Send + Sync> =
+        let user_dir: Arc<dyn crate::ports::file::UserDirFilePort + Send + Sync> =
             Arc::new(EnolaFileAdapter::new());
 
-        let use_case = AddSshKey::new(file_adapter, atomic_adapter);
+        let use_case = AddSshKey::new(user_dir);
         use_case
-            .execute_for_home(std::path::Path::new(&home), pubkey, comment)
+            .execute_for_home(std::path::Path::new(&home), owner, pubkey, comment)
             .await
             .map_err(CliError::from)?;
 

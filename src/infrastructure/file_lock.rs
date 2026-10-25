@@ -18,6 +18,7 @@
 // 2. Mantener el `FileLock` vivo hasta DESPUÉS de consumir el recurso.
 // 3. NO usar `LOCK_SH` (shared) sin justificación: la idea es serializar.
 // 4. `try_acquire` (no bloqueante) es el modo preferido — falla rápido con error claro.
+use crate::infrastructure::safe_dir::{OwnerPolicy, SafeDir};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -61,25 +62,42 @@ impl FileLock {
                 let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755));
             }
         }
+        // SEC-A2: O_NOFOLLOW — un lockfile sustituido por un symlink no se sigue.
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o644)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(path_ref)?;
+        if !file.metadata()?.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{}: lockfile is not a regular file", path_ref.display()),
+            ));
+        }
+        Self::lock_file(file, path_ref.to_path_buf())
+    }
+    /// SEC-A2: adquiere el lock `name` dentro de un directorio ya validado,
+    /// sin seguir symlinks (el lockfile debe ser un fichero regular).
+    pub fn try_acquire_in(dir: &SafeDir, name: &str) -> io::Result<Self> {
+        let path = dir.path().join(name);
+        let file = dir.open_file_nofollow(name, 0o644)?;
+        Self::lock_file(file, path)
+    }
+
+    fn lock_file(file: File, path: PathBuf) -> io::Result<Self> {
         // SAFETY: `flock` con un fd válido no tiene UB. Los flags están bien
         // documentados en flock(2). El fd vive mientras `file` esté vivo.
         let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if rc != 0 {
             let err = io::Error::last_os_error();
-            return Err(map_flock_error(err, path_ref));
+            return Err(map_flock_error(err, &path));
         }
-        Ok(FileLock {
-            _file: file,
-            path: path_ref.to_path_buf(),
-        })
+        Ok(FileLock { _file: file, path })
     }
+
     /// Path del lockfile (útil para mensajes de error de diagnóstico).
     pub fn path(&self) -> &Path {
         &self.path
@@ -97,6 +115,43 @@ impl Drop for FileLock {
         }
     }
 }
+/// SEC-A2 (D1): directorio canónico de locks cuando el CLI corre como root.
+/// `/run` es root 0755 (nadie más puede pre-crear `/run/enola`); `/run/lock`
+/// (1777) permitía pre-crear o sustituir el directorio tras cada arranque.
+pub const ROOT_LOCK_PARENT: &str = "/run/enola";
+/// Ver [`ROOT_LOCK_PARENT`].
+pub const ROOT_LOCK_DIR: &str = "/run/enola/locks";
+
+/// Devuelve el directorio de locks validado (dueño = euid, sin symlink, sin
+/// escritura de grupo/otros). `override_env` permite fijarlo (tests, dev);
+/// el override pasa por las mismas comprobaciones. Sin override y sin root →
+/// error explícito (D2: sin fallback a `/tmp`).
+pub fn secure_lock_dir(override_env: &str) -> io::Result<SafeDir> {
+    if let Ok(custom) = std::env::var(override_env) {
+        if !custom.is_empty() {
+            return SafeDir::open_or_create(Path::new(&custom), 0o755, OwnerPolicy::Euid);
+        }
+    }
+    // SAFETY: geteuid no tiene precondiciones.
+    let euid = unsafe { libc::geteuid() };
+    secure_lock_dir_at(Path::new(ROOT_LOCK_PARENT), Path::new(ROOT_LOCK_DIR), euid)
+}
+
+/// Núcleo testeable de [`secure_lock_dir`] sin override.
+fn secure_lock_dir_at(parent: &Path, dir: &Path, euid: u32) -> io::Result<SafeDir> {
+    if euid != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "port/artifact locks live in {} and require root (run with sudo)",
+                dir.display()
+            ),
+        ));
+    }
+    SafeDir::open_or_create(parent, 0o755, OwnerPolicy::Euid)?;
+    SafeDir::open_or_create(dir, 0o755, OwnerPolicy::Euid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,5 +286,108 @@ mod tests {
         let err = io::Error::from_raw_os_error(libc::EACCES);
         let mapped = map_flock_error(err, &p);
         assert_eq!(mapped.raw_os_error(), Some(libc::EACCES));
+    }
+
+    // ── SEC-A2 ────────────────────────────────────────────────────────────
+    #[test]
+    fn try_acquire_rejects_symlinked_lockfile() {
+        let tmp = TempDir::new().unwrap();
+        let victim = tmp.path().join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        let p = lock_path(&tmp, "sym");
+        std::os::unix::fs::symlink(&victim, &p).unwrap();
+        assert!(
+            FileLock::try_acquire(&p).is_err(),
+            "must not follow symlink"
+        );
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn try_acquire_in_locks_exclusively_inside_safe_dir() {
+        let tmp = TempDir::new().unwrap();
+        // TempDir respeta el umask (p. ej. 002 → 0775): fijar un modo privado.
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = SafeDir::open(tmp.path(), OwnerPolicy::Euid).unwrap();
+        let _g = FileLock::try_acquire_in(&dir, "port_1.lock").expect("acquire");
+        let err = FileLock::try_acquire_in(&dir, "port_1.lock").expect_err("second");
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
+        assert!(tmp.path().join("port_1.lock").is_file());
+    }
+
+    #[test]
+    fn try_acquire_in_rejects_symlinked_lockfile() {
+        let tmp = TempDir::new().unwrap();
+        let victim = tmp.path().join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        let locks = tmp.path().join("locks");
+        std::fs::create_dir(&locks).unwrap();
+        std::fs::set_permissions(&locks, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink(&victim, locks.join("port_2.lock")).unwrap();
+        let dir = SafeDir::open(&locks, OwnerPolicy::Euid).unwrap();
+        assert!(FileLock::try_acquire_in(&dir, "port_2.lock").is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn secure_lock_dir_at_requires_root_without_override() {
+        let tmp = TempDir::new().unwrap();
+        let err = secure_lock_dir_at(&tmp.path().join("p"), &tmp.path().join("p/l"), 1000)
+            .expect_err("non-root without override must fail (D2)");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!tmp.path().join("p").exists(), "nothing created on failure");
+    }
+
+    #[test]
+    fn secure_lock_dir_at_creates_parent_and_dir_0755() {
+        let tmp = TempDir::new().unwrap();
+        let parent = tmp.path().join("enola");
+        let dir = parent.join("locks");
+        let _d = secure_lock_dir_at(&parent, &dir, 0).expect("create");
+        for p in [&parent, &dir] {
+            let md = std::fs::symlink_metadata(p).unwrap();
+            assert!(md.is_dir());
+            assert_eq!(md.permissions().mode() & 0o777, 0o755);
+        }
+    }
+
+    #[test]
+    fn secure_lock_dir_at_rejects_symlinked_lock_dir() {
+        let tmp = TempDir::new().unwrap();
+        let parent = tmp.path().join("enola");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let elsewhere = tmp.path().join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, parent.join("locks")).unwrap();
+        assert!(secure_lock_dir_at(&parent, &parent.join("locks"), 0).is_err());
+    }
+
+    #[test]
+    fn secure_lock_dir_at_rejects_world_writable_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let parent = tmp.path().join("enola");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(secure_lock_dir_at(&parent, &parent.join("locks"), 0).is_err());
+    }
+
+    #[test]
+    fn secure_lock_dir_override_is_validated() {
+        let _g = crate::infrastructure::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tmp = TempDir::new().unwrap();
+        let ww = tmp.path().join("ww");
+        std::fs::create_dir(&ww).unwrap();
+        std::fs::set_permissions(&ww, std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::env::set_var("ENOLA_TEST_SEC_LOCK_DIR", &ww);
+        let rejected = secure_lock_dir("ENOLA_TEST_SEC_LOCK_DIR").is_err();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::env::set_var("ENOLA_TEST_SEC_LOCK_DIR", tmp.path());
+        let accepted = secure_lock_dir("ENOLA_TEST_SEC_LOCK_DIR").is_ok();
+        std::env::remove_var("ENOLA_TEST_SEC_LOCK_DIR");
+        assert!(rejected, "world-writable override must be rejected");
+        assert!(accepted, "own private override must be accepted");
     }
 }

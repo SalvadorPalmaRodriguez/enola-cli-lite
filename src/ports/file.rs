@@ -58,6 +58,59 @@ pub trait AtomicFilePort {
     async fn delete_safe(&self, path: &Path) -> Result<()>;
 }
 
+/// Dueño (uid, gid) de un directorio o fichero de usuario.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UserOwner {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+/// Edición de un fichero: recibe el contenido actual (vacío si no existe) y
+/// devuelve `Some(nuevo)` para escribirlo o `None` para no tocarlo.
+pub type FileEdit = Box<dyn FnOnce(&str) -> Result<Option<String>> + Send>;
+
+/// SEC-A8: operaciones de root dentro de un directorio de OTRO usuario
+/// (p. ej. `~/.ssh`). Segregado (ISP): el adapter valida el directorio una vez
+/// (sin seguir symlinks) y opera relativo a él.
+#[async_trait::async_trait]
+pub trait UserDirFilePort {
+    /// Abre `dir` (lo crea con `dir_mode` y dueño `owner` si no existe),
+    /// exigiendo un directorio real de `owner.uid` o de root sin escritura de
+    /// grupo/otros. Bajo lock exclusivo `lock_name` lee `name` (vacío si no
+    /// existe), aplica `edit` y, si devuelve `Some`, escribe atómicamente con
+    /// `file_mode` y dueño `owner`. Nunca sigue symlinks.
+    #[allow(clippy::too_many_arguments)]
+    async fn edit_locked(
+        &self,
+        dir: &Path,
+        owner: UserOwner,
+        dir_mode: u32,
+        lock_name: &str,
+        name: &str,
+        file_mode: u32,
+        edit: FileEdit,
+    ) -> Result<()>;
+}
+
+#[cfg(test)]
+mockall::mock! {
+    pub UserDirFilePort {}
+    #[async_trait::async_trait]
+    impl UserDirFilePort for UserDirFilePort {
+        #[allow(clippy::too_many_arguments)]
+        async fn edit_locked(
+            &self,
+            dir: &Path,
+            owner: UserOwner,
+            dir_mode: u32,
+            lock_name: &str,
+            name: &str,
+            file_mode: u32,
+            edit: FileEdit,
+        ) -> Result<()>;
+    }
+}
+
 #[cfg(test)]
 mockall::mock! {
     pub AtomicFilePort {}

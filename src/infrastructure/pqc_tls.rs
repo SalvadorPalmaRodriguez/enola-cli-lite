@@ -311,4 +311,120 @@ mod tests {
         );
         assert!(not_ok.contains("Enable PQC TLS"));
     }
+
+    // ── SEC-A1: instalador PQC TLS sobre el script embebido REAL (J.6) ─────
+
+    /// Ejecuta `snippet` en bash tras cargar (source) el script real embebido.
+    /// La guarda de `source` del script evita que se ejecute la instalación.
+    fn run_sourced(snippet: &str) -> std::process::Output {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let script = dir.path().join("installer.sh");
+        std::fs::write(&script, embedded_installer_script()).expect("write script");
+        let full = format!("source '{}'\n{}", script.display(), snippet);
+        std::process::Command::new("bash")
+            .args(["-c", &full])
+            .current_dir(dir.path())
+            .output()
+            .expect("run bash")
+    }
+
+    #[test]
+    fn installer_has_no_tmp_precache() {
+        let s = embedded_installer_script();
+        assert!(!s.contains("enola-pqc-precache"), "caché en /tmp eliminada");
+        assert!(!s.contains("PRECACHE_DIR"));
+    }
+
+    #[test]
+    fn installer_has_no_keyserver_fallback() {
+        let s = embedded_installer_script();
+        // Uso real de un keyserver (los comentarios pueden citar el canal
+        // usado para contrastar huellas al fijarlas).
+        assert!(!s.contains("--recv-key"));
+        assert!(!s.contains("--keyserver"));
+    }
+
+    #[test]
+    fn installer_pins_sha256_and_signer_fingerprints() {
+        let s = embedded_installer_script();
+        let hex = |line: &str, prefix: &str, len: usize| -> bool {
+            line.strip_prefix(prefix)
+                .map(|v| v.trim_matches('"'))
+                .is_some_and(|v| v.len() == len && v.chars().all(|c| c.is_ascii_hexdigit()))
+        };
+        assert!(
+            s.lines().any(|l| hex(l, "OPENSSL_SHA256=", 64)),
+            "OPENSSL_SHA256 fijado"
+        );
+        assert!(
+            s.lines().any(|l| hex(l, "NGINX_SHA256=", 64)),
+            "NGINX_SHA256 fijado"
+        );
+        let fprs: Vec<&str> = s
+            .split('"')
+            .filter(|t| t.len() == 40 && t.chars().all(|c| c.is_ascii_hexdigit()))
+            .collect();
+        assert!(
+            !fprs.is_empty(),
+            "al menos una huella GPG de 40 hex en NGINX_SIGNER_FPRS"
+        );
+        assert!(
+            !s.contains("OPENSSL_SHA256_FILE"),
+            "no se descarga el .sha256"
+        );
+    }
+
+    #[test]
+    fn verify_sha256_rejects_mismatch_and_accepts_match() {
+        let out = run_sourced(
+            "printf 'hola' > f\n\
+             verify_sha256 f 0000000000000000000000000000000000000000000000000000000000000000 && echo BAD || echo REJECTED\n\
+             verify_sha256 f b221d9dbb083a7f33428d7c2a3c3198ae925614d70210e28716ccaa7cd4ddb79 && echo ACCEPTED",
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("REJECTED"),
+            "mismatch must fail: {stdout} {:?}",
+            out.stderr
+        );
+        assert!(!stdout.contains("BAD"));
+        assert!(stdout.contains("ACCEPTED"), "match must pass: {stdout}");
+    }
+
+    #[test]
+    fn nginx_signer_check_rejects_unlisted_fingerprint() {
+        let out = run_sourced(
+            "printf '[GNUPG:] VALIDSIG AAAA 2026-01-01 1 0 4 0 1 8 00 0000000000000000000000000000000000000000\\n' > st\n\
+             nginx_signer_is_pinned st && echo BAD || echo REJECTED\n\
+             printf '[GNUPG:] GOODSIG X\\n' > st2\n\
+             nginx_signer_is_pinned st2 && echo BAD2 || echo REJECTED2",
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("REJECTED") && stdout.contains("REJECTED2"),
+            "{stdout} {:?}",
+            out.stderr
+        );
+        assert!(!stdout.contains("BAD"));
+    }
+
+    #[test]
+    fn nginx_signer_check_accepts_pinned_fingerprint() {
+        let out = run_sourced(
+            "fpr=\"${NGINX_SIGNER_FPRS[0]}\"\n\
+             printf '[GNUPG:] VALIDSIG SUB 2026-01-01 1 0 4 0 1 8 00 %s\\n' \"$fpr\" > st\n\
+             nginx_signer_is_pinned st && echo ACCEPTED",
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("ACCEPTED"), "{stdout} {:?}", out.stderr);
+    }
+
+    #[test]
+    fn installer_early_exit_requires_exact_pinned_versions() {
+        // Una 3.5.x anterior no debe considerarse "ya instalado".
+        let s = embedded_installer_script();
+        assert!(s.contains("grep -q \"OpenSSL ${OPENSSL_VERSION}\""));
+        assert!(s.contains("nginx/${NGINX_VERSION}"));
+        assert!(!s.contains("grep -q \"OpenSSL 3.5\""));
+    }
 }

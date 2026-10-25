@@ -35,6 +35,10 @@ pub async fn execute(cli: Cli) -> CliResult<String> {
         maybe_run_preflight(&cli).await?;
     }
 
+    // SEC-A7 (D3): como root, al tocar una familia de servicios, su directorio
+    // base de datos (si existe) se deja en 0700. Ver safe_dir::SERVICE_DATA_BASES.
+    #[cfg(unix)]
+    secure_service_base_for(&cli.command);
     match cli.command {
         Commands::Tor(cmd) => execute_tor(cmd, cli.format.as_str()).await,
         Commands::Git(cmd) => execute_git(cmd, cli.format.as_str()).await,
@@ -538,6 +542,23 @@ fn is_tty() -> bool {
 }
 
 /// Devuelve true si el proceso corre como root
+/// SEC-A7 (D3): directorio base de datos de la familia de `cmd`, si la tiene.
+#[cfg(unix)]
+fn secure_service_base_for(cmd: &Commands) {
+    let base = match cmd {
+        Commands::Git(_) => "/srv/enola-git",
+        Commands::Wp(_) => "/srv/enola-wordpress",
+        Commands::Drupal(_) => "/srv/enola-drupal",
+        Commands::Ghost(_) => "/srv/enola-ghost",
+        Commands::Magnolia(_) => "/srv/enola-magnolia",
+        Commands::Strapi(_) => "/srv/enola-strapi",
+        Commands::Wagtail(_) => "/srv/enola-wagtail",
+        Commands::Ai(_) => "/srv/enola-ai",
+        _ => return,
+    };
+    crate::infrastructure::safe_dir::secure_existing_service_bases(&[base]);
+}
+
 fn is_root() -> bool {
     #[allow(unsafe_code)]
     unsafe {
