@@ -158,7 +158,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 ### Other
 - `license [--third-party]` — full license text; `--third-party` prints the copyright notices and license texts of the third-party software embedded in the binary
 - `quickref` — Docker ↔ Enola equivalence table
-- `web [--port 8090]` — local web dashboard, binds to 127.0.0.1, token-protected
+- `web [--port 8090]` — local web dashboard, binds to 127.0.0.1, token-protected. Its console (`/api/console/run`) applies the same command policy as the MCP server (refuses `web`, `mcp`, `setup`, `uninstall`, `ssh`, `ask`, `update apply`, `test run`; destructive commands need `"confirm"`); the web API cannot install a custom or unsigned binary (CLI-only)
 - `config-show [--json]` / `config-validate [--reachable] [--json]` — centralized config (`~/.enola/config.toml`), priority: CLI flag > env var > file > default
 - `plan wp create -n <name> [--http-port <p>]` / `plan git create -n <name> [--ssl] [--http-port] [--ssh-port]` / `plan tor create -n <name> [-s web|static|files|raw] [-p <virtual-port>] [-t <target-port>] [--ssl]` — dry-run: shows the change plan (ports, containers, paths, UFW rules, AppArmor profile, risk level) WITHOUT executing anything. 0 side effects. Output: text or `--format json`.
 

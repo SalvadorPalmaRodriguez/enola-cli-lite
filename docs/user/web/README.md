@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/web/README.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-09-20
+> **Versión:** 2.2 | **Actualizado:** 2026-10-25
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 
 # Enola Web Dashboard
@@ -161,7 +161,7 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 |--------|------|-------------|
 | GET | `/api/console/help` | List all CLI commands |
 | GET | `/api/console/help/{command}` | Help for specific command |
-| POST | `/api/console/run` | Run CLI command |
+| POST | `/api/console/run` | Run CLI command (same command policy as MCP — see below) |
 
 ### Git
 
@@ -318,18 +318,31 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/test/run` | Run tests |
 | GET | `/api/test/list` | List available tests |
-| POST | `/api/test/benchmark` | Run benchmarks |
 | GET | `/api/test/results` | Last test results |
-| POST | `/api/test/clean` | Clean test artifacts |
+
+Running, benchmarking and cleaning tests is CLI-only (`sudo enola-cli test run`).
 
 ### Setup
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/setup` | Install dependencies |
-| GET | `/api/setup/pqc-tls` | PQC-TLS install (SSE stream) |
+| POST | `/api/setup` | Install dependencies (requires `"confirm": "setup"`); with `pqc_tls` starts the PQC-TLS installer and returns a stream ticket |
+| GET | `/api/setup/pqc-tls/events?ticket=…` | Observe the PQC-TLS installer (SSE, single-use ticket) |
+
+### Update
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/update/check` | Check the signed feed |
+| GET | `/api/update/schema` | Feed schema |
+| POST | `/api/update/download` | Download the signed update (requires `"confirm": "update"` unless `dry_run`) |
+| POST | `/api/update/apply` | Apply the downloaded, verified update (requires `"confirm": "update"`) |
+| POST | `/api/update/verify-feed` | Verify a feed file/URL |
+
+The web API cannot install a custom binary or skip signature verification:
+`binary` and `allow_unsigned` are rejected with `400`. Use the CLI
+(`sudo enola-cli update apply --binary <path>`) when you really need that.
 
 ### System
 
@@ -588,6 +601,26 @@ All fields except `name` are optional and default like the CLI
 }
 ```
 
+The console runs any CLI command **except** the ones no third party may run
+(the same list the MCP server refuses): `web`, `mcp`, `setup`, `uninstall`,
+`ssh`, `ask`, `update apply`, `test run`, `test benchmark`,
+`ai finetune wizard`, the `--allow-unsigned`/`--binary` update flags and the
+global URL overrides (`--tor-socks`, `--binary-base-url`, `--web-url`,
+`--docs-url`). Those answer `403` — use the CLI.
+
+- `timeout_secs`: `1`–`1800` (default `300`); anything else → `400`.
+- At most 4 console commands run at once (`429` beyond that).
+- Destructive commands (same classification as MCP: `tor remove`, `* publish`,
+  `firewall allow`, …) answer `409` with `confirm_expected`; resend the same
+  body plus `"confirm": "<confirm_expected>"` (the resource name, e.g. the
+  service, or `family:subcommand`). If the command has `--force`, it must be
+  in `args`.
+- The command runs with a minimal environment (no `ENOLA_*` from the server
+  except `ENOLA_ACCEPT_LICENSE`) and never triggers automatic dependency
+  installation.
+- Short flags must be single letters (`-n x`); combined short flags and `--`
+  are rejected (`400`).
+
 ### `POST /api/maintenance/ssh-harden-pqc`
 ```json
 {
@@ -620,10 +653,20 @@ The body is optional — a POST with no body uses the configured retention.
 }
 ```
 
-### `POST /api/test/run`
+### `POST /api/setup`
 ```json
 {
-  "filter": "tor"
+  "pqc_tls": true,
+  "confirm": "setup"
+}
+```
+Response: `{"output": "...", "pqc_tls_ticket": "<32 hex>"}` — open
+`/api/setup/pqc-tls/events?ticket=<ticket>` within 60 seconds.
+
+### `POST /api/update/apply`
+```json
+{
+  "confirm": "update"
 }
 ```
 
@@ -681,19 +724,27 @@ The body is optional — a POST with no body uses the configured retention.
 | Code | Meaning |
 |------|---------|
 | 200 | OK — request succeeded |
-| 401 | Unauthorized — token missing or invalid |
+| 400 | Bad request — invalid body, unknown field or out-of-range value |
+| 401 | Unauthorized — token (or stream ticket) missing, invalid or expired |
+| 403 | Forbidden — command not available from the web (use the CLI) |
 | 404 | Not found — resource doesn't exist |
+| 409 | Confirmation required — resend with `"confirm": "<value>"` |
+| 429 | Too many console commands running |
 | 500 | Internal server error — message in response body |
 
 ---
 
 ## SSE Endpoint
 
-### `GET /api/setup/pqc-tls`
+### `GET /api/setup/pqc-tls/events?ticket=…`
 
-This endpoint returns Server-Sent Events (SSE) for real-time progress of the
-PQC-TLS stack installation. Each event contains a JSON object with progress
-updates, build logs, and completion status.
+Server-Sent Events with the output of the PQC-TLS installer, one line per
+event (`SUCCESS:` / `FAILED:` / `TIMEOUT:` / `ERROR:` mark the end). This GET
+**never starts anything**: the installer is started by `POST /api/setup` with
+`"pqc_tls": true`, which returns a single-use ticket valid for 60 seconds
+(browsers' `EventSource` cannot send the `Authorization` header, so the ticket
+replaces it). Only one installer runs at a time; posting again while it runs
+returns a new ticket for the same job, so you can re-attach.
 
 ---
 
