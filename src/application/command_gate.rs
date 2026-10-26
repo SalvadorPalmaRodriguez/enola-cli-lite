@@ -28,14 +28,49 @@ const DENIED_FLAGS: &[(&str, &[&str], &[&str])] = &[
 /// Profundidad máxima de la ruta de subcomandos (familia → grupo → hoja).
 const MAX_PATH_TOKENS: usize = 2;
 
-/// Flags globales de `Cli` aceptadas en la consola web (solo antes de la
-/// familia, como las acepta clap): (largo, corto, toma valor).
+/// Flags globales de `Cli` aceptadas en la consola web: (largo, corto, toma
+/// valor). Clap las declara `global = true`, así que valen antes de la
+/// familia y después de cualquier subcomando (`tor list --format json`); el
+/// árbol generado no las repite por hoja, por eso se resuelven aquí en ambas
+/// posiciones (una flag propia de la hoja con el mismo nombre prevalece,
+/// como en clap).
 ///
 /// Los overrides globales de URLs (`--binary-base-url`, `--web-url`,
 /// `--docs-url`, `--tor-socks`) NO se aceptan: MCP no puede pasarlos (fija
 /// él mismo el argv) y redirigen descargas/proxy Tor como root.
 const CONSOLE_GLOBAL_FLAGS: &[(&str, &str, bool)] =
     &[("format", "f", true), ("verbose", "v", false)];
+
+/// Spec de flag global aceptada por nombre largo o alias corto.
+fn find_global_flag(
+    long: Option<&str>,
+    short: Option<&str>,
+) -> Option<&'static (&'static str, &'static str, bool)> {
+    CONSOLE_GLOBAL_FLAGS
+        .iter()
+        .find(|(l, s, _)| Some(*l) == long || Some(*s) == short)
+}
+
+/// Consume el valor de una flag global (`--format json` / `--format=json`)
+/// a partir de `argv[*i]`; devuelve el nuevo índice.
+fn consume_global_value(
+    argv: &[String],
+    mut i: usize,
+    tok: &str,
+    takes_value: bool,
+    inline: Option<&str>,
+) -> Result<usize> {
+    if takes_value && inline.is_none() {
+        let v = argv
+            .get(i)
+            .ok_or_else(|| invalid(format!("flag '{tok}' needs a value")))?;
+        reject_dash_value(tok, v)?;
+        i += 1;
+    } else if !takes_value && inline.is_some() {
+        return Err(invalid(format!("flag '{tok}' takes no value")));
+    }
+    Ok(i)
+}
 
 /// Overrides globales (`global = true` en clap) vetados en la consola web.
 const CONSOLE_DENIED_GLOBALS: &[&str] = &["binary-base-url", "web-url", "docs-url", "tor-socks"];
@@ -190,20 +225,10 @@ fn parse_argv(tree: &Value, argv: &[String]) -> Result<ParsedArgv> {
             return Ok(parsed);
         }
         let (long, short, inline) = split_flag(tok)?;
-        let spec = CONSOLE_GLOBAL_FLAGS
-            .iter()
-            .find(|(l, s, _)| Some(*l) == long || Some(*s) == short);
-        let Some((_, _, takes_value)) = spec else {
+        let Some((_, _, takes_value)) = find_global_flag(long, short) else {
             return Err(denied_global_or_unknown(long.or(short).unwrap_or(tok)));
         };
-        i += 1;
-        if *takes_value && inline.is_none() {
-            let v = argv
-                .get(i)
-                .ok_or_else(|| invalid(format!("flag '{tok}' needs a value")))?;
-            reject_dash_value(tok, v)?;
-            i += 1;
-        }
+        i = consume_global_value(argv, i + 1, tok, *takes_value, inline)?;
     }
 
     // 2) Familia.
@@ -281,8 +306,15 @@ fn parse_argv(tree: &Value, argv: &[String]) -> Result<ParsedArgv> {
         if long.is_some_and(|l| CONSOLE_DENIED_GLOBALS.contains(&l)) {
             return Err(denied_global_or_unknown(long.unwrap_or(tok)));
         }
-        let spec =
-            find_flag(leaf, long, short).ok_or_else(|| invalid(format!("unknown flag '{tok}'")))?;
+        let Some(spec) = find_flag(leaf, long, short) else {
+            // Flag global de clap (`--format`, `--verbose`) tras el
+            // subcomando: válida en cualquier posición, no cambia la ruta ni
+            // la clasificación. Una flag propia de la hoja ya se resolvió arriba.
+            let (_, _, takes_value) = find_global_flag(long, short)
+                .ok_or_else(|| invalid(format!("unknown flag '{tok}'")))?;
+            i = consume_global_value(argv, i, tok, *takes_value, inline)?;
+            continue;
+        };
         let name = spec["name"].as_str().unwrap_or("").to_string();
         let value = if spec["boolean"].as_bool() == Some(true) {
             if inline.is_some() {
@@ -572,6 +604,40 @@ mod tests {
             }
         ));
         assert!(is_security(&evaluate_argv(&argv("web --help"))));
+    }
+
+    /// Clap acepta las flags `global = true` en cualquier posición: la
+    /// consola no debe rechazar `tor list --format json` (regresión detectada
+    /// en la re-verificación de P1) ni cambiar la decisión por ellas.
+    #[test]
+    fn global_flags_after_subcommand_are_accepted() {
+        for cmd in [
+            "tor list --format json",
+            "tor list --format=json",
+            "tor list -f json --verbose",
+            "doctor --verbose",
+            "tor remove x --force --format json",
+        ] {
+            let r = evaluate_argv(&argv(cmd));
+            assert!(r.is_ok(), "{cmd} debe aceptarse: {r:?}");
+        }
+        // La decisión no cambia por la flag global.
+        assert_eq!(
+            evaluate_argv(&argv("tor list --format json")).unwrap(),
+            evaluate_argv(&argv("tor list")).unwrap()
+        );
+        assert!(matches!(
+            evaluate_argv(&argv("tor remove x --force --format json")).unwrap(),
+            GateDecision::NeedsConfirm { .. }
+        ));
+        // Sigue siendo estricta con el valor / forma.
+        assert!(is_invalid(&evaluate_argv(&argv("tor list --format"))));
+        assert!(is_invalid(&evaluate_argv(&argv("tor list --format -x"))));
+        assert!(is_invalid(&evaluate_argv(&argv("tor list --verbose=1"))));
+        // Una flag propia de la hoja con el mismo nombre prevalece (como clap):
+        // `ai finetune prepare --format alpaca` resuelve la de la hoja.
+        let r = evaluate_argv(&argv("ai finetune prepare data.jsonl --format alpaca"));
+        assert!(r.is_ok(), "{r:?}");
     }
 
     #[test]

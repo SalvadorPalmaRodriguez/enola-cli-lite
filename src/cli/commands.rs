@@ -4866,7 +4866,7 @@ pub mod magnolia {
         if let Some(w) =
             crate::domain::images::unmaintained_warning(&crate::domain::images::MAGNOLIA)
         {
-            msg.push_str("\n");
+            msg.push('\n');
             msg.push_str(&w);
         }
         Ok(msg)
@@ -4989,7 +4989,7 @@ pub mod wagtail {
         if let Some(w) =
             crate::domain::images::unmaintained_warning(&crate::domain::images::WAGTAIL)
         {
-            msg.push_str("\n");
+            msg.push('\n');
             msg.push_str(&w);
         }
         Ok(msg)

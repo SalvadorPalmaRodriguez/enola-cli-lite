@@ -82,14 +82,23 @@ impl AppState {
     /// Emite, persiste y activa un token nuevo. `None` (y se conserva el
     /// actual) si no se pudo persistir: el operador no podría leerlo.
     pub(crate) fn rotate_token(&self) -> Option<String> {
+        let mut guard = self.token.write().unwrap_or_else(|p| p.into_inner());
+        Self::rotate_locked(&self.persist_token, &mut guard)
+    }
+
+    /// Persiste y activa un token nuevo con el write-lock YA tomado: fichero
+    /// y memoria cambian como una unidad. Dos rotaciones concurrentes (tick
+    /// de TTL + `POST /api/token/rotate`, o dos requests tras caducar) no
+    /// pueden intercalarse y dejar en `~/.enola/web-token` un token distinto
+    /// del vigente (el operador quedaría fuera hasta la siguiente rotación).
+    fn rotate_locked(persist: &TokenPersister, guard: &mut WebToken) -> Option<String> {
         let new = generate_token();
-        if !(self.persist_token)(&new) {
+        if !persist(&new) {
             eprintln!(
                 "⚠️  Could not persist the rotated dashboard token; keeping the current one."
             );
             return None;
         }
-        let mut guard = self.token.write().unwrap_or_else(|p| p.into_inner());
         *guard = WebToken {
             value: new.clone(),
             issued: std::time::Instant::now(),
@@ -98,13 +107,17 @@ impl AppState {
     }
 
     /// Rota en silencio si el token superó su TTL. `true` si rotó.
+    ///
+    /// La caducidad se re-comprueba bajo el write-lock: si otra rotación se
+    /// adelantó, el token ya es fresco y esta no rota de nuevo.
     pub(crate) fn rotate_if_expired(&self) -> bool {
-        let expired = self
-            .token
-            .read()
-            .map(|t| t.issued.elapsed() >= self.token_ttl)
-            .unwrap_or(true);
-        expired && self.rotate_token().is_some()
+        let is_expired = |t: &WebToken| t.issued.elapsed() >= self.token_ttl;
+        let expired = self.token.read().map(|t| is_expired(&t)).unwrap_or(true);
+        if !expired {
+            return false;
+        }
+        let mut guard = self.token.write().unwrap_or_else(|p| p.into_inner());
+        is_expired(&guard) && Self::rotate_locked(&self.persist_token, &mut guard).is_some()
     }
 }
 
@@ -251,9 +264,9 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
 
 /// `43200` → `12h`, `90` → `90s` (solo para el banner).
 fn humantime_secs(secs: u64) -> String {
-    if secs % 3600 == 0 {
+    if secs.is_multiple_of(3600) {
         format!("{}h", secs / 3600)
-    } else if secs % 60 == 0 {
+    } else if secs.is_multiple_of(60) {
         format!("{}min", secs / 60)
     } else {
         format!("{secs}s")
@@ -573,6 +586,58 @@ mod tests {
         let old = st.token_value();
         assert!(!st.rotate_if_expired());
         assert_eq!(st.token_value(), old, "sin persistir se conserva el token");
+    }
+
+    /// Re-verificación A25-06: persistir y activar son una unidad bajo el
+    /// write-lock — tras rotaciones concurrentes (manual + por TTL) el último
+    /// token escrito en el fichero es exactamente el vigente en memoria.
+    #[test]
+    fn concurrent_rotations_keep_file_and_memory_in_sync() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let persisted = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (sink, n) = (persisted.clone(), calls.clone());
+        let st = Arc::new(AppState::new(
+            "a".repeat(32),
+            Duration::from_secs(0),
+            Arc::new(move |t: &str| {
+                // Intercalado determinista: el PRIMER persist no termina
+                // hasta que un segundo hilo haya persistido y (sin lock)
+                // swapeado el suyo. Sin el write-lock alrededor de
+                // persist+swap se produce persist(A) → persist(B) → swap(B)
+                // → swap(A): fichero=B, memoria=A. Con el lock, el segundo
+                // hilo no entra a persistir hasta que el primero termina, así
+                // que el primero sigue al agotar el deadline (50 ms).
+                let me = n.fetch_add(1, Ordering::SeqCst);
+                sink.lock().unwrap().push(t.to_string());
+                if me == 0 {
+                    let deadline = std::time::Instant::now() + Duration::from_millis(50);
+                    while n.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline {
+                        std::thread::yield_now();
+                    }
+                    // Deja al segundo hilo completar su swap (sin lock).
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                true
+            }),
+        ));
+        let a = {
+            let st = st.clone();
+            std::thread::spawn(move || st.rotate_token())
+        };
+        std::thread::sleep(Duration::from_millis(5));
+        let b = {
+            let st = st.clone();
+            std::thread::spawn(move || st.rotate_if_expired())
+        };
+        a.join().unwrap();
+        b.join().unwrap();
+        let last = persisted.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(
+            st.token_value(),
+            last,
+            "el fichero debe contener el token vigente"
+        );
     }
 
     #[test]
