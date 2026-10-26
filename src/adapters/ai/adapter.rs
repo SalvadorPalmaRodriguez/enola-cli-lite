@@ -227,6 +227,7 @@ impl EnolaAiAdapter {
                 "DAC_OVERRIDE".to_string(),
             ],
             image_digest: config.ollama_image_digest.clone(),
+            user: None,
         }
     }
 
@@ -298,6 +299,7 @@ impl EnolaAiAdapter {
                 "DAC_OVERRIDE".to_string(),
             ],
             image_digest: config.webui_image_digest.clone(),
+            user: None,
         }
     }
 
@@ -1177,6 +1179,7 @@ impl crate::ports::rag::AiVectorStorePort for EnolaAiAdapter {
                 "DAC_OVERRIDE".to_string(),
             ],
             image_digest: None,
+            user: None,
         };
         self.container_manager.create_container(cfg).await?;
         self.container_manager

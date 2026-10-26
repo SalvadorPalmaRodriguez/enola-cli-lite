@@ -26,6 +26,10 @@ use std::sync::Arc;
 
 /// Imagen de entrenamiento (CUDA runtime con transformers/peft/datasets).
 const TRAIN_IMAGE: &str = "enola-finetune:latest";
+/// A25-12: UID/GID sin privilegios del proceso de entrenamiento. No el 1000:
+/// en el host suele ser el usuario invocador, que podría manipular los
+/// resultados (el GGUF que root importa después con `register`).
+pub(crate) const FINETUNE_UID: u32 = 65532;
 /// Límites del contenedor de entrenamiento (R20: muy por encima del default 2 GiB).
 const TRAIN_MEMORY_BYTES: i64 = 16 * 1024 * 1024 * 1024; // 16 GiB
 const TRAIN_PIDS_LIMIT: i64 = 4096;
@@ -391,6 +395,8 @@ impl ManageFinetune {
         // El rootfs es read-only: directorios de escritura dentro del volumen /out.
         env.insert("TMPDIR".into(), "/out/tmp".to_string());
         env.insert("HF_HOME".into(), "/out/.hf".to_string());
+        // A25-12: el UID sin privilegios no tiene home en la imagen.
+        env.insert("HOME".into(), "/out".to_string());
         // Sin red (`network_mode: none`): fallar rápido si se pide un modelo remoto,
         // en vez de colgarse en un timeout de red.
         env.insert("HF_HUB_OFFLINE".into(), "1".to_string());
@@ -465,6 +471,8 @@ impl ManageFinetune {
             cap_drop: vec!["ALL".to_string()],
             cap_add: Vec::new(),
             image_digest: None,
+            // A25-12: nunca root dentro del contenedor de entrenamiento.
+            user: Some(format!("{FINETUNE_UID}:{FINETUNE_UID}")),
         };
         self.containers.create_container(cfg).await?;
         self.containers.start_container(&container_name).await?;
@@ -913,6 +921,9 @@ mod tests {
                 cfg.name.starts_with("enola-ai-dev-finetune-")
                     // H-04: sin red real (`none`), no el bridge por defecto.
                     && cfg.network.as_deref() == Some("none")
+                    // A25-12: nunca root dentro del contenedor.
+                    && cfg.user.as_deref() == Some("65532:65532")
+                    && cfg.env.get("HOME").map(String::as_str) == Some("/out")
                     && cfg.gpu_support
                     && cfg.memory_limit == Some(TRAIN_MEMORY_BYTES)
                     && cfg.read_only_rootfs

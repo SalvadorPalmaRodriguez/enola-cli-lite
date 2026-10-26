@@ -161,6 +161,7 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 | POST | `/api/tor/{name}/rotate` | Rotate Tor identity |
 | POST | `/api/tor/publish/{service_type}/{name}` | Publish service on Tor |
 | POST | `/api/tor/hide/{service_type}/{name}` | Hide service from Tor |
+| POST | `/api/tor/ssl/{name}` | Add HTTPS to a published service (requires `{"confirm": "<name>"}`) |
 
 ### Tor Auth
 

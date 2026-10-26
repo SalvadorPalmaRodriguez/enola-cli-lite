@@ -87,8 +87,10 @@ impl FinetuneWorkspacePort for FsFinetuneWorkspace {
                 ))
             })?;
         // Script LoRA embebido → runtime dir root-owned (no /tmp — SEC-001).
-        crate::infrastructure::finetune_scripts::ensure_finetune_scripts(&layout.scripts_dir)
-            .map(|_| ())
+        crate::infrastructure::finetune_scripts::ensure_finetune_scripts(&layout.scripts_dir)?;
+        // A25-12: el contenedor corre como FINETUNE_UID — puede leer dataset y
+        // scripts (root-owned, solo lectura para él) y escribir solo en /out.
+        grant_job_access(layout)
     }
 
     async fn is_file(&self, path: &Path) -> bool {
@@ -97,6 +99,30 @@ impl FinetuneWorkspacePort for FsFinetuneWorkspace {
             .map(|m| m.is_file())
             .unwrap_or(false)
     }
+}
+
+/// A25-12: dataset legible (0644) y `/out` (+ tmp, caché HF) del UID sin
+/// privilegios del entrenamiento. Solo como root (en tests no hay chown); las
+/// rutas acaban de crearse dentro del árbol root-owned del job.
+fn grant_job_access(layout: &FinetuneJobLayout) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            layout.dataset_file(),
+            std::fs::Permissions::from_mode(0o644),
+        );
+        // SAFETY: geteuid no tiene precondiciones.
+        if unsafe { libc::geteuid() } == 0 {
+            let uid = crate::application::ai_finetune::FINETUNE_UID;
+            for d in [&layout.out_dir, &layout.tmp_dir, &layout.hf_home] {
+                std::os::unix::fs::lchown(d, Some(uid), Some(uid)).map_err(|e| {
+                    EnolaError::InfrastructureError(format!("chown '{}': {e}", d.display()))
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

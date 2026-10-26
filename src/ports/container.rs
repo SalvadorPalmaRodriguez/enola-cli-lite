@@ -52,6 +52,9 @@ pub struct ContainerConfig {
     /// SEC-013: Optional image digest (sha256) for immutable pinning.
     /// When set, the container is created with `image@sha256:...` instead of `image:tag`.
     pub image_digest: Option<String>,
+    /// A25-12: usuario del proceso del contenedor (`uid:gid`), por encima del
+    /// `USER` de la imagen. `None` = el de la imagen.
+    pub user: Option<String>,
 }
 
 impl Default for ContainerConfig {
@@ -91,6 +94,7 @@ impl Default for ContainerConfig {
             ],
             // SEC-013: no digest pinning by default
             image_digest: None,
+            user: None,
         }
     }
 }

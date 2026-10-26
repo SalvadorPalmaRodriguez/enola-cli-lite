@@ -261,6 +261,7 @@ impl ContainerPort for BollardDockerAdapter {
             host_config: Some(host_config),
             env: Some(env),
             cmd: config.command,
+            user: config.user,
             ..Default::default()
         };
         let container = self
@@ -707,6 +708,7 @@ impl ContainerPort for BollardDockerAdapter {
             env: Some(env),
             cmd: config.command,
             working_dir: config.working_dir,
+            user: config.user,
             ..Default::default()
         };
 

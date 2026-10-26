@@ -14,7 +14,9 @@ pub(crate) const TRAIN_LORA_PY: &str = include_str!("scripts/train_lora.py");
 pub(crate) const CONVERT_HF_TO_GGUF_PY: &str = include_str!("scripts/convert_hf_to_gguf.py");
 
 /// Despliega los scripts de fine-tuning en `dir` (root-owned bajo
-/// `/srv/enola-ai/<instance>/finetune/scripts/`) con permisos `0750`.
+/// `/srv/enola-ai/<instance>/finetune/scripts/`) con permisos `0644`: el
+/// contenedor de entrenamiento corre sin privilegios (A25-12) y solo necesita
+/// leerlos (`python3 <script>`); siguen siendo de root (no modificables).
 /// Devuelve la ruta al script principal dentro del host.
 pub(crate) fn ensure_finetune_scripts(dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(dir).map_err(|e| {
@@ -34,8 +36,8 @@ pub(crate) fn ensure_finetune_scripts(dir: &Path) -> Result<PathBuf> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o750));
-        let _ = std::fs::set_permissions(&convert, std::fs::Permissions::from_mode(0o750));
+        let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644));
+        let _ = std::fs::set_permissions(&convert, std::fs::Permissions::from_mode(0o644));
     }
     Ok(target)
 }

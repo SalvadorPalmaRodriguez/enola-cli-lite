@@ -1400,7 +1400,13 @@ async fn api_console_run(
 // ── Tor SSL (post-hoc HTTPS, MEGAPLAN-PUBLISH D11) ────────────────────────────
 
 /// `POST /api/tor/ssl/{name}` — activa SSL en un servicio .onion ya publicado.
-async fn api_tor_ssl(Path(name): Path<String>) -> ApiResult<String> {
+/// B3 (re-verificación A25): Destructive en MCP (`tor_ssl` con confirm_token) →
+/// la web exige `{"confirm": "<name>"}` (paridad, SD-2).
+async fn api_tor_ssl(
+    Path(name): Path<String>,
+    req: Option<Json<ConfirmRequest>>,
+) -> ApiResult<String> {
+    require_confirm(confirm_of(&req), &name)?;
     let onion = commands::tor::ssl(&name).await.map_err(ApiError::from)?;
     Ok(Json(format!(
         "🔐 SSL enabled for '{}'\n🧅 Address: https://{}",
@@ -3469,5 +3475,12 @@ mod tests {
         let r = api_setup(axum::extract::State(state()), Json(req)).await;
         let err = r.err().expect("sin confirm debe fallar");
         assert_eq!(err.into_response().status(), StatusCode::CONFLICT);
+    }
+
+    /// B3: `tor ssl` desde la web exige confirm (paridad con MCP).
+    #[tokio::test]
+    async fn tor_ssl_requires_confirm() {
+        let r = api_tor_ssl(Path("x".to_string()), None).await;
+        assert_eq!(r.err().map(|e| e.code), Some(409));
     }
 }

@@ -21,3 +21,6 @@ RUN pip install --no-cache-dir --no-deps -r /tmp/requirements.lock \
          *cu126*) pip install --no-cache-dir --no-deps -r /tmp/requirements-cu126.lock --index-url "${TORCH_INDEX}" ;; \
        esac \
     && pip check
+# A25-12: sin privilegios por defecto (enola además fija `User: 65532:65532` al
+# lanzar el contenedor, así que una imagen antigua tampoco corre como root).
+USER 65532:65532

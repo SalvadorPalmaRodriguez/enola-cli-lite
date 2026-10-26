@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ai/commands-ai.md`
-> **Versión:** 1.16 | **Actualizado:** 2026-10-24
+> **Versión:** 1.17 | **Actualizado:** 2026-10-26
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands-ask.md, ../general/commands.md, ../general/config-reference.md, ../mcp/commands-mcp.md
 
@@ -106,7 +106,7 @@ enola-cli ai finetune wizard
 | `ask --provider <P>` | — | Chat single-shot por el provider externo **sin tool registry** (el cloud no ejecuta comandos enola). Mismo gate de privacidad. |
 | `ai finetune prepare <F>` | `Mutating` | Valida un dataset JSONL (`alpaca\|chatml\|sharegpt\|text`, auto-detectado), convierte a ChatML canónico y genera `train.jsonl`/`val.jsonl` con split determinista (`--val-ratio`). |
 | `ai finetune validate <F>` | `Mutating` | Pre-flight: esquema + tamaño + VRAM (`HardwareProbePort`) + modelo base — antes de gastar horas de cómputo. |
-| `ai finetune start <N> --dataset <F> --force` | `Destructive` | Lanza el contenedor `enola-ai-<n>-finetune-<job>` (`enola-finetune:latest`, 16 GiB, GPU si hay, read-only rootfs, sin puertos/red) con el script LoRA embebido. Dataset debe ser ChatML. Exige `--force`. |
+| `ai finetune start <N> --dataset <F> --force` | `Destructive` | Lanza el contenedor `enola-ai-<n>-finetune-<job>` (`enola-finetune:latest`, 16 GiB, GPU si hay, read-only rootfs, sin puertos/red, como usuario sin privilegios UID 65532 — nunca root) con el script LoRA embebido. Dataset debe ser ChatML. Exige `--force`. |
 | `ai finetune status <N>` | `ReadOnly` | Lista los jobs de la instancia y reconcilia los `Running` con el exit real de su contenedor (`Completed`/`Failed` + `finished_at`/`error` persistidos en `finetune/jobs.json`). |
 | `ai finetune register <N> <JOB_ID>` | `Mutating` | Materializa el modelo de un job `Completed`: importa el `.gguf` exportado a la biblioteca de la instancia (SHA-256 + header) y lo registra en Ollama (`/api/create`) como `<name>-ft`. |
 | `ai finetune wizard` | `Mutating` | Asistente interactivo TTY — **no implementado**: diferido a fase futura (stub documentado; vetado para `enola_run_command`). Usa `prepare`+`validate`+`start`+`register`. |

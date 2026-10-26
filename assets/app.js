@@ -280,11 +280,13 @@
         } catch (e) { toast(e.message, true); }
     };
     window.torEnableSsl = async function(name) {
-        try {
-            const result = await apiPostJson('/api/tor/ssl/' + encodeURIComponent(name), {});
-            toast(result || ('SSL enabled: ' + name));
-            loadTor();
-        } catch (e) { toast(e.message, true); }
+        showConfirm('Enable HTTPS', 'Enable HTTPS on "' + name + '"? This changes its Nginx and Tor configuration.', async () => {
+            try {
+                const result = await apiPostJson('/api/tor/ssl/' + encodeURIComponent(name), { confirm: name });
+                toast(result || ('SSL enabled: ' + name));
+                loadTor();
+            } catch (e) { toast(e.message, true); }
+        });
     };
 
     let torEditTarget = null;
