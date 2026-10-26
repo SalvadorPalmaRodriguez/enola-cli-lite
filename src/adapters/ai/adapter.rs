@@ -1368,6 +1368,12 @@ mod tests {
         assert_eq!(meta.file_type, Some(15));
     }
 
+    // TODO[LINT-001]: Captura de ContainerConfig en mocks | Sustituir
+    // Arc<std::sync::Mutex<Vec<_>>> por un helper no-async (o canal) para que
+    // clippy no vea el guard en contexto async | Pendiente | - | 2026-10-26 |
+    // Falso positivo de await_holding_lock: el lock se toma y suelta dentro
+    // del closure sincrono del mock | Solo tests | Baja
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn create_instance_creates_ollama_and_webui_with_r20_limits_and_localhost_ports() {
         let tmp = TempDir::new().unwrap();
@@ -1485,6 +1491,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn create_instance_degrades_to_cpu_when_no_nvidia_gpu_available() {
         let tmp = TempDir::new().unwrap();
@@ -1525,6 +1532,7 @@ mod tests {
         assert!(!ollama_cfg.gpu_support);
     }
 
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn create_instance_rolls_back_ollama_and_network_when_webui_fails() {
         let tmp = TempDir::new().unwrap();
@@ -1594,6 +1602,7 @@ mod tests {
         );
     }
 
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn create_instance_rejects_port_already_locked_by_flock() {
         let tmp = TempDir::new().unwrap();
@@ -1618,6 +1627,7 @@ mod tests {
         assert!(err.to_string().contains("11450"));
     }
 
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn lifecycle_list_status_start_stop_delete_and_logs_work_via_container_port() {
         let tmp = TempDir::new().unwrap();
@@ -1694,6 +1704,7 @@ mod tests {
         adapter.delete_instance("dev", true).await.unwrap();
     }
 
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn delete_instance_does_not_touch_instances_sharing_name_prefix() {
         let tmp = TempDir::new().unwrap();
@@ -1759,6 +1770,7 @@ mod tests {
         );
     }
 
+    #[allow(clippy::await_holding_lock)] // LINT-001
     #[tokio::test]
     async fn import_library_file_preserves_full_file_bytes() {
         let tmp = TempDir::new().unwrap();

@@ -1173,9 +1173,10 @@ mod tests {
         ] {
             assert!(tools.iter().any(|t| t.name == name), "missing {name}");
         }
-        for name in ["wp_create"] {
-            assert!(mutating.iter().any(|t| t.name == name), "missing {name}");
-        }
+        assert!(
+            mutating.iter().any(|t| t.name == "wp_create"),
+            "missing wp_create"
+        );
         // R-2: exposición de red va tras el gate Destructive.
         for name in [
             "wp_hide",

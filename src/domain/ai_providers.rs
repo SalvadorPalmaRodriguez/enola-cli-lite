@@ -309,7 +309,7 @@ mod tests {
         assert!(oai.enabled && oai.api_key.as_deref() == Some("test_k1"));
         assert_eq!(oai.model.as_deref(), Some("gpt-4o"));
         let groq = &f.entries[&ExternalProvider::Groq];
-        assert!(!groq.enabled && groq.is_usable() == false);
+        assert!(!groq.enabled && !groq.is_usable());
         assert!(oai.is_usable());
         // roundtrip
         let back = parse_providers_env(&serialize_providers_env(&f)).unwrap();

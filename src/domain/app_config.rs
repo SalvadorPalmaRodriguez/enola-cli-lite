@@ -197,7 +197,6 @@ mod tests {
     fn artifact_url_absolute_when_base_configured() {
         let d = DistributionSettings {
             binary_base_url: "https://example.com/dl/".to_string(),
-            ..Default::default()
         };
         assert_eq!(
             d.artifact_url("file.tar.gz"),
@@ -291,7 +290,6 @@ mod tests {
     fn artifact_url_base_without_trailing_slash() {
         let d = DistributionSettings {
             binary_base_url: "https://cdn.example.com/dl".to_string(),
-            ..Default::default()
         };
         assert_eq!(
             d.artifact_url("enola-v1.0.tar.gz"),
@@ -311,7 +309,6 @@ mod tests {
     fn artifact_url_normalizes_double_slash() {
         let d = DistributionSettings {
             binary_base_url: "https://cdn.example.com/dl/".to_string(),
-            ..Default::default()
         };
         let url = d.artifact_url("file.tar.gz");
         assert_eq!(url, "https://cdn.example.com/dl/file.tar.gz");

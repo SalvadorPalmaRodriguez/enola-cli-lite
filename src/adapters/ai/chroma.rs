@@ -339,17 +339,12 @@ mod tests {
                     let n = socket.read(&mut buf).await.unwrap_or(0);
                     let raw = String::from_utf8_lossy(&buf[..n]).to_string();
                     let first = raw.lines().next().unwrap_or("").to_string();
-                    let (status, body) = if first.contains("/collections/rag_dev")
-                        && first.starts_with("GET")
-                    {
-                        (
-                            "200 OK",
-                            r#"{"id":"coll-123","name":"rag_dev"}"#.to_string(),
-                        )
-                    } else if first.contains("/collections")
-                        && first.starts_with("POST")
-                        && !first.contains("/query")
-                        && !first.contains("/add")
+                    let (status, body) = if (first.contains("/collections/rag_dev")
+                        && first.starts_with("GET"))
+                        || (first.contains("/collections")
+                            && first.starts_with("POST")
+                            && !first.contains("/query")
+                            && !first.contains("/add"))
                     {
                         (
                             "200 OK",

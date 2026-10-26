@@ -513,7 +513,7 @@ binary_base_url = "https://dl.example.com"  # inline
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
         let (m, ignored) = merge_security_section(user.clone(), HashMap::new(), &["endpoint"]);
-        assert!(m.get("endpoint").is_none());
+        assert!(!m.contains_key("endpoint"));
         assert_eq!(m.get("model").map(String::as_str), Some("llama3.1:8b"));
         assert_eq!(ignored, vec!["endpoint".to_string()]);
 
