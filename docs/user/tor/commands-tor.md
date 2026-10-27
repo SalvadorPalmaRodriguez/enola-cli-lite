@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/tor/commands-tor.md`
-> **Versión:** 2.4 | **Actualizado:** 2026-10-24
+> **Versión:** 2.5 | **Actualizado:** 2026-10-27
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -340,12 +340,12 @@ el site Nginx es `proxy_<dominio>_<nombre>` (`fileserver_<nombre>` en `files`):
 | `ai publish dev` | `ai_dev` | — (no existía) |
 | `tor create --name web1 -s web` | `proxy_web1` | `proxy_web1` (sin cambio) |
 
-Los servicios publicados con v0.9.0 **no se gestionan automáticamente**: `hide`,
-`tor auth <dominio> <instancia>` y `tor ssl` buscan el nombre nuevo.
-Si solo encuentran el antiguo, fallan con el comando exacto para migrar. Volver a
-publicar un CMS cuyo servicio antiguo sigue existiendo se rechaza, para no crear
-una segunda dirección `.onion`. En `wp` y `git`, cuyos nombres antiguos también los
-genera `tor create`, se publica y se muestra un aviso.
+Al retirar un servicio (`tor remove`, `<dominio> hide` o `<dominio> delete`) se
+borran su servicio Tor, su site Nginx y su certificado, y nada de otros servicios.
+
+Los servicios publicados con v0.9.0 **no se reconocen**: `hide`, `delete`,
+`tor auth <dominio> <instancia>` y `tor ssl` solo usan el nombre nuevo y responden
+que el servicio no existe. Elimina el antiguo a mano con su nombre real.
 
 Para migrar un servicio:
 

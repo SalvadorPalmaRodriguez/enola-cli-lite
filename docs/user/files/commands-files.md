@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/files/commands-files.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-10-27
+> **Versión:** 2.3 | **Actualizado:** 2026-10-27
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -99,7 +99,7 @@ sudo enola-cli files edit myshare --port 18080    # cambiar puerto Nginx
 
 ## `files delete`
 
-Elimina un file share (config Nginx + hidden service Tor).
+Elimina un file share: su servicio Tor `fileserver_<nombre>`, su config Nginx y su certificado TLS (`/etc/nginx/ssl/fileserver_<nombre>.{crt,key}`). No toca los de otros servicios.
 
 ```bash
 sudo enola-cli files delete <NOMBRE> --force

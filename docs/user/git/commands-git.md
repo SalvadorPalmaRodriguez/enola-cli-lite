@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
-> **Versión:** 2.5 | **Actualizado:** 2026-10-25
+> **Versión:** 2.6 | **Actualizado:** 2026-10-27
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -110,7 +110,7 @@ sudo enola-cli git status <NOMBRE>
 
 ## `git delete`
 
-Elimina un servidor Git.
+Elimina un servidor Git y, si estaba publicado, su servicio Tor `git_<nombre>`, su site Nginx y su certificado TLS.
 
 ```bash
 sudo enola-cli git delete <NOMBRE> --force
