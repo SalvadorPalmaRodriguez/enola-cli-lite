@@ -343,10 +343,9 @@ fn host_is_loopback(host: &str) -> bool {
 
 /// A25-05 (P5.1): rechaza `Host` ajeno con 421 y añade cabeceras de seguridad.
 ///
-/// CSP: `'unsafe-inline'` en `script-src`/`style-src` es un residual temporal —
-/// `index.html` usa ~80 manejadores `onclick=` inline; quitarlo exige migrarlos a
-/// `addEventListener`. El resto (`default-src 'self'`, `frame-ancestors 'none'`,
-/// `base-uri`/`form-action`) sí se aplica.
+/// CSP estricta (B2, PLAN-WEB-CSP-STRICT): sin `'unsafe-inline'`. La UI no usa
+/// código ni estilos inline; las acciones van por `data-action` + un listener
+/// delegado en `app.js` (test `embedded_assets_have_no_inline_code`).
 pub(crate) async fn security_headers_middleware(req: Request, next: Next) -> Response {
     use axum::http::{header, HeaderValue, StatusCode};
     let host_ok = req
@@ -368,8 +367,8 @@ pub(crate) async fn security_headers_middleware(req: Request, next: Next) -> Res
     h.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; \
-             style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; \
+            "default-src 'self'; script-src 'self'; style-src 'self'; \
+             img-src 'self' data:; connect-src 'self'; object-src 'none'; \
              frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         ),
     );
@@ -556,10 +555,39 @@ mod tests {
         assert_eq!(h["x-content-type-options"], "nosniff");
         assert_eq!(h["cache-control"], "no-store");
         assert_eq!(h["referrer-policy"], "no-referrer");
-        assert!(h["content-security-policy"]
-            .to_str()
-            .unwrap()
-            .contains("frame-ancestors 'none'"));
+        let csp = h["content-security-policy"].to_str().unwrap();
+        assert!(csp.contains("frame-ancestors 'none'"));
+        // B2 (PLAN-WEB-CSP-STRICT): sin código inline permitido.
+        assert!(!csp.contains("unsafe-inline"), "CSP: {csp}");
+        assert!(csp.contains("script-src 'self';"), "CSP: {csp}");
+        assert!(csp.contains("style-src 'self';"), "CSP: {csp}");
+        assert!(csp.contains("object-src 'none'"), "CSP: {csp}");
+    }
+
+    /// B2 (PLAN-WEB-CSP-STRICT): los assets embebidos no contienen manejadores
+    /// `on*=` ni estilos inline, que la CSP estricta bloquearía.
+    #[test]
+    fn embedded_assets_have_no_inline_code() {
+        let handler = regex::Regex::new(r#"\son[a-z]+\s*=\s*["'\\]"#).unwrap();
+        for (name, src) in [
+            ("index.html", include_str!("../../../assets/index.html")),
+            ("app.js", include_str!("../../../assets/app.js")),
+        ] {
+            let hits: Vec<_> = handler.find_iter(src).map(|m| m.as_str()).collect();
+            assert!(hits.is_empty(), "{name}: manejadores inline {hits:?}");
+            assert!(!src.contains("style=\""), "{name}: atributo style inline");
+            assert!(!src.contains("<style"), "{name}: bloque <style> inline");
+        }
+    }
+
+    /// B2: `escapeHtml` escapa también la comilla simple (contexto de atributo).
+    #[test]
+    fn escape_html_escapes_single_quote() {
+        let js = include_str!("../../../assets/app.js");
+        assert!(
+            js.contains(".replace(/'/g,'&#39;')"),
+            "escapeHtml debe escapar ' como &#39;"
+        );
     }
 
     fn state_with(ttl: Duration, persist_ok: bool) -> AppState {

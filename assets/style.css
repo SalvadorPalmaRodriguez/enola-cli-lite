@@ -181,6 +181,7 @@ header h1 {
 /* Main */
 main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
 .tab-content { display: none; }
+.tab-content.is-hidden { display: none !important; }
 .tab-content.active { display: block; }
 h2 { margin-bottom: 1rem; }
 
@@ -383,7 +384,7 @@ section { margin-bottom: 2rem; }
 /* Modal */
 .modal-overlay {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.8); display: flex; justify-content: center;
+    background: rgba(0,0,0,0.8); display: none; justify-content: center;
     align-items: center; z-index: 1000;
     backdrop-filter: blur(2px);
 }
@@ -500,3 +501,9 @@ pre {
     table { font-size: 11px; }
     td .btn-sm { display: block; margin-bottom: 2px; }
 }
+
+/* B2 (CSP without 'unsafe-inline'): former inline styles of index.html */
+#app { display: none; }
+.mt-4 { margin-top: 4px; }
+.mt-8 { margin-top: 8px; }
+.flex-1 { flex: 1; }

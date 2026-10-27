@@ -17,7 +17,7 @@
         </div>
     </div>
 
-    <div id="app" style="display:none;">
+    <div id="app">
         <header>
             <h1>🧅 Enola Dashboard</h1>
             <span id="version-badge"></span>
@@ -66,37 +66,37 @@
                     <input type="number" id="tor-create-vport" placeholder="Virtual port (default 80)" value="80">
                     <input type="number" id="tor-create-tport" placeholder="Target port (optional)">
                     <label><input type="checkbox" id="tor-create-ssl"> SSL</label>
-                    <button onclick="torCreate()">Create</button>
+                    <button data-action="torCreate">Create</button>
                 </div>
                 <div id="tor-list"></div>
                 <h3>Client Authorization</h3>
                 <div class="actions">
-                    <select id="tor-auth-service" onchange="torAuthLoadClients()">
+                    <select id="tor-auth-service" data-change="torAuthLoadClients">
                         <option value="">-- Select service --</option>
                     </select>
                     <input type="text" id="tor-auth-instance" placeholder="Instance (optional: domain+instance)" title="Optional instance name — e.g. service 'ai' + instance 'dev' resolves to 'ai_dev'">
-                    <button onclick="torAuthList()">List Clients</button>
-                    <button onclick="torAuthEnable()">Enable Auth</button>
-                    <button onclick="torAuthDisable()">Disable Auth</button>
+                    <button data-action="torAuthList">List Clients</button>
+                    <button data-action="torAuthEnable">Enable Auth</button>
+                    <button data-action="torAuthDisable">Disable Auth</button>
                 </div>
                 <div id="tor-auth-clients"></div>
                 <div class="actions">
                     <input type="text" id="tor-auth-gen-client" placeholder="Client name for key generation">
-                    <button onclick="torAuthGenerate()">Generate Keys</button>
+                    <button data-action="torAuthGenerate">Generate Keys</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="tor-auth-rotate-client" placeholder="Client name to rotate">
                     <input type="text" id="tor-auth-rotate-pubkey" placeholder="New public key">
-                    <button onclick="torAuthRotate()" class="btn-danger">Rotate Keys</button>
+                    <button data-action="torAuthRotate" class="btn-danger">Rotate Keys</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="tor-auth-add-client" placeholder="Client name">
                     <input type="text" id="tor-auth-add-pubkey" placeholder="Public key">
-                    <button onclick="torAuthAdd()">Add Client</button>
+                    <button data-action="torAuthAdd">Add Client</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="tor-auth-revoke-client" placeholder="Client name to revoke">
-                    <button onclick="torAuthRevoke()" class="btn-danger">Revoke Client</button>
+                    <button data-action="torAuthRevoke" class="btn-danger">Revoke Client</button>
                 </div>
                 <div id="tor-auth-output"></div>
             </section>
@@ -110,10 +110,10 @@
                     <input type="number" id="git-create-http-port" placeholder="HTTP port (optional)">
                     <input type="number" id="git-create-ssh-port" placeholder="SSH port (optional)">
                     <label><input type="checkbox" id="git-create-ssl"> SSL</label>
-                    <button onclick="gitCreate()">Create</button>
+                    <button data-action="gitCreate">Create</button>
                 </div>
-                <div class="actions" style="margin-top:4px">
-                    <button onclick="gitAction(null,'watcher')">Start Git Watcher</button>
+                <div class="actions mt-4">
+                    <button data-action="gitAction" data-args='[null,"watcher"]'>Start Git Watcher</button>
                 </div>
                 <div id="git-list"></div>
                 <h3>User Management</h3>
@@ -121,18 +121,18 @@
                     <select id="git-user-server"><option value="">-- Select server --</option></select>
                     <input type="text" id="git-user-admin" placeholder="Admin user (optional)">
                     <input type="password" id="git-user-adminpass" placeholder="Admin pass (optional)">
-                    <button onclick="gitUserList()">List Users</button>
+                    <button data-action="gitUserList">List Users</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="git-user-create-username" placeholder="Username">
                     <input type="text" id="git-user-create-email" placeholder="Email">
                     <input type="password" id="git-user-create-pass" placeholder="Password">
                     <label><input type="checkbox" id="git-user-create-admin"> Admin</label>
-                    <button onclick="gitUserCreate()">Create User</button>
+                    <button data-action="gitUserCreate">Create User</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="git-user-delete-username" placeholder="Username to delete">
-                    <button onclick="gitUserDelete()">Delete User</button>
+                    <button data-action="gitUserDelete">Delete User</button>
                 </div>
                 <div id="git-user-list"></div>
             </section>
@@ -142,12 +142,12 @@
                 <div class="actions">
                     <input type="text" id="wp-create-name" placeholder="Site name">
                     <input type="number" id="wp-create-port" placeholder="Port (optional)">
-                    <button onclick="wpCreate()">Create</button>
+                    <button data-action="wpCreate">Create</button>
                 </div>
                 <div id="wp-list"></div>
             </section>
 
-            <section id="tab-wp-detail" class="tab-content" style="display:none">
+            <section id="tab-wp-detail" class="tab-content is-hidden">
                 <h2>WordPress Details</h2>
                 <div id="wp-detail-content"></div>
             </section>
@@ -164,9 +164,9 @@
                     </select>
                     <input type="text" id="cms-create-name" placeholder="Instance name">
                     <input type="number" id="cms-create-port" placeholder="HTTP port (required)" required>
-                    <button onclick="cmsCreate()">Create</button>
-                    <button onclick="cmsList()">List</button>
-                    <button onclick="strapiBuildImage()">Build Strapi Image</button>
+                    <button data-action="cmsCreate">Create</button>
+                    <button data-action="cmsList">List</button>
+                    <button data-action="strapiBuildImage">Build Strapi Image</button>
                 </div>
                 <div id="cms-list"></div>
             </section>
@@ -177,12 +177,12 @@
                     <input type="text" id="files-create-name" placeholder="Share name">
                     <label><input type="checkbox" id="files-create-auth"> Auth</label>
                     <label><input type="checkbox" id="files-create-ssl"> SSL</label>
-                    <button onclick="filesCreate()">Create</button>
+                    <button data-action="filesCreate">Create</button>
                 </div>
                 <div id="files-list"></div>
             </section>
 
-            <section id="tab-files-detail" class="tab-content" style="display:none">
+            <section id="tab-files-detail" class="tab-content is-hidden">
                 <h2>File Share Details</h2>
                 <div id="files-detail-content"></div>
             </section>
@@ -198,31 +198,31 @@
                     <div class="security-card" id="firewall-card">
                         <h3>🔥 Firewall</h3>
                         <div id="firewall-status"></div>
-                        <button onclick="firewallSetup()">Setup Secure Defaults</button>
-                        <div class="actions" style="margin-top:4px">
+                        <button data-action="firewallSetup">Setup Secure Defaults</button>
+                        <div class="actions mt-4">
                             <input type="number" id="fw-setup-ssh-port" placeholder="SSH port (default 22)">
                         </div>
-                        <div class="actions" style="margin-top:8px">
+                        <div class="actions mt-8">
                             <input type="number" id="fw-allow-port" placeholder="Port">
                             <select id="fw-allow-proto"><option value="tcp">tcp</option><option value="udp">udp</option><option value="both">both</option></select>
                             <input type="text" id="fw-allow-from" placeholder="From (optional)">
-                            <button onclick="firewallAllow()">Allow</button>
+                            <button data-action="firewallAllow">Allow</button>
                         </div>
-                        <div class="actions" style="margin-top:4px">
+                        <div class="actions mt-4">
                             <input type="number" id="fw-deny-port" placeholder="Port">
                             <select id="fw-deny-proto"><option value="tcp">tcp</option><option value="udp">udp</option><option value="both">both</option></select>
-                            <button onclick="firewallDeny()">Deny</button>
+                            <button data-action="firewallDeny">Deny</button>
                         </div>
                     </div>
                     <div class="security-card" id="apparmor-card">
                         <h3>🛡️ AppArmor</h3>
                         <div id="apparmor-status"></div>
-                        <button onclick="apparmorSetup()">Setup Profiles</button>
+                        <button data-action="apparmorSetup">Setup Profiles</button>
                         <label><input type="checkbox" id="aa-setup-force"> Force</label>
-                        <div class="actions" style="margin-top:8px">
+                        <div class="actions mt-8">
                             <select id="aa-mode"><option value="enforce">enforce</option><option value="complain">complain</option><option value="disable">disable</option></select>
                             <input type="text" id="aa-profile" placeholder="Profile (optional)">
-                            <button onclick="apparmorMode()">Set Mode</button>
+                            <button data-action="apparmorMode">Set Mode</button>
                         </div>
                     </div>
                 </div>
@@ -235,7 +235,7 @@
                     <input type="number" id="vpn-create-port" placeholder="Port (optional)">
                     <input type="text" id="vpn-create-subnet" placeholder="Subnet (e.g. 10.8.0.0/24)">
                     <label><input type="checkbox" id="vpn-create-autostart"> Autostart</label>
-                    <button onclick="vpnCreate()">Create</button>
+                    <button data-action="vpnCreate">Create</button>
                 </div>
                 <div id="vpn-list"></div>
                 <h3>Peer Management</h3>
@@ -246,19 +246,19 @@
                     <input type="text" id="vpn-peer-dns" placeholder="DNS (optional)">
                     <input type="text" id="vpn-peer-ip" placeholder="IP (e.g. 10.8.0.3)">
                     <label><input type="checkbox" id="vpn-peer-psk"> PSK</label>
-                    <button onclick="vpnPeerAdd()">Add Peer</button>
+                    <button data-action="vpnPeerAdd">Add Peer</button>
                 </div>
                 <div class="actions">
                     <select id="vpn-peer-addpub-iface"><option value="">-- Select --</option></select>
                     <input type="text" id="vpn-peer-addpub-name" placeholder="Peer name">
                     <input type="text" id="vpn-peer-addpub-key" placeholder="Public key (base64)">
                     <input type="text" id="vpn-peer-addpub-ip" placeholder="IP (e.g. 10.8.0.5)">
-                    <button onclick="vpnPeerAddPubkey()">Add by Pubkey</button>
+                    <button data-action="vpnPeerAddPubkey">Add by Pubkey</button>
                 </div>
                 <div class="actions">
                     <select id="vpn-peer-remove-iface"><option value="">-- Select --</option></select>
                     <input type="text" id="vpn-peer-remove-key" placeholder="Public key">
-                    <button onclick="vpnPeerRemove()">Remove Peer</button>
+                    <button data-action="vpnPeerRemove">Remove Peer</button>
                 </div>
                 <pre id="vpn-peer-output"></pre>
             </section>
@@ -273,9 +273,9 @@
                         <option value="docker">docker</option>
                     </select>
                     <input type="number" id="log-lines" value="50" min="10" max="500">
-                    <button onclick="logsView()">View</button>
-                    <button onclick="logsInstall()">Install Logs</button>
-                    <button onclick="logsSmokeTest()">Smoke-Test Logs</button>
+                    <button data-action="logsView">View</button>
+                    <button data-action="logsInstall">Install Logs</button>
+                    <button data-action="logsSmokeTest">Smoke-Test Logs</button>
                 </div>
                 <pre id="logs-output"></pre>
             </section>
@@ -283,30 +283,30 @@
             <section id="tab-maintenance" class="tab-content">
                 <h2>Maintenance</h2>
                 <div class="actions">
-                    <button onclick="maintStatus()">Status</button>
-                    <button onclick="maintTimerStatus()">Timer Status</button>
-                    <button onclick="maintEnableChecks()">Enable Checks</button>
-                    <button onclick="maintDisableChecks()">Disable Checks</button>
+                    <button data-action="maintStatus">Status</button>
+                    <button data-action="maintTimerStatus">Timer Status</button>
+                    <button data-action="maintEnableChecks">Enable Checks</button>
+                    <button data-action="maintDisableChecks">Disable Checks</button>
                     <input type="number" id="maint-keep" min="1" placeholder="config" title="Keep N backups (empty = configured policy)">
-                    <button onclick="maintBackup()">Backup</button>
-                    <button onclick="maintSmokeTest()" disabled title="Not available in enola-cli-lite">Smoke Test</button>
+                    <button data-action="maintBackup">Backup</button>
+                    <button data-action="maintSmokeTest" disabled title="Not available in enola-cli-lite">Smoke Test</button>
                 </div>
                 <div class="actions">
-                    <button onclick="maintBackupConfigShow()">Backup policy</button>
+                    <button data-action="maintBackupConfigShow">Backup policy</button>
                     <input type="number" id="maint-max-backups" min="1" placeholder="max backups" title="Backups kept per service">
-                    <button onclick="maintBackupConfigSet()">Set policy</button>
+                    <button data-action="maintBackupConfigSet">Set policy</button>
                 </div>
                 <div class="actions">
-                    <button onclick="maintSshConfig()">SSH Config</button>
+                    <button data-action="maintSshConfig">SSH Config</button>
                     <label><input type="checkbox" id="maint-pqc-force"> Force</label>
                     <label><input type="checkbox" id="maint-pqc-dryrun"> Dry Run</label>
-                    <button onclick="maintSshHardenPqc()">SSH Harden PQC</button>
+                    <button data-action="maintSshHardenPqc">SSH Harden PQC</button>
                 </div>
                 <div class="actions">
                     <select id="maint-cleanup-target"><option value="all">all</option><option value="docker">docker</option><option value="logs">logs</option></select>
                     <input type="number" id="maint-cleanup-days" value="30" min="1" max="365">
                     <label><input type="checkbox" id="maint-cleanup-dryrun"> Dry Run</label>
-                    <button onclick="maintCleanup()">Cleanup</button>
+                    <button data-action="maintCleanup">Cleanup</button>
                 </div>
                 <pre id="maintenance-output"></pre>
             </section>
@@ -314,14 +314,14 @@
             <section id="tab-diag" class="tab-content">
                 <h2>Diagnostics</h2>
                 <div class="actions">
-                    <button onclick="diagSummary()">Summary</button>
-                    <button onclick="diagNginx()">NGINX</button>
-                    <button onclick="diagTor()">Tor</button>
-                    <button onclick="diagSsh()">SSH</button>
-                    <button onclick="diagWordpress()">WordPress</button>
-                    <button onclick="diagWpSync()">WP Sync</button>
-                    <button onclick="diagNginxTest()">NGINX Test</button>
-                    <button onclick="diagResources()">Resources</button>
+                    <button data-action="diagSummary">Summary</button>
+                    <button data-action="diagNginx">NGINX</button>
+                    <button data-action="diagTor">Tor</button>
+                    <button data-action="diagSsh">SSH</button>
+                    <button data-action="diagWordpress">WordPress</button>
+                    <button data-action="diagWpSync">WP Sync</button>
+                    <button data-action="diagNginxTest">NGINX Test</button>
+                    <button data-action="diagResources">Resources</button>
                 </div>
                 <pre id="diag-output"></pre>
             </section>
@@ -329,8 +329,8 @@
             <section id="tab-test" class="tab-content">
                 <h2>Tests</h2>
                 <div class="actions">
-                    <button onclick="testList()">List Tests</button>
-                    <button onclick="testResults()">Results</button>
+                    <button data-action="testList">List Tests</button>
+                    <button data-action="testResults">Results</button>
                 </div>
                 <p class="hint">Running, benchmarking and cleaning tests is CLI-only: <code>sudo enola-cli test run</code>.</p>
                 <pre id="test-output"></pre>
@@ -339,8 +339,8 @@
             <section id="tab-doctor" class="tab-content">
                 <h2>System Doctor</h2>
                 <div class="actions">
-                    <button onclick="doctorRun()">Run Diagnostics</button>
-                    <button onclick="doctorSecurity()">Security Audit</button>
+                    <button data-action="doctorRun">Run Diagnostics</button>
+                    <button data-action="doctorSecurity">Security Audit</button>
                 </div>
                 <pre id="doctor-output"></pre>
             </section>
@@ -352,7 +352,7 @@
                     <label><input type="checkbox" id="setup-vpn"> VPN</label>
                     <label><input type="checkbox" id="setup-security"> Security</label>
                     <label><input type="checkbox" id="setup-pqc-tls"> PQC TLS</label>
-                    <button onclick="setupRun()">Run Setup</button>
+                    <button data-action="setupRun">Run Setup</button>
                 </div>
                 <pre id="setup-output"></pre>
             </section>
@@ -360,19 +360,19 @@
             <section id="tab-system" class="tab-content">
                 <h2>System</h2>
                 <div class="actions">
-                    <button onclick="sysQuickref()">Quick Reference</button>
-                    <button onclick="sysRotateToken()" title="Issue a new dashboard token (also written to ~/.enola/web-token)">Rotate Token</button>
-                    <button onclick="sysLicense()">License</button>
-                    <button onclick="sysConfigShow()">Config Show</button>
+                    <button data-action="sysQuickref">Quick Reference</button>
+                    <button data-action="sysRotateToken" title="Issue a new dashboard token (also written to ~/.enola/web-token)">Rotate Token</button>
+                    <button data-action="sysLicense">License</button>
+                    <button data-action="sysConfigShow">Config Show</button>
                     <label><input type="checkbox" id="sys-config-reachable"> Reachable</label>
-                    <button onclick="sysConfigValidate()">Config Validate</button>
+                    <button data-action="sysConfigValidate">Config Validate</button>
                 </div>
                 <h3>Verify Download (PQC)</h3>
                 <div class="actions">
                     <input type="text" id="sys-verify-file" placeholder="File path to verify">
                     <input type="text" id="sys-verify-pqsig" placeholder=".pqsig path (optional)">
                     <input type="text" id="sys-verify-pubkey" placeholder="Public key path (optional)">
-                    <button onclick="sysVerify()">Verify</button>
+                    <button data-action="sysVerify">Verify</button>
                 </div>
                 <h3>Uninstall</h3>
                 <div class="actions">
@@ -381,7 +381,7 @@
                     <label><input type="checkbox" id="sys-uninstall-removedeps"> --remove-deps</label>
                     <label><input type="checkbox" id="sys-uninstall-force"> Force</label>
                     <input type="text" id="sys-uninstall-only" placeholder="--only sections (optional)">
-                    <button onclick="sysUninstall()">Uninstall</button>
+                    <button data-action="sysUninstall">Uninstall</button>
                 </div>
                 <pre id="system-output"></pre>
             </section>
@@ -390,21 +390,21 @@
                 <h2>Updates</h2>
                 <div class="actions">
                     <label><input type="checkbox" id="upd-check-force"> Force</label>
-                    <button onclick="updCheck()">Check for Updates</button>
-                    <button onclick="updSchema()">Feed Schema</button>
+                    <button data-action="updCheck">Check for Updates</button>
+                    <button data-action="updSchema">Feed Schema</button>
                 </div>
                 <div class="actions">
                     <input type="text" id="upd-vf-source" placeholder="Feed URL or path">
                     <input type="text" id="upd-vf-signature" placeholder="Signature URL (optional)">
-                    <button onclick="updVerifyFeed()">Verify Feed</button>
+                    <button data-action="updVerifyFeed">Verify Feed</button>
                 </div>
                 <div class="actions">
                     <label><input type="checkbox" id="upd-dl-yes"> --yes</label>
                     <label><input type="checkbox" id="upd-dl-dryrun"> --dry-run</label>
                     <label><input type="checkbox" id="upd-dl-force"> Force</label>
-                    <button onclick="updDownload()">Download</button>
-                    <div class="actions" style="margin-top:4px">
-                        <button onclick="updApply()" title="Applies the downloaded, signature-verified update. Custom binaries / --allow-unsigned are CLI-only.">Apply</button>
+                    <button data-action="updDownload">Download</button>
+                    <div class="actions mt-4">
+                        <button data-action="updApply" title="Applies the downloaded, signature-verified update. Custom binaries / --allow-unsigned are CLI-only.">Apply</button>
                     </div>
                 </div>
                 <pre id="update-output"></pre>
@@ -424,7 +424,7 @@
                         <option value="search">Search</option>
                     </select>
                     <input type="text" id="docs-filter" placeholder="Filter/search term (optional)">
-                    <button onclick="docsShow()">Show</button>
+                    <button data-action="docsShow">Show</button>
                 </div>
                 <pre id="docs-output"></pre>
             </section>
@@ -433,7 +433,7 @@
                 <h2>Console — Run any Enola command</h2>
                 <p class="hint">Type full command args. Example: <code>tor create --name x --service-type web</code></p>
                 <div class="actions console-actions">
-                    <select id="console-preset" onchange="consolePreset()">
+                    <select id="console-preset" data-change="consolePreset">
                         <option value="">-- Preset --</option>
                         <option value="tor list">tor list</option>
                         <option value="git list">git list</option>
@@ -475,16 +475,16 @@
                         <option value="git watcher">git watcher</option>
                         <option value="update verify-feed">update verify-feed</option>
                     </select>
-                    <input type="text" id="console-args" placeholder="tor create --name test --service-type web" style="flex:1" list="console-suggestions" autocomplete="off">
+                    <input type="text" id="console-args" placeholder="tor create --name test --service-type web" class="flex-1" list="console-suggestions" autocomplete="off">
                     <datalist id="console-suggestions"></datalist>
-                    <button onclick="consoleRun()">Run</button>
+                    <button data-action="consoleRun">Run</button>
                 </div>
                 <pre id="console-output"></pre>
             </section>
         </main>
 
         <!-- Tor Edit Modal -->
-        <div id="tor-edit-modal" class="modal-overlay" style="display:none">
+        <div id="tor-edit-modal" class="modal-overlay">
             <div class="modal">
                 <h3>Editar servicio Tor: <span id="tor-edit-name"></span></h3>
                 <div class="modal-body">
@@ -508,14 +508,14 @@
                     </div>
                 </div>
                 <div class="modal-actions">
-                    <button onclick="torEditSave()">Guardar</button>
-                    <button onclick="torEditCancel()" class="btn-secondary">Cancelar</button>
+                    <button data-action="torEditSave">Guardar</button>
+                    <button data-action="torEditCancel" class="btn-secondary">Cancelar</button>
                 </div>
             </div>
         </div>
 
         <!-- Git Edit Modal -->
-        <div id="git-edit-modal" class="modal-overlay" style="display:none">
+        <div id="git-edit-modal" class="modal-overlay">
             <div class="modal">
                 <h3>Edit Git Server: <span id="git-edit-name"></span></h3>
                 <div class="modal-body">
@@ -536,14 +536,14 @@
                     </div>
                 </div>
                 <div class="modal-actions">
-                    <button onclick="gitEditSave()">Save</button>
-                    <button onclick="gitEditCancel()" class="btn-secondary">Cancel</button>
+                    <button data-action="gitEditSave">Save</button>
+                    <button data-action="gitEditCancel" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
 
         <!-- WP Edit Modal -->
-        <div id="wp-edit-modal" class="modal-overlay" style="display:none">
+        <div id="wp-edit-modal" class="modal-overlay">
             <div class="modal">
                 <h3>Edit WordPress Site: <span id="wp-edit-name"></span></h3>
                 <div class="modal-body">
@@ -564,14 +564,14 @@
                     </div>
                 </div>
                 <div class="modal-actions">
-                    <button onclick="wpEditSave()">Save</button>
-                    <button onclick="wpEditCancel()" class="btn-secondary">Cancel</button>
+                    <button data-action="wpEditSave">Save</button>
+                    <button data-action="wpEditCancel" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
 
         <!-- Files Edit Modal -->
-        <div id="files-edit-modal" class="modal-overlay" style="display:none">
+        <div id="files-edit-modal" class="modal-overlay">
             <div class="modal">
                 <h3>Edit File Share: <span id="files-edit-name"></span></h3>
                 <div class="modal-body">
@@ -581,14 +581,14 @@
                     </div>
                 </div>
                 <div class="modal-actions">
-                    <button onclick="filesEditSave()">Save</button>
-                    <button onclick="filesEditCancel()" class="btn-secondary">Cancel</button>
+                    <button data-action="filesEditSave">Save</button>
+                    <button data-action="filesEditCancel" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
 
         <!-- CMS Edit Modal -->
-        <div id="cms-edit-modal" class="modal-overlay" style="display:none">
+        <div id="cms-edit-modal" class="modal-overlay">
             <div class="modal">
                 <h3>Edit CMS: <span id="cms-edit-name"></span></h3>
                 <div class="modal-body">
@@ -598,20 +598,20 @@
                     </div>
                 </div>
                 <div class="modal-actions">
-                    <button onclick="cmsEditSave()">Save</button>
-                    <button onclick="cmsEditCancel()" class="btn-secondary">Cancel</button>
+                    <button data-action="cmsEditSave">Save</button>
+                    <button data-action="cmsEditCancel" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
 
         <!-- Confirm Modal -->
-        <div id="confirm-modal" class="modal-overlay" style="display:none">
+        <div id="confirm-modal" class="modal-overlay">
             <div class="modal modal-confirm">
                 <h3 id="confirm-title">⚠️ Confirm</h3>
                 <p id="confirm-message"></p>
                 <div class="modal-actions">
-                    <button id="confirm-yes" class="btn-danger" onclick="_confirmYes()">Confirm</button>
-                    <button id="confirm-no" class="btn-secondary" onclick="_confirmNo()">Cancel</button>
+                    <button id="confirm-yes" class="btn-danger" data-action="_confirmYes">Confirm</button>
+                    <button id="confirm-no" class="btn-secondary" data-action="_confirmNo">Cancel</button>
                 </div>
             </div>
         </div>

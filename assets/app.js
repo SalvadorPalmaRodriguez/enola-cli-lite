@@ -91,7 +91,7 @@
     // ── Infrastructure helpers ─────────────────────────────────────────────
     function escapeHtml(s) {
         if (s == null) return '';
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     function statusBadge(status) {
@@ -138,9 +138,59 @@
 
     function copyBtn(text, label) {
         label = label || 'Copy';
-        return '<button class="copy-btn" onclick="copyToClipboard(\'' + text.replace(/'/g,"\\'") + '\', this)">' + label + '</button>';
+        return '<button class="copy-btn" data-action="copyToClipboard" data-args="' + escapeHtml(JSON.stringify([text])) + '">' + label + '</button>';
     }
     window.copyToClipboard = copyToClipboard;
+
+    // ── Delegated actions (B2: CSP without 'unsafe-inline') ───────────────
+    // Buttons declare data-action="fn" (click) or data-change="fn" (select) and
+    // optional data-args='[...]' (JSON). Data is parsed, never evaluated, and
+    // only names in this allowlist can be dispatched.
+    const ACTIONS = new Set([
+        'apparmorMode', 'apparmorSetup', 'cmsAction', 'cmsCreate', 'cmsEdit',
+        'cmsEditCancel', 'cmsEditSave', 'cmsList', 'cmsStatus', '_confirmNo',
+        '_confirmYes', 'consolePreset', 'consoleRun', 'copyToClipboard',
+        'diagNginx', 'diagNginxTest', 'diagResources', 'diagSsh', 'diagSummary',
+        'diagTor', 'diagWordpress', 'diagWpSync', 'docsShow', 'doctorRun',
+        'doctorSecurity', 'filesCreate', 'filesDelete', 'filesEdit',
+        'filesEditCancel', 'filesEditSave', 'filesFixPerms', 'firewallAllow',
+        'firewallDeny', 'firewallSetup', 'gitAction', 'gitCreate', 'gitEdit',
+        'gitEditCancel', 'gitEditSave', 'gitUserCreate', 'gitUserDelete',
+        'gitUserDeleteByName', 'gitUserList', 'logsInstall', 'logsSmokeTest',
+        'logsView', 'maintBackup', 'maintBackupConfigSet', 'maintBackupConfigShow',
+        'maintCleanup', 'maintDisableChecks', 'maintEnableChecks', 'maintSmokeTest',
+        'maintSshConfig', 'maintSshHardenPqc', 'maintStatus', 'maintTimerStatus',
+        'setupRun', 'strapiBuildImage', 'sysConfigShow', 'sysConfigValidate',
+        'sysLicense', 'sysQuickref', 'sysRotateToken', 'sysUninstall', 'sysVerify',
+        'testList', 'testResults', 'torAction', 'torAuthAdd', 'torAuthDisable',
+        'torAuthEnable', 'torAuthGenerate', 'torAuthList', 'torAuthLoadClients',
+        'torAuthRevoke', 'torAuthRevokeClient', 'torAuthRotate', 'torCreate',
+        'torEdit', 'torEditCancel', 'torEditSave', 'torEnableSsl', 'torRotate',
+        'updApply', 'updCheck', 'updDownload', 'updSchema', 'updVerifyFeed',
+        'vpnAction', 'vpnCreate', 'vpnPeerAdd', 'vpnPeerAddPubkey', 'vpnPeerRemove',
+        'wpAction', 'wpConfig', 'wpCreate', 'wpEdit', 'wpEditCancel', 'wpEditSave',
+        'wpRestart', 'wpStatus', 'wpUpdate',
+    ]);
+
+    function dispatchAction(el, name) {
+        if (!ACTIONS.has(name) || typeof window[name] !== 'function') return;
+        let args = [];
+        if (el.dataset.args) {
+            try { args = JSON.parse(el.dataset.args); } catch (_) { return; }
+            if (!Array.isArray(args)) return;
+        }
+        if (name === 'copyToClipboard') args.push(el);
+        window[name].apply(null, args);
+    }
+
+    document.addEventListener('click', function (e) {
+        const el = e.target.closest('[data-action]');
+        if (el) dispatchAction(el, el.dataset.action);
+    });
+    document.addEventListener('change', function (e) {
+        const el = e.target.closest('[data-change]');
+        if (el) dispatchAction(el, el.dataset.change);
+    });
 
     // ── Confirm modal ──────────────────────────────────────────────────────
     let confirmCallback = null;
@@ -223,12 +273,12 @@
                 const active = t.active ? statusBadge('active') : statusBadge('inactive');
                 html += `<tr><td>${escapeHtml(t.name)}</td><td>${escapeHtml(t.service_type || '-')}</td><td>${escapeHtml(t.hostname)}</td><td>${t.ports ? t.ports.map(p => p[0]).join(', ') : t.virtual_port}</td><td>${active}</td>
                     <td>
-                        <button class="btn-sm" onclick="torAction('${escapeHtml(t.name)}','start')">Start</button>
-                        <button class="btn-sm" onclick="torAction('${escapeHtml(t.name)}','stop')">Stop</button>
-                        <button class="btn-sm" onclick="torEdit('${escapeHtml(t.name)}')">Edit</button>
-                        <button class="btn-sm" onclick="torRotate('${escapeHtml(t.name)}')">Rotate</button>
-                        <button class="btn-sm" onclick="torEnableSsl('${escapeHtml(t.name)}')">SSL</button>
-                        <button class="btn-sm btn-danger" onclick="torAction('${escapeHtml(t.name)}','remove')">Remove</button>
+                        <button class="btn-sm" data-action="torAction" data-args="${escapeHtml(JSON.stringify([t.name, 'start']))}">Start</button>
+                        <button class="btn-sm" data-action="torAction" data-args="${escapeHtml(JSON.stringify([t.name, 'stop']))}">Stop</button>
+                        <button class="btn-sm" data-action="torEdit" data-args="${escapeHtml(JSON.stringify([t.name]))}">Edit</button>
+                        <button class="btn-sm" data-action="torRotate" data-args="${escapeHtml(JSON.stringify([t.name]))}">Rotate</button>
+                        <button class="btn-sm" data-action="torEnableSsl" data-args="${escapeHtml(JSON.stringify([t.name]))}">SSL</button>
+                        <button class="btn-sm btn-danger" data-action="torAction" data-args="${escapeHtml(JSON.stringify([t.name, 'remove']))}">Remove</button>
                     </td></tr>`;
             });
             html += '</tbody></table>';
@@ -366,7 +416,7 @@
             data.forEach(c => {
                 html += `<tr><td>${escapeHtml(c)}</td>
                     <td>
-                        <button class="btn-sm btn-danger" onclick="torAuthRevokeClient('${escapeHtml(service)}','${escapeHtml(c)}')">Revoke</button>
+                        <button class="btn-sm btn-danger" data-action="torAuthRevokeClient" data-args="${escapeHtml(JSON.stringify([service, c]))}">Revoke</button>
                     </td></tr>`;
             });
             html += '</tbody></table>';
@@ -475,12 +525,12 @@
             data.forEach(g => {
                 html += `<tr><td>${escapeHtml(g.name)}</td><td>${statusBadge(g.status)}</td><td>${(g.ports || []).join(', ')}</td><td>${escapeHtml(g.onion_address) || '-'}</td>
                     <td>
-                        <button class="btn-sm" onclick="gitAction('${escapeHtml(g.name)}','start')">Start</button>
-                        <button class="btn-sm" onclick="gitAction('${escapeHtml(g.name)}','stop')">Stop</button>
-                        <button class="btn-sm" onclick="gitAction('${escapeHtml(g.name)}','publish')">Publish</button>
-                        <button class="btn-sm" onclick="gitAction('${escapeHtml(g.name)}','hide')">Hide</button>
-                        <button class="btn-sm" onclick="gitEdit('${escapeHtml(g.name)}')">Edit</button>
-                        <button class="btn-sm btn-danger" onclick="gitAction('${escapeHtml(g.name)}','delete')">Delete</button>
+                        <button class="btn-sm" data-action="gitAction" data-args="${escapeHtml(JSON.stringify([g.name, 'start']))}">Start</button>
+                        <button class="btn-sm" data-action="gitAction" data-args="${escapeHtml(JSON.stringify([g.name, 'stop']))}">Stop</button>
+                        <button class="btn-sm" data-action="gitAction" data-args="${escapeHtml(JSON.stringify([g.name, 'publish']))}">Publish</button>
+                        <button class="btn-sm" data-action="gitAction" data-args="${escapeHtml(JSON.stringify([g.name, 'hide']))}">Hide</button>
+                        <button class="btn-sm" data-action="gitEdit" data-args="${escapeHtml(JSON.stringify([g.name]))}">Edit</button>
+                        <button class="btn-sm btn-danger" data-action="gitAction" data-args="${escapeHtml(JSON.stringify([g.name, 'delete']))}">Delete</button>
                     </td></tr>`;
             });
             html += '</tbody></table>';
@@ -609,7 +659,7 @@
             let html = '<table><thead><tr><th>Username</th><th>Email</th><th>Admin</th><th>Actions</th></tr></thead><tbody>';
             data.forEach(u => {
                 html += `<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.email)}</td><td>${u.is_admin ? '✅' : '❌'}</td>
-                    <td><button class="btn-sm btn-danger" onclick="gitUserDeleteByName('${escapeHtml(u.username)}')">Delete</button></td></tr>`;
+                    <td><button class="btn-sm btn-danger" data-action="gitUserDeleteByName" data-args="${escapeHtml(JSON.stringify([u.username]))}">Delete</button></td></tr>`;
             });
             html += '</tbody></table>';
             el.innerHTML = html;
@@ -672,16 +722,16 @@
             data.forEach(w => {
                 html += `<tr><td>${escapeHtml(w.name)}</td><td>${statusBadge(w.status)}</td><td>${w.port}</td><td>${escapeHtml(w.onion_address) || '-'}</td>
                     <td>
-                        <button class="btn-sm" onclick="wpAction('${escapeHtml(w.name)}','start')">Start</button>
-                        <button class="btn-sm" onclick="wpAction('${escapeHtml(w.name)}','stop')">Stop</button>
-                        <button class="btn-sm" onclick="wpRestart('${escapeHtml(w.name)}')">Restart</button>
-                        <button class="btn-sm" onclick="wpAction('${escapeHtml(w.name)}','publish')">Publish</button>
-                        <button class="btn-sm" onclick="wpAction('${escapeHtml(w.name)}','hide')">Hide</button>
-                        <button class="btn-sm" onclick="wpUpdate('${escapeHtml(w.name)}')">Update</button>
-                        <button class="btn-sm" onclick="wpConfig('${escapeHtml(w.name)}')">Config</button>
-                        <button class="btn-sm" onclick="wpStatus('${escapeHtml(w.name)}')">Status</button>
-                        <button class="btn-sm" onclick="wpEdit('${escapeHtml(w.name)}')">Edit</button>
-                        <button class="btn-sm btn-danger" onclick="wpAction('${escapeHtml(w.name)}','delete')">Delete</button>
+                        <button class="btn-sm" data-action="wpAction" data-args="${escapeHtml(JSON.stringify([w.name, 'start']))}">Start</button>
+                        <button class="btn-sm" data-action="wpAction" data-args="${escapeHtml(JSON.stringify([w.name, 'stop']))}">Stop</button>
+                        <button class="btn-sm" data-action="wpRestart" data-args="${escapeHtml(JSON.stringify([w.name]))}">Restart</button>
+                        <button class="btn-sm" data-action="wpAction" data-args="${escapeHtml(JSON.stringify([w.name, 'publish']))}">Publish</button>
+                        <button class="btn-sm" data-action="wpAction" data-args="${escapeHtml(JSON.stringify([w.name, 'hide']))}">Hide</button>
+                        <button class="btn-sm" data-action="wpUpdate" data-args="${escapeHtml(JSON.stringify([w.name]))}">Update</button>
+                        <button class="btn-sm" data-action="wpConfig" data-args="${escapeHtml(JSON.stringify([w.name]))}">Config</button>
+                        <button class="btn-sm" data-action="wpStatus" data-args="${escapeHtml(JSON.stringify([w.name]))}">Status</button>
+                        <button class="btn-sm" data-action="wpEdit" data-args="${escapeHtml(JSON.stringify([w.name]))}">Edit</button>
+                        <button class="btn-sm btn-danger" data-action="wpAction" data-args="${escapeHtml(JSON.stringify([w.name, 'delete']))}">Delete</button>
                     </td></tr>`;
             });
             html += '</tbody></table>';
@@ -798,13 +848,13 @@
                 const name = c.name || c;
                 html += `<tr><td>${escapeHtml(name)}</td><td>${statusBadge(c.status || '-')}</td><td>${c.http_port || '-'}</td><td>${escapeHtml(c.onion_address) || '-'}</td>
                     <td>
-                        <button class="btn-sm" onclick="cmsAction('${type}','${escapeHtml(name)}','start')">Start</button>
-                        <button class="btn-sm" onclick="cmsAction('${type}','${escapeHtml(name)}','stop')">Stop</button>
-                        <button class="btn-sm" onclick="cmsAction('${type}','${escapeHtml(name)}','publish')">Publish</button>
-                        <button class="btn-sm" onclick="cmsAction('${type}','${escapeHtml(name)}','hide')">Hide</button>
-                        <button class="btn-sm" onclick="cmsStatus('${type}','${escapeHtml(name)}')">Status</button>
-                        <button class="btn-sm" onclick="cmsEdit('${type}','${escapeHtml(name)}')">Edit</button>
-                        <button class="btn-sm btn-danger" onclick="cmsAction('${type}','${escapeHtml(name)}','delete')">Delete</button>
+                        <button class="btn-sm" data-action="cmsAction" data-args="${escapeHtml(JSON.stringify([type, name, 'start']))}">Start</button>
+                        <button class="btn-sm" data-action="cmsAction" data-args="${escapeHtml(JSON.stringify([type, name, 'stop']))}">Stop</button>
+                        <button class="btn-sm" data-action="cmsAction" data-args="${escapeHtml(JSON.stringify([type, name, 'publish']))}">Publish</button>
+                        <button class="btn-sm" data-action="cmsAction" data-args="${escapeHtml(JSON.stringify([type, name, 'hide']))}">Hide</button>
+                        <button class="btn-sm" data-action="cmsStatus" data-args="${escapeHtml(JSON.stringify([type, name]))}">Status</button>
+                        <button class="btn-sm" data-action="cmsEdit" data-args="${escapeHtml(JSON.stringify([type, name]))}">Edit</button>
+                        <button class="btn-sm btn-danger" data-action="cmsAction" data-args="${escapeHtml(JSON.stringify([type, name, 'delete']))}">Delete</button>
                     </td></tr>`;
             });
             html += '</tbody></table>';
@@ -903,9 +953,9 @@
                 const pathDisplay = escapeHtml(f.share_path) || '<span class="badge badge-dim">—</span>';
                 html += `<tr><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.hostname)}</td><td title="${escapeHtml(f.share_path || '')}">${pathDisplay}</td>
                     <td>
-                        <button class="btn-sm" onclick="filesEdit('${escapeHtml(f.name)}')">Edit</button>
-                        <button class="btn-sm" onclick="filesFixPerms('${escapeHtml(f.name)}')">Fix Perms</button>
-                        <button class="btn-sm btn-danger" onclick="filesDelete('${escapeHtml(f.name)}')">Delete</button>
+                        <button class="btn-sm" data-action="filesEdit" data-args="${escapeHtml(JSON.stringify([f.name]))}">Edit</button>
+                        <button class="btn-sm" data-action="filesFixPerms" data-args="${escapeHtml(JSON.stringify([f.name]))}">Fix Perms</button>
+                        <button class="btn-sm btn-danger" data-action="filesDelete" data-args="${escapeHtml(JSON.stringify([f.name]))}">Delete</button>
                     </td></tr>`;
             });
             html += '</tbody></table>';
@@ -1104,9 +1154,9 @@
                 } catch (e) { status = 'error'; }
                 html += `<tr><td>${escapeHtml(iface)}</td><td>${escapeHtml(status)}</td>
                     <td>
-                        <button class="btn-sm" onclick="vpnAction('${escapeHtml(iface)}','start')">Start</button>
-                        <button class="btn-sm" onclick="vpnAction('${escapeHtml(iface)}','stop')">Stop</button>
-                        <button class="btn-sm btn-danger" onclick="vpnAction('${escapeHtml(iface)}','delete')">Delete</button>
+                        <button class="btn-sm" data-action="vpnAction" data-args="${escapeHtml(JSON.stringify([iface, 'start']))}">Start</button>
+                        <button class="btn-sm" data-action="vpnAction" data-args="${escapeHtml(JSON.stringify([iface, 'stop']))}">Stop</button>
+                        <button class="btn-sm btn-danger" data-action="vpnAction" data-args="${escapeHtml(JSON.stringify([iface, 'delete']))}">Delete</button>
                     </td></tr>`;
             }
             html += '</tbody></table>';
