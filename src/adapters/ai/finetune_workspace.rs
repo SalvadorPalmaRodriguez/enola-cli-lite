@@ -93,6 +93,11 @@ impl FinetuneWorkspacePort for FsFinetuneWorkspace {
         grant_job_access(layout)
     }
 
+    #[tracing::instrument(skip(self))]
+    async fn grant_model_read(&self, tokenizer_dir: &Path, gguf: &Path) -> Result<()> {
+        grant_model_read(tokenizer_dir, gguf)
+    }
+
     async fn is_file(&self, path: &Path) -> bool {
         tokio::fs::metadata(path)
             .await
@@ -121,6 +126,47 @@ fn grant_job_access(layout: &FinetuneJobLayout) -> Result<()> {
                 })?;
             }
         }
+    }
+    Ok(())
+}
+
+/// A25-12: tokenizer (dir `0750` + ficheros `0640`) y GGUF (`0640`) con grupo
+/// `FINETUNE_UID`: el contenedor los lee pero no puede modificarlos (dueño
+/// root) y el resto de usuarios sigue sin acceso. El `chgrp` solo como root
+/// (en tests no hay chown). Los symlinks se ignoran: nunca se siguen.
+fn grant_model_read(tokenizer_dir: &Path, gguf: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid no tiene precondiciones.
+        let is_root = unsafe { libc::geteuid() } == 0;
+        let gid = crate::application::ai_finetune::FINETUNE_UID;
+        let grant = |path: &Path, mode: u32| -> Result<()> {
+            let meta = std::fs::symlink_metadata(path).map_err(|e| {
+                EnolaError::InfrastructureError(format!("stat '{}': {e}", path.display()))
+            })?;
+            if meta.file_type().is_symlink() {
+                return Ok(());
+            }
+            if is_root {
+                std::os::unix::fs::lchown(path, None, Some(gid)).map_err(|e| {
+                    EnolaError::InfrastructureError(format!("chgrp '{}': {e}", path.display()))
+                })?;
+            }
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).map_err(|e| {
+                EnolaError::InfrastructureError(format!("chmod '{}': {e}", path.display()))
+            })
+        };
+        grant(tokenizer_dir, 0o750)?;
+        let entries = std::fs::read_dir(tokenizer_dir).map_err(|e| {
+            EnolaError::InfrastructureError(format!("leer '{}': {e}", tokenizer_dir.display()))
+        })?;
+        for entry in entries.flatten() {
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                grant(&entry.path(), 0o640)?;
+            }
+        }
+        grant(gguf, 0o640)?;
     }
     Ok(())
 }
@@ -201,5 +247,49 @@ mod tests {
         assert!(ws.is_file(&f).await);
         assert!(!ws.is_file(dir.path()).await);
         assert!(!ws.is_file(&dir.path().join("nope")).await);
+    }
+
+    /// A25-12: tokenizer 0750/0640 y GGUF 0640 (legibles por el grupo del
+    /// UID de entrenamiento); un symlink dentro del tokenizer no se sigue.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn grant_model_read_sets_group_read_modes_and_skips_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
+        let dir = tempfile::tempdir().unwrap();
+        let tok = dir.path().join("tokenizer/org__repo");
+        std::fs::create_dir_all(&tok).unwrap();
+        std::fs::set_permissions(&tok, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let cfg = tok.join("tokenizer_config.json");
+        std::fs::write(&cfg, "{}").unwrap();
+        std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // Fichero ajeno al que apunta un symlink del tokenizer: no debe tocarse.
+        let outside = dir.path().join("outside");
+        std::fs::write(&outside, "x").unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&outside, tok.join("link.json")).unwrap();
+        let gguf = dir.path().join("m.gguf");
+        std::fs::write(&gguf, "GGUF").unwrap();
+        std::fs::set_permissions(&gguf, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        FsFinetuneWorkspace::new()
+            .grant_model_read(&tok, &gguf)
+            .await
+            .unwrap();
+
+        assert_eq!(mode(&tok), 0o750);
+        assert_eq!(mode(&cfg), 0o640);
+        assert_eq!(mode(&gguf), 0o640);
+        assert_eq!(mode(&outside), 0o600, "el symlink no se sigue");
+    }
+
+    #[tokio::test]
+    async fn grant_model_read_fails_on_missing_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = FsFinetuneWorkspace::new()
+            .grant_model_read(&dir.path().join("nope"), &dir.path().join("m.gguf"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("stat"), "{err}");
     }
 }

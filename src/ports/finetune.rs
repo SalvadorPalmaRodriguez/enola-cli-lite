@@ -45,6 +45,11 @@ pub trait FinetuneWorkspacePort: Send + Sync {
     async fn prepare_job_workspace(&self, layout: &FinetuneJobLayout, dataset: &Path)
         -> Result<()>;
 
+    /// A25-12: da al UID sin privilegios del entrenamiento acceso de SOLO
+    /// lectura (grupo `FINETUNE_UID`, `0640`/`0750`) al tokenizer y al GGUF
+    /// base que se montan en el contenedor; el resto de usuarios sigue sin acceso.
+    async fn grant_model_read(&self, tokenizer_dir: &Path, gguf: &Path) -> Result<()>;
+
     /// `true` si `path` es un fichero existente.
     async fn is_file(&self, path: &Path) -> bool;
 }

@@ -382,6 +382,11 @@ impl ManageFinetune {
         self.workspace
             .prepare_job_workspace(&layout, Path::new(dataset))
             .await?;
+        // A25-12: tokenizer y GGUF son 0640 root:root; el contenedor corre como
+        // FINETUNE_UID y debe poder leerlos (no escribirlos).
+        self.workspace
+            .grant_model_read(&tokenizer_dir, &gguf_host)
+            .await?;
 
         let mut env = HashMap::new();
         env.insert("LOW_MEMORY".into(), low_memory.to_string());
@@ -642,6 +647,8 @@ mod tests {
     #[derive(Default)]
     struct FakeWorkspace {
         files: std::sync::Mutex<HashMap<PathBuf, String>>,
+        /// Rutas pasadas a `grant_model_read` (tokenizer, GGUF).
+        granted: std::sync::Mutex<Vec<PathBuf>>,
     }
 
     impl FakeWorkspace {
@@ -710,6 +717,13 @@ mod tests {
                 ))
             })?;
             let _ = self.write(layout.dataset_file(), content);
+            Ok(())
+        }
+
+        async fn grant_model_read(&self, tokenizer_dir: &Path, gguf: &Path) -> Result<()> {
+            let mut g = self.granted.lock().unwrap();
+            g.push(tokenizer_dir.to_path_buf());
+            g.push(gguf.to_path_buf());
             Ok(())
         }
 
@@ -964,6 +978,12 @@ mod tests {
         assert!(job.container.contains("finetune"));
         // El job registra el modelo base resuelto por `name` desde la biblioteca.
         assert_eq!(job.base_model, "llama3.1:8b");
+        // A25-12: el UID del entrenamiento recibe lectura del tokenizer y del GGUF
+        // montados (si no, el job muere con PermissionError en /tokenizer).
+        let granted = dir.ws.granted.lock().unwrap().clone();
+        assert_eq!(granted.len(), 2, "{granted:?}");
+        assert_eq!(granted[0], tok_dir);
+        assert!(granted[1].ends_with("m.gguf"), "{granted:?}");
     }
 
     #[tokio::test]
