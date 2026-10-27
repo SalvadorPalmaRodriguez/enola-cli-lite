@@ -676,11 +676,21 @@ fn read_share_path_from_nginx(service_name: &str) -> Option<String> {
     None
 }
 
+/// Nombre del share a partir del servicio Tor `fileserver_<name>`: es el que
+/// esperan `/api/files/{name}/…` y la UI.
+fn file_share_name(tor_name: &str) -> String {
+    tor_name
+        .strip_prefix(crate::domain::naming::ServiceType::FileServer.tor_config_prefix())
+        .unwrap_or(tor_name)
+        .to_string()
+}
+
 async fn api_files_list() -> ApiResult<Vec<FileShareInfo>> {
     let list = commands::files::list().await.map_err(ApiError::from)?;
     let enriched = list
         .into_iter()
-        .map(|s| {
+        .map(|mut s| {
+            s.name = file_share_name(&s.name);
             let share_path = read_share_path_from_nginx(&s.name);
             FileShareInfo {
                 service: s,
@@ -3330,6 +3340,14 @@ mod tests {
             std::time::Duration::from_secs(3600),
             Arc::new(|_t: &str| true),
         ))
+    }
+
+    /// La UI usa `name` en `/api/files/{name}/…`, que espera el nombre del
+    /// share, no el del servicio Tor `fileserver_<name>`.
+    #[test]
+    fn file_share_name_strips_tor_prefix() {
+        assert_eq!(file_share_name("fileserver_uitest-files"), "uitest-files");
+        assert_eq!(file_share_name("docs"), "docs");
     }
 
     async fn console(args: &[&str], confirm: Option<&str>, timeout: Option<u64>) -> StatusCode {
