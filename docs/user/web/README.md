@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/web/README.md`
-> **Versión:** 2.3 | **Actualizado:** 2026-10-25
+> **Versión:** 2.4 | **Actualizado:** 2026-10-27
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 
 # Enola Web Dashboard
@@ -31,14 +31,14 @@ generated and written to `~/.enola/web-token` (the terminal shows the path). Ope
   header is not `127.0.0.1`, `localhost` or `[::1]` get `421` (protects against DNS
   rebinding; the port is not checked, so an SSH tunnel like
   `ssh -L 9000:127.0.0.1:8090` still works).
-- **Security headers** on every response: `Content-Security-Policy` (`default-src
-  'self'`, `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'self'`),
-  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: no-referrer`, and `Cache-Control: no-store` on `/api`.
-  **Known limitation:** the CSP still allows `'unsafe-inline'` in `script-src` and
-  `style-src`, because the dashboard uses about 80 inline `onclick` handlers.
-  Removing it requires moving those handlers to `addEventListener` (pending
-  refactor).
+- **Security headers** on every response: a strict `Content-Security-Policy`
+  (`default-src 'self'`, `script-src 'self'`, `style-src 'self'`,
+  `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'none'`,
+  `form-action 'self'` — no `'unsafe-inline'`), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+  `Cache-Control: no-store` on `/api`. The dashboard has no inline scripts or
+  styles, so the browser refuses to run any code injected into the page (for
+  example through a hostile service name).
 - **Same command policy as MCP** for the console, and no custom/unsigned updates
   from the web (see the API notes below).
 - **Root required**: The server requires root privileges (same as CLI commands).

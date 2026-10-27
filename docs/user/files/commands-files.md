@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/files/commands-files.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-10-24
+> **Versión:** 2.2 | **Actualizado:** 2026-10-27
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -58,6 +58,16 @@ mismo para el servicio Tor, el site Nginx y el certificado
 (`/etc/nginx/ssl/fileserver_<NOMBRE>.{crt,key}`). Si lo creaste sin `--ssl`,
 puedes activar HTTPS más tarde con `sudo enola-cli tor ssl fileserver_<NOMBRE>`.
 `--auth` se gestiona igual que en el resto de servicios (`tor auth … fileserver <NOMBRE>`).
+
+**Seguridad de lo que se sirve** (con y sin `--ssl`): el share es para descargar
+ficheros, no para alojar webs. Nginx envía una `Content-Security-Policy` estricta
+(`default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; …`),
+así que un `.html` compartido **no ejecuta scripts ni estilos incrustados** (sí los
+`.js`/`.css` externos del propio share). Los ficheros ocultos (`.algo`) y las
+extensiones sensibles (`.env`, `.git`, `.sql`, `.pem`, `.key`, `.crt`, `.der`,
+`.p12`, `.pfx`) devuelven `404`. Para publicar una web usa `tor create` o un CMS.
+Los shares creados antes de esta versión conservan su configuración anterior:
+bórralos y vuelve a crearlos para aplicar estas cabeceras.
 
 ---
 
