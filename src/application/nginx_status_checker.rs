@@ -226,6 +226,9 @@ mod tests {
         async fn disable_site(&self, _domain: &str) -> Result<()> {
             Ok(())
         }
+        async fn delete_ssl_cert(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
         async fn delete_site_config(&self, _domain: &str) -> Result<()> {
             Ok(())
         }

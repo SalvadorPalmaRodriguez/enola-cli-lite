@@ -309,16 +309,11 @@ async fn publish_onion(
         })
         .await
         .map_err(CliError::from)
-        .inspect(|res| {
-            for w in &res.warnings {
-                eprintln!("⚠️  {w}");
-            }
-        })
 }
 
 /// Servicio Tor publicado de `name` en el dominio `kind`, **solo** por su nombre
-/// canónico (lo que crea `publish`): `Ok(Some(nombre))`, `Ok(None)` si no está
-/// publicado, o error accionable si solo existe el de v0.9.0.
+/// canónico (lo que crea `publish`): `Ok(Some(nombre))` u `Ok(None)` si no está
+/// publicado.
 fn published_tor_service(
     services: &[crate::ports::tor::TorServiceInfo],
     name: &str,
@@ -329,20 +324,16 @@ fn published_tor_service(
     match crate::domain::naming::find_published(name, kind, &existing) {
         PublishedLookup::Found(canonical) => Ok(Some(canonical)),
         PublishedLookup::NotPublished => Ok(None),
-        PublishedLookup::LegacyV09(hint) => Err(CliError::InvalidInput(hint)),
     }
 }
 
 /// `true` si el servicio Tor tiene site Nginx asociado (nomenclatura canónica
-/// `<dominio>_<name>` + fallbacks legacy `proxy_`/`files_`/`fileserver-`).
+/// `<dominio>_<name>`).
 fn tor_service_has_nginx(service_name: &str) -> bool {
     use crate::domain::naming::ServiceName;
     ServiceName::from_tor_config(service_name)
         .and_then(|sn| sn.nginx_config_name())
         .is_some()
-        || service_name.starts_with("proxy_")
-        || service_name.starts_with("files_")
-        || service_name.starts_with("fileserver-")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1534,8 +1525,7 @@ pub mod tor {
         ///   `ServiceName::resolve(domain, instance)` produce el nombre
         ///   canónico (`tor auth enable ai dev` → `ai_dev`).
         /// - `instance = None`: `service` es el nombre de servicio tal cual
-        ///   (canónico o legacy) — comportamiento previo, con fallback
-        ///   `proxy_{service}` por compatibilidad.
+        ///   o, si no existe, `proxy_{service}` (lo que crea `tor create web`).
         async fn resolve_service_name(service: &str, instance: Option<&str>) -> CliResult<String> {
             let tor_adapter = Arc::new(TorConfigAdapter::new());
             if let Some(inst) = instance {
@@ -1546,10 +1536,6 @@ pub mod tor {
                             service
                         ))
                     })?;
-                // Servicio de v0.9.0 con el nombre anterior: decir cómo migrar.
-                if let Ok(services) = tor_adapter.list_hidden_services().await {
-                    reject_v09_legacy(&canonical, &services)?;
-                }
                 return Ok(canonical);
             }
 
@@ -1566,25 +1552,10 @@ pub mod tor {
             {
                 Ok(format!("proxy_{}", service))
             } else {
-                reject_v09_legacy(service, &services)?;
                 Err(CliError::InvalidInput(format!(
                     "Service '{}' not found",
                     service
                 )))
-            }
-        }
-
-        /// Error accionable si `canonical` no existe pero sí su nombre de v0.9.0.
-        fn reject_v09_legacy(
-            canonical: &str,
-            services: &[crate::ports::tor::TorServiceInfo],
-        ) -> CliResult<()> {
-            let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
-            match crate::domain::naming::find_legacy_v09(canonical, &existing) {
-                Some((legacy, _)) => Err(CliError::InvalidInput(
-                    crate::domain::naming::legacy_v09_hint(canonical, &legacy),
-                )),
-                None => Ok(()),
             }
         }
 
@@ -2310,6 +2281,18 @@ pub mod git {
         // Clean up /srv data directory.
         let srv_dir = format!("/srv/enola-git/{}", name);
         let _ = std::fs::remove_dir_all(&srv_dir);
+
+        // Retira el .onion publicado + su site Nginx + su certificado: SOLO el
+        // canónico `git_<name>` (`<name>` puede ser un `tor create` ajeno).
+        // Aquí y no en el executor para que la web lo haga igual.
+        {
+            use crate::application::remove_tor_service::RemoveTorService;
+            let use_case = RemoveTorService::new(
+                Arc::new(TorConfigAdapter::new()),
+                Some(Arc::new(NginxAdapter::new())),
+            );
+            let _ = use_case.remove_published(&format!("git_{}", name)).await;
+        }
 
         Ok(())
     }
@@ -3668,7 +3651,7 @@ pub mod wordpress {
     pub async fn hide(name: &str) -> CliResult<()> {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
-            None;
+            Some(Arc::new(NginxAdapter::new()));
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
 
         // Nombre canónico del servicio Tor: `wp_<name>` (lo que crea `wp publish`).
@@ -3803,19 +3786,15 @@ pub mod wordpress {
         let srv_dir = format!("/srv/enola-wordpress/{}", name);
         let _ = std::fs::remove_dir_all(&srv_dir);
 
-        // Retira el .onion publicado + su site Nginx: SOLO el canónico `wp_<name>`.
-        // Nunca se prueban otros nombres (`proxy_<name>`/`<name>` pueden ser
-        // servicios ajenos de `tor create`); uno de v0.9.0 solo se avisa.
+        // Retira el .onion publicado + su site Nginx + su certificado: SOLO el
+        // canónico `wp_<name>` (`proxy_<name>`/`<name>` pueden ser servicios
+        // ajenos de `tor create`). Si no estaba publicado, no hay nada que quitar.
         {
-            use crate::application::remove_tor_service::{RemoveOutcome, RemoveTorService};
+            use crate::application::remove_tor_service::RemoveTorService;
             let tor_adapter = Arc::new(TorConfigAdapter::new());
             let nginx_adapter = Arc::new(NginxAdapter::new());
             let use_case = RemoveTorService::new(tor_adapter, Some(nginx_adapter));
-            if let RemoveOutcome::LegacyV09(hint) =
-                use_case.remove_published(&format!("wp_{}", name)).await
-            {
-                eprintln!("⚠️  {hint}");
-            }
+            let _ = use_case.remove_published(&format!("wp_{}", name)).await;
         }
 
         Ok(())
@@ -4186,7 +4165,7 @@ pub mod drupal {
     pub async fn hide(name: &str) -> CliResult<()> {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
-            None;
+            Some(Arc::new(NginxAdapter::new()));
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
 
         // Nombre canónico del servicio Tor: `drupal_<name>`
@@ -4543,7 +4522,7 @@ pub mod ghost {
     pub async fn hide(name: &str) -> CliResult<()> {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
-            None;
+            Some(Arc::new(NginxAdapter::new()));
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
 
         // Nombre canónico del servicio Tor: `ghost_<name>`
@@ -4875,7 +4854,7 @@ pub mod magnolia {
     pub async fn hide(name: &str) -> CliResult<()> {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
-            None;
+            Some(Arc::new(NginxAdapter::new()));
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
         // Nombre canónico del servicio Tor: `magnolia_<name>`
         use_case
@@ -4932,7 +4911,7 @@ pub mod strapi {
     pub async fn hide(name: &str) -> CliResult<()> {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
-            None;
+            Some(Arc::new(NginxAdapter::new()));
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
         // Nombre canónico del servicio Tor: `strapi_<name>`
         use_case
@@ -4998,7 +4977,7 @@ pub mod wagtail {
     pub async fn hide(name: &str) -> CliResult<()> {
         let tor_adapter = Arc::new(TorConfigAdapter::new());
         let nginx_adapter: Option<Arc<dyn crate::ports::web::NginxManagerPort + Send + Sync>> =
-            None;
+            Some(Arc::new(NginxAdapter::new()));
         let use_case = RemoveTorService::new(tor_adapter, nginx_adapter);
         // Nombre canónico del servicio Tor: `wagtail_<name>`
         use_case
@@ -5015,19 +4994,14 @@ pub mod wagtail {
 pub mod files {
     use super::*;
 
-    /// List file shares — incluye servicios con prefijo fileserver_ y servicios SSL
-    /// creados directamente con el nombre del share (sin prefijo).
+    /// List file shares: servicios Tor `fileserver_<name>`.
     pub async fn list() -> CliResult<Vec<crate::ports::tor::TorServiceInfo>> {
         let adapter = Arc::new(TorConfigAdapter::new());
         let use_case = ListTorServices::new(adapter);
         let services = use_case.execute().await?;
         Ok(services
             .into_iter()
-            .filter(|s| {
-                // Nomenclatura canónica (MEGAPLAN-PUBLISH): solo `fileserver_<name>`
-                // (+ `fileserver-<name>` legacy en lectura)
-                s.name.starts_with("fileserver_") || s.name.starts_with("fileserver-")
-            })
+            .filter(|s| s.name.starts_with("fileserver_"))
             .collect())
     }
 
@@ -5152,8 +5126,8 @@ pub mod files {
 
     /// Delete a file share
     pub async fn delete(name: &str) -> CliResult<()> {
-        // SEC-005/R-12: `name` se interpola en `/etc/nginx/ssl/{name}.crt`,
-        // `/srv/enola-files/{name}` y `fileserver_{name}` — validar aquí
+        // SEC-005/R-12: `name` se interpola en `/srv/enola-files/{name}` y
+        // `fileserver_{name}` — validar aquí
         // además del executor, porque la vía web llama a esta función
         // directamente.
         crate::domain::naming::validate_service_name(name)
@@ -5162,53 +5136,29 @@ pub mod files {
         // Read share path from Nginx config before removing it
         let share_path = read_share_path(name);
 
-        let adapter = Arc::new(TorConfigAdapter::new());
-        let nginx_adapter = Arc::new(NginxAdapter::new());
-        let use_case = RemoveTorService::new(adapter, Some(nginx_adapter));
-        // Nombre canónico (D7): servicio `fileserver_<name>` y cert
-        // `fileserver_<name>.{crt,key}`; fallbacks legacy en lectura/limpieza.
-        let result = use_case.execute(&format!("fileserver_{}", name)).await;
-        if result.is_ok() {
-            for prefix in [format!("fileserver_{}", name), name.to_string()] {
-                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", prefix)).await;
-                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", prefix)).await;
-            }
-            cleanup_share_dir(&share_path, name);
-            return Ok(());
-        }
-        // Fallback: servicio legacy `fileserver-{name}` (lectura)
-        let adapter2 = Arc::new(TorConfigAdapter::new());
-        let nginx_adapter2 = Arc::new(NginxAdapter::new());
-        let use_case2 = RemoveTorService::new(adapter2, Some(nginx_adapter2));
-        let result2 = use_case2.execute(&format!("fileserver-{}", name)).await;
-        if result2.is_ok() {
-            for prefix in [format!("fileserver-{}", name), name.to_string()] {
-                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.crt", prefix)).await;
-                let _ = tokio::fs::remove_file(format!("/etc/nginx/ssl/{}.key", prefix)).await;
-            }
-            cleanup_share_dir(&share_path, name);
-            return Ok(());
-        }
-        result2.map_err(CliError::from)
+        // Servicio, site y certificado `fileserver_<name>` (P1: nunca el
+        // `<name>.{crt,key}` de otro servicio).
+        let use_case = RemoveTorService::new(
+            Arc::new(TorConfigAdapter::new()),
+            Some(Arc::new(NginxAdapter::new())),
+        );
+        use_case
+            .execute(&format!("fileserver_{}", name))
+            .await
+            .map_err(CliError::from)?;
+        cleanup_share_dir(&share_path, name);
+        Ok(())
     }
 
-    fn read_share_path(name: &str) -> Option<String> {
-        let candidates = [
-            format!("/etc/nginx/sites-available/fileserver_{}", name),
-            format!("/etc/nginx/sites-available/fileserver-{}", name),
-            format!("/etc/nginx/sites-available/{}", name),
-        ];
-        for cfg_path in &candidates {
-            if let Ok(content) = std::fs::read_to_string(cfg_path) {
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if let Some(rest) = trimmed.strip_prefix("root ") {
-                        return Some(rest.trim_end_matches(';').trim().to_string());
-                    }
-                }
-            }
-        }
-        None
+    /// Carpeta compartida del share `name` (`root` del site `fileserver_<name>`).
+    pub(crate) fn read_share_path(name: &str) -> Option<String> {
+        let cfg_path = format!("/etc/nginx/sites-available/fileserver_{}", name);
+        let content = std::fs::read_to_string(cfg_path).ok()?;
+        content.lines().find_map(|line| {
+            line.trim()
+                .strip_prefix("root ")
+                .map(|rest| rest.trim_end_matches(';').trim().to_string())
+        })
     }
 
     fn cleanup_share_dir(share_path: &Option<String>, name: &str) {
@@ -5227,13 +5177,10 @@ pub mod files {
         use crate::ports::web::NginxManagerPort;
 
         // Get current service info — nombre canónico `fileserver_<name>`
-        // (+ `fileserver-<name>` legacy en lectura)
         let services = list().await?;
         let service = services
             .iter()
-            .find(|s| {
-                s.name == format!("fileserver_{}", name) || s.name == format!("fileserver-{}", name)
-            })
+            .find(|s| s.name == format!("fileserver_{}", name))
             .ok_or_else(|| CliError::InvalidInput(format!("File share '{}' not found", name)))?;
 
         let stored_name = service.name.clone();

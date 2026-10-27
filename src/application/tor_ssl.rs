@@ -10,9 +10,7 @@
 //! se rechazan con error claro.
 
 use crate::domain::error::{EnolaError, Result};
-use crate::domain::naming::{
-    find_legacy_v09, legacy_v09_hint, validate_tor_service_name, ServiceName, ServiceType,
-};
+use crate::domain::naming::{validate_tor_service_name, ServiceName, ServiceType};
 use crate::ports::manifest::ManifestPort;
 use crate::ports::tor::TorManagerPort;
 use crate::ports::web::{NginxFileServerConfigWithSsl, NginxManagerPort, NginxProxyConfigWithSsl};
@@ -128,16 +126,12 @@ impl TorSsl {
             })?;
 
         // 0. El servicio debe existir: `deploy_hidden_service` crearía uno nuevo.
-        //    Si solo está el de v0.9.0 (nombre anterior), se dice cómo migrar.
         let services = self.tor_manager.list_hidden_services().await?;
-        let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
-        if !existing.contains(&request.service_name.as_str()) {
-            return Err(EnolaError::NotFound(
-                match find_legacy_v09(&request.service_name, &existing) {
-                    Some((legacy, _)) => legacy_v09_hint(&request.service_name, &legacy),
-                    None => format!("El servicio '{}' no existe", request.service_name),
-                },
-            ));
+        if !services.iter().any(|s| s.name == request.service_name) {
+            return Err(EnolaError::NotFound(format!(
+                "El servicio '{}' no existe",
+                request.service_name
+            )));
         }
 
         // 1. Idempotencia explícita: error claro si ya es SSL (D11)
@@ -266,20 +260,6 @@ mod tests {
         let uc = TorSsl::new(Arc::new(nginx), Arc::new(tor), mock_manifest());
         let err = uc.execute(req("wp_blog")).await.unwrap_err();
         assert!(matches!(err, EnolaError::NotFound(_)), "{err}");
-    }
-
-    #[tokio::test]
-    async fn tor_ssl_reports_v09_service_with_previous_name() {
-        let nginx = MockNginxManagerPort::new();
-        let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services()
-            .returning(|| Ok(vec![tor_service("proxy_ghost-blog")]));
-        let uc = TorSsl::new(Arc::new(nginx), Arc::new(tor), mock_manifest());
-        let err = uc.execute(req("ghost_blog")).await.unwrap_err().to_string();
-        assert!(
-            err.contains("sudo enola-cli tor remove proxy_ghost-blog"),
-            "{err}"
-        );
     }
 
     fn req(name: &str) -> TorSslRequest {

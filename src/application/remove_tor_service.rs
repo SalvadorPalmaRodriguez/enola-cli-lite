@@ -10,18 +10,17 @@ pub enum RemoveOutcome {
     Removed,
     /// El servicio no estaba publicado (nada que borrar).
     NotPublished,
-    /// No estaba el canónico, pero sí un servicio de v0.9.0 con el nombre
-    /// anterior: **no se borra** (podría ser otro servicio) y se devuelve el
-    /// aviso común con el comando para eliminarlo.
-    LegacyV09(String),
 }
 
+/// Retira un servicio Tor publicado: exactamente lo que creó su publicación.
 pub struct RemoveTorService {
     tor_manager: Arc<dyn TorManagerPort + Send + Sync>,
     nginx_manager: Option<Arc<dyn NginxManagerPort + Send + Sync>>,
 }
 
 impl RemoveTorService {
+    /// Sin `nginx_manager` solo se quita el servicio Tor (lo usan los `edit`
+    /// que republican: conservan site y certificado).
     pub fn new(
         tor_manager: Arc<dyn TorManagerPort + Send + Sync>,
         nginx_manager: Option<Arc<dyn NginxManagerPort + Send + Sync>>,
@@ -32,97 +31,39 @@ impl RemoveTorService {
         }
     }
 
+    /// Quita el servicio Tor `service_name` (nombre exacto, sin variantes) y,
+    /// con `nginx_manager`, su site y su certificado `<service_name>.{crt,key}`.
+    /// El site es el canónico del tipo (`proxy_wp_<n>` para `wp_<n>`,
+    /// `fileserver_<n>` para `fileserver_<n>`; ninguno para `raw_`/`ai_`…);
+    /// un nombre sin prefijo de tipo (`tor create raw|static <n>`) usa el site
+    /// `<n>`. El certificado solo se borra si el servicio Tor se ha quitado.
     pub async fn execute(&self, service_name: &str) -> Result<()> {
-        // Try to find the correct service name
-        // Services can be named directly (raw) or with proxy_ prefix (web)
-        let names_to_try = if service_name.starts_with("proxy_") {
-            vec![service_name.to_string()]
-        } else {
-            vec![service_name.to_string(), format!("proxy_{}", service_name)]
+        let site = match crate::domain::naming::ServiceName::from_tor_config(service_name) {
+            Some(sn) => sn.nginx_config_name(),
+            None => Some(service_name.to_string()),
         };
 
-        // Sites Nginx candidatos: derivación canónica vía ServiceName
-        // (`proxy_ai_dev` para `ai_dev`, `fileserver_docs` para FileServer,
-        // `proxy_wp_blog` para `wp_blog`, ...) + variantes legacy.
-        let mut sites_to_try: Vec<String> = Vec::new();
-        if let Some(sn) = crate::domain::naming::ServiceName::from_tor_config(service_name) {
-            if let Some(site) = sn.nginx_config_name() {
-                sites_to_try.push(site);
-            }
-        }
-        for n in &names_to_try {
-            sites_to_try.push(n.clone());
-            sites_to_try.push(format!("proxy_{}", n));
-        }
-        sites_to_try.sort();
-        sites_to_try.dedup();
-
-        let mut last_error = None;
-        let mut tor_removed = false;
-
-        // 1. Remove Nginx site config first (canonical site + legacy variants)
-        if let Some(nginx) = &self.nginx_manager {
-            for name in &sites_to_try {
-                let _ = nginx.disable_site(name).await;
-                let _ = nginx.delete_site_config(name).await;
-            }
+        if let (Some(nginx), Some(site)) = (&self.nginx_manager, &site) {
+            let _ = nginx.disable_site(site).await;
+            let _ = nginx.delete_site_config(site).await;
             let _ = nginx.reload().await;
         }
 
-        // 2. Try to remove Tor service with each possible name
-        for name in &names_to_try {
-            match self.tor_manager.remove_hidden_service(name).await {
-                Ok(_) => {
-                    tor_removed = true;
-                    break;
-                }
-                Err(e) => {
-                    last_error = Some(e);
-                }
-            }
-        }
+        self.tor_manager.remove_hidden_service(service_name).await?;
 
-        if !tor_removed {
-            // Si en su lugar existe el servicio de v0.9.0 (nombre anterior),
-            // el error dice cómo eliminarlo (sin compatibilidad desde v0.10.0).
-            if let Ok(services) = self.tor_manager.list_hidden_services().await {
-                let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
-                if let Some((legacy, _)) =
-                    crate::domain::naming::find_legacy_v09(service_name, &existing)
-                {
-                    return Err(crate::domain::error::EnolaError::NotFound(
-                        crate::domain::naming::legacy_v09_hint(service_name, &legacy),
-                    ));
-                }
-            }
-            return Err(last_error.unwrap_or_else(|| {
-                crate::domain::error::EnolaError::NotFound(format!(
-                    "Service '{}' not found",
-                    service_name
-                ))
-            }));
+        if let Some(nginx) = &self.nginx_manager {
+            nginx.delete_ssl_cert(service_name).await?;
         }
-
         Ok(())
     }
 
     /// Borra **solo** el servicio canónico `canonical` (`wp_<n>`, ...) para la
     /// limpieza de un `delete`, sin probar otros nombres: un `proxy_<n>` o un
-    /// `<n>` podrían ser servicios ajenos (`tor create`). Si falta el canónico
-    /// pero hay uno de v0.9.0, lo indica en vez de borrarlo.
+    /// `<n>` podrían ser servicios ajenos (`tor create`).
     pub async fn remove_published(&self, canonical: &str) -> RemoveOutcome {
-        if self.execute(canonical).await.is_ok() {
-            return RemoveOutcome::Removed;
-        }
-        let Ok(services) = self.tor_manager.list_hidden_services().await else {
-            return RemoveOutcome::NotPublished;
-        };
-        let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
-        match crate::domain::naming::find_legacy_v09(canonical, &existing) {
-            Some((legacy, _)) => {
-                RemoveOutcome::LegacyV09(crate::domain::naming::legacy_v09_hint(canonical, &legacy))
-            }
-            None => RemoveOutcome::NotPublished,
+        match self.execute(canonical).await {
+            Ok(()) => RemoveOutcome::Removed,
+            Err(_) => RemoveOutcome::NotPublished,
         }
     }
 }
@@ -238,12 +179,16 @@ mod tests {
 
     struct MockNginxManager {
         delete_called: AtomicBool,
+        deleted_sites: std::sync::Mutex<Vec<String>>,
+        deleted_certs: std::sync::Mutex<Vec<String>>,
     }
 
     impl MockNginxManager {
         fn new() -> Self {
             Self {
                 delete_called: AtomicBool::new(false),
+                deleted_sites: std::sync::Mutex::new(Vec::new()),
+                deleted_certs: std::sync::Mutex::new(Vec::new()),
             }
         }
     }
@@ -265,8 +210,13 @@ mod tests {
         async fn disable_site(&self, _: &str) -> Result<()> {
             Ok(())
         }
-        async fn delete_site_config(&self, _: &str) -> Result<()> {
+        async fn delete_ssl_cert(&self, name: &str) -> Result<()> {
+            self.deleted_certs.lock().unwrap().push(name.to_string());
+            Ok(())
+        }
+        async fn delete_site_config(&self, name: &str) -> Result<()> {
             self.delete_called.store(true, Ordering::SeqCst);
+            self.deleted_sites.lock().unwrap().push(name.to_string());
             Ok(())
         }
         async fn validate_config(&self) -> Result<bool> {
@@ -348,6 +298,15 @@ mod tests {
         assert!(result.is_ok());
         assert!(tor.remove_called.load(Ordering::SeqCst));
         assert!(nginx.delete_called.load(Ordering::SeqCst));
+        // Sin prefijo de tipo (`tor create static myservice`): site `myservice`.
+        assert_eq!(
+            *nginx.deleted_sites.lock().unwrap(),
+            vec!["myservice".to_string()]
+        );
+        assert_eq!(
+            *nginx.deleted_certs.lock().unwrap(),
+            vec!["myservice".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -361,25 +320,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_reports_v09_service_when_canonical_is_missing() {
-        // `drupal hide sitio` busca `drupal_sitio`; si solo existe el de
-        // v0.9.0 (`proxy_drupal-sitio`), el error dice cómo eliminarlo.
-        let tor = Arc::new(MockTorManager::missing_with(&["proxy_drupal-sitio"]));
-        let use_case = RemoveTorService::new(tor, None);
-        let err = use_case
-            .execute("drupal_sitio")
-            .await
-            .unwrap_err()
-            .to_string();
-        assert!(
-            err.contains("sudo enola-cli tor remove proxy_drupal-sitio"),
-            "{err}"
+    async fn remove_removes_only_the_given_name_and_its_canonical_site() {
+        // `wp_blog`: servicio Tor `wp_blog`, site `proxy_wp_blog` y cert
+        // `wp_blog`; nunca `proxy_wp_blog` como servicio ni el site `wp_blog`.
+        let tor = Arc::new(MockTorManager::new());
+        let nginx = Arc::new(MockNginxManager::new());
+        let use_case = RemoveTorService::new(tor.clone(), Some(nginx.clone()));
+        use_case.execute("wp_blog").await.unwrap();
+        assert_eq!(*tor.removed.lock().unwrap(), vec!["wp_blog".to_string()]);
+        assert_eq!(
+            *nginx.deleted_sites.lock().unwrap(),
+            vec!["proxy_wp_blog".to_string()]
+        );
+        assert_eq!(
+            *nginx.deleted_certs.lock().unwrap(),
+            vec!["wp_blog".to_string()]
         );
     }
 
     #[tokio::test]
-    async fn remove_keeps_original_error_without_v09_service() {
-        let tor = Arc::new(MockTorManager::missing_with(&["git_otro"]));
+    async fn remove_does_not_try_proxy_variant() {
+        // Antes se probaba también `proxy_<n>`, que puede ser otro servicio.
+        let tor = Arc::new(MockTorManager::missing_with(&["proxy_blog"]));
+        let use_case = RemoveTorService::new(tor.clone(), None);
+        assert!(use_case.execute("blog").await.is_err());
+        assert_eq!(*tor.removed.lock().unwrap(), vec!["blog".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn remove_keeps_cert_when_tor_removal_fails() {
+        let tor = Arc::new(MockTorManager::failing());
+        let nginx = Arc::new(MockNginxManager::new());
+        let use_case = RemoveTorService::new(tor, Some(nginx.clone()));
+        assert!(use_case.execute("wp_blog").await.is_err());
+        assert!(nginx.deleted_certs.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn remove_keeps_original_error() {
+        let tor = Arc::new(MockTorManager::missing_with(&["proxy_drupal-sitio"]));
         let use_case = RemoveTorService::new(tor, None);
         let err = use_case
             .execute("drupal_sitio")
@@ -408,27 +387,14 @@ mod tests {
     #[tokio::test]
     async fn remove_published_never_touches_other_names() {
         // `proxy_blog` puede ser un `tor create web blog` sin relación: solo
-        // se intenta el canónico (y su site), nunca `blog`/`proxy_blog`.
+        // se intenta el canónico, nunca `blog`/`proxy_blog`.
         let tor = Arc::new(MockTorManager::missing_with(&["proxy_blog", "blog"]));
         let use_case = RemoveTorService::new(tor.clone(), None);
-        let outcome = use_case.remove_published("wp_blog").await;
-        let removed = tor.removed.lock().unwrap().clone();
-        assert!(
-            removed
-                .iter()
-                .all(|n| n == "wp_blog" || n == "proxy_wp_blog"),
-            "{removed:?}"
+        assert_eq!(
+            use_case.remove_published("wp_blog").await,
+            RemoveOutcome::NotPublished
         );
-        // Y avisa del posible servicio de v0.9.0 con el mensaje común.
-        match outcome {
-            RemoveOutcome::LegacyV09(hint) => {
-                assert!(
-                    hint.contains("sudo enola-cli tor remove proxy_blog"),
-                    "{hint}"
-                )
-            }
-            other => panic!("se esperaba LegacyV09, no {other:?}"),
-        }
+        assert_eq!(*tor.removed.lock().unwrap(), vec!["wp_blog".to_string()]);
     }
 
     #[tokio::test]

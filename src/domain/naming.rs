@@ -402,13 +402,6 @@ impl ServiceName {
             names.push(format!("{}{}", service_type.tor_config_prefix(), base_name));
         }
 
-        // Fallback legacy NO canónico (D10): servicios creados antes de la
-        // nomenclatura `<dominio>_<name>` usaban guiones o el prefijo `proxy_`.
-        // Se mantienen solo para localizar servicios antiguos; los nuevos
-        // nunca se generan con estas formas.
-        names.push(format!("ai-{}", base_name));
-        names.push(format!("proxy_ai-{}", base_name));
-
         names
     }
 
@@ -438,71 +431,6 @@ impl ServiceName {
     }
 }
 
-/// Seguridad con que un nombre de la v0.9.0-alpha pertenece a un servicio.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LegacyMatch {
-    /// Solo lo pudo crear el `publish` de ese dominio en la v0.9.0
-    /// (`proxy_drupal-<n>`, ...).
-    Unambiguous,
-    /// Coincide con un nombre que también generan otros comandos
-    /// (`proxy_<n>` = `tor create web`; `<n>` = `tor create` raw/static).
-    Ambiguous,
-}
-
-impl ServiceName {
-    /// Nombres Tor que la v0.9.0-alpha daba a este servicio al publicarlo con
-    /// el comando de su dominio, antes de la nomenclatura `<dominio>_<name>`:
-    /// `git publish` → `<n>`, `wp publish` → `proxy_<n>`, y los CMS
-    /// `drupal|ghost|magnolia|strapi|wagtail publish` → `proxy_<cms>-<n>`.
-    /// `files` no cambió de nombre y `ai` no existía. Solo se usan para
-    /// **detectar y avisar**: los servicios antiguos no se gestionan.
-    pub fn legacy_v09_tor_names(&self) -> Vec<(String, LegacyMatch)> {
-        let base = &self.base_name;
-        let cms = match self.service_type {
-            ServiceType::Git => return vec![(base.clone(), LegacyMatch::Ambiguous)],
-            ServiceType::WordPress => {
-                return vec![(format!("proxy_{base}"), LegacyMatch::Ambiguous)]
-            }
-            ServiceType::Drupal => "drupal",
-            ServiceType::Ghost => "ghost",
-            ServiceType::Magnolia => "magnolia",
-            ServiceType::Strapi => "strapi",
-            ServiceType::Wagtail => "wagtail",
-            ServiceType::StaticSite
-            | ServiceType::FileServer
-            | ServiceType::Proxy
-            | ServiceType::Raw
-            | ServiceType::Ai => return Vec::new(),
-        };
-        vec![(format!("proxy_{cms}-{base}"), LegacyMatch::Unambiguous)]
-    }
-}
-
-/// Si el servicio canónico `canonical` (`<dominio>_<name>`) **no** está en
-/// `existing` pero sí uno de sus nombres de la v0.9.0-alpha, devuelve ese
-/// nombre y su [`LegacyMatch`]. `None` si existe el canónico, si no hay nada
-/// antiguo o si `canonical` no sigue la nomenclatura canónica.
-pub fn find_legacy_v09(canonical: &str, existing: &[&str]) -> Option<(String, LegacyMatch)> {
-    if existing.contains(&canonical) {
-        return None;
-    }
-    ServiceName::from_tor_config(canonical)?
-        .legacy_v09_tor_names()
-        .into_iter()
-        .find(|(name, _)| existing.contains(&name.as_str()))
-}
-
-/// Mensaje accionable cuando se encuentra `legacy` en lugar de `canonical`.
-pub fn legacy_v09_hint(canonical: &str, legacy: &str) -> String {
-    format!(
-        "No existe el servicio '{canonical}', pero sí '{legacy}', que parece publicado con \
-         enola-cli v0.9.0 (nomenclatura anterior). Desde v0.10.0 los servicios usan nombres \
-         canónicos y los antiguos no se gestionan automáticamente. Si es ese servicio, \
-         elimínalo con `sudo enola-cli tor remove {legacy}` y vuelve a publicarlo: \
-         la dirección .onion cambiará."
-    )
-}
-
 /// Resultado de [`find_published`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublishedLookup {
@@ -510,9 +438,6 @@ pub enum PublishedLookup {
     Found(String),
     /// No está publicado.
     NotPublished,
-    /// No está el canónico, pero sí uno de v0.9.0: aviso con el comando para
-    /// eliminarlo ([`legacy_v09_hint`]). Nunca se usa ese servicio antiguo.
-    LegacyV09(String),
 }
 
 /// Localiza el servicio publicado de `base` en el dominio `kind` **solo** por
@@ -522,11 +447,9 @@ pub enum PublishedLookup {
 pub fn find_published(base: &str, kind: ServiceType, existing: &[&str]) -> PublishedLookup {
     let canonical = ServiceName::new(base, kind).tor_config_name();
     if existing.contains(&canonical.as_str()) {
-        return PublishedLookup::Found(canonical);
-    }
-    match find_legacy_v09(&canonical, existing) {
-        Some((legacy, _)) => PublishedLookup::LegacyV09(legacy_v09_hint(&canonical, &legacy)),
-        None => PublishedLookup::NotPublished,
+        PublishedLookup::Found(canonical)
+    } else {
+        PublishedLookup::NotPublished
     }
 }
 
@@ -557,87 +480,14 @@ mod tests {
             PublishedLookup::Found("git_repo".into())
         );
         // Un `proxy_blog` (posible `tor create web blog`) nunca se toma por el WP.
-        match find_published("blog", ServiceType::WordPress, &["proxy_blog"]) {
-            PublishedLookup::LegacyV09(hint) => assert!(hint.contains("tor remove proxy_blog")),
-            other => panic!("se esperaba LegacyV09, no {other:?}"),
-        }
+        assert_eq!(
+            find_published("blog", ServiceType::WordPress, &["proxy_blog"]),
+            PublishedLookup::NotPublished
+        );
         assert_eq!(
             find_published("repo", ServiceType::Git, &["otro"]),
             PublishedLookup::NotPublished
         );
-    }
-
-    // ── Servicios publicados con la v0.9.0-alpha (nombres no canónicos) ──
-
-    #[test]
-    fn legacy_v09_names_per_domain() {
-        let names = |base: &str, t: ServiceType| ServiceName::new(base, t).legacy_v09_tor_names();
-        assert_eq!(
-            names("blog", ServiceType::WordPress),
-            vec![("proxy_blog".to_string(), LegacyMatch::Ambiguous)]
-        );
-        assert_eq!(
-            names("repo", ServiceType::Git),
-            vec![("repo".to_string(), LegacyMatch::Ambiguous)]
-        );
-        for (t, cms) in [
-            (ServiceType::Drupal, "drupal"),
-            (ServiceType::Ghost, "ghost"),
-            (ServiceType::Magnolia, "magnolia"),
-            (ServiceType::Strapi, "strapi"),
-            (ServiceType::Wagtail, "wagtail"),
-        ] {
-            assert_eq!(
-                names("sitio", t),
-                vec![(format!("proxy_{cms}-sitio"), LegacyMatch::Unambiguous)]
-            );
-        }
-        // Sin cambio de nombre o inexistentes en v0.9.0.
-        for t in [
-            ServiceType::FileServer,
-            ServiceType::Ai,
-            ServiceType::Proxy,
-            ServiceType::StaticSite,
-            ServiceType::Raw,
-        ] {
-            assert!(names("x", t).is_empty(), "{t}");
-        }
-    }
-
-    #[test]
-    fn find_legacy_v09_only_when_canonical_is_missing() {
-        // Canónico ausente + antiguo presente → se detecta.
-        assert_eq!(
-            find_legacy_v09("drupal_sitio", &["proxy_drupal-sitio", "git_x"]),
-            Some(("proxy_drupal-sitio".to_string(), LegacyMatch::Unambiguous))
-        );
-        assert_eq!(
-            find_legacy_v09("wp_blog", &["proxy_blog"]),
-            Some(("proxy_blog".to_string(), LegacyMatch::Ambiguous))
-        );
-        // Canónico presente → nada que avisar (aunque exista un antiguo).
-        assert_eq!(
-            find_legacy_v09("drupal_sitio", &["drupal_sitio", "proxy_drupal-sitio"]),
-            None
-        );
-        // Ni canónico ni antiguo, o nombre no canónico → None.
-        assert_eq!(find_legacy_v09("drupal_sitio", &["git_x"]), None);
-        assert_eq!(find_legacy_v09("no-canonico", &["no-canonico"]), None);
-    }
-
-    #[test]
-    fn legacy_v09_hint_is_actionable() {
-        let h = legacy_v09_hint("drupal_sitio", "proxy_drupal-sitio");
-        assert!(
-            h.contains("proxy_drupal-sitio") && h.contains("drupal_sitio"),
-            "{h}"
-        );
-        assert!(h.contains("v0.9.0"), "{h}");
-        assert!(
-            h.contains("sudo enola-cli tor remove proxy_drupal-sitio"),
-            "{h}"
-        );
-        assert!(h.contains(".onion"), "{h}");
     }
 
     #[test]
@@ -768,9 +618,8 @@ mod tests {
         assert!(names.contains(&"magnolia_myservice".to_string()));
         assert!(names.contains(&"strapi_myservice".to_string()));
         assert!(names.contains(&"wagtail_myservice".to_string()));
-        // Fallback legacy NO canónico (D10)
-        assert!(names.contains(&"ai-myservice".to_string()));
-        assert!(names.contains(&"proxy_ai-myservice".to_string()));
+        // Sin variantes antiguas (`ai-<n>`, `proxy_ai-<n>`).
+        assert!(!names.contains(&"ai-myservice".to_string()));
     }
 
     #[test]
@@ -786,8 +635,6 @@ mod tests {
         assert_eq!(name.nginx_config_name(), Some("proxy_ai_dev".to_string()));
         let lookup = ServiceName::possible_names_for_lookup("dev");
         assert!(lookup.contains(&"ai_dev".to_string()));
-        assert!(lookup.contains(&"ai-dev".to_string()));
-        assert!(lookup.contains(&"proxy_ai-dev".to_string()));
     }
 
     // ── MEGAPLAN-PUBLISH-HARMONIZATION: nomenclatura canónica (D3/D10/D16) ──

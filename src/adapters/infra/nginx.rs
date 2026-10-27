@@ -14,6 +14,7 @@ use tokio::process::Command;
 pub struct NginxAdapter {
     sites_available: PathBuf,
     sites_enabled: PathBuf,
+    ssl_dir: PathBuf,
 }
 
 impl Default for NginxAdapter {
@@ -27,6 +28,7 @@ impl NginxAdapter {
         Self {
             sites_available: PathBuf::from("/etc/nginx/sites-available"),
             sites_enabled: PathBuf::from("/etc/nginx/sites-enabled"),
+            ssl_dir: PathBuf::from("/etc/nginx/ssl"),
         }
     }
 
@@ -99,6 +101,39 @@ mod sec_regression_tests {
             .port()
     }
 
+    #[tokio::test]
+    async fn delete_ssl_cert_removes_only_its_pair_and_rejects_traversal() {
+        let (adapter, tmp) = test_adapter();
+        let ssl = tmp.path().join("ssl");
+        std::fs::create_dir_all(&ssl).expect("ssl dir");
+        for f in [
+            "fileserver_docs.crt",
+            "fileserver_docs.key",
+            "docs.crt",
+            "docs.key",
+        ] {
+            std::fs::write(ssl.join(f), "x").expect("write");
+        }
+
+        adapter
+            .delete_ssl_cert("fileserver_docs")
+            .await
+            .expect("delete");
+        assert!(!ssl.join("fileserver_docs.crt").exists());
+        assert!(!ssl.join("fileserver_docs.key").exists());
+        // El certificado de otro servicio (`docs`) no se toca.
+        assert!(ssl.join("docs.crt").exists() && ssl.join("docs.key").exists());
+
+        // Idempotente: sin certificado no es un error.
+        adapter
+            .delete_ssl_cert("fileserver_docs")
+            .await
+            .expect("idempotent");
+        // Nombre con traversal → rechazado sin tocar nada.
+        assert!(adapter.delete_ssl_cert("../ssl/docs").await.is_err());
+        assert!(ssl.join("docs.crt").exists());
+    }
+
     fn test_adapter() -> (NginxAdapter, tempfile::TempDir) {
         let tmp = tempfile::tempdir().expect("tempdir");
         let available = tmp.path().join("sites-available");
@@ -109,6 +144,7 @@ mod sec_regression_tests {
             NginxAdapter {
                 sites_available: available,
                 sites_enabled: enabled,
+                ssl_dir: tmp.path().join("ssl"),
             },
             tmp,
         )
@@ -591,8 +627,28 @@ server {{
         Ok(())
     }
 
+    async fn delete_ssl_cert(&self, service_name: &str) -> Result<()> {
+        // SEC-005: el nombre se interpola en la ruta del certificado.
+        crate::domain::naming::validate_tor_service_name(service_name)?;
+        for ext in ["crt", "key"] {
+            let path = self.ssl_dir.join(format!("{}.{}", service_name, ext));
+            match fs::remove_file(&path).await {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(EnolaError::InfrastructureError(format!(
+                        "Failed to delete {}: {}",
+                        path.display(),
+                        e
+                    )))
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn generate_self_signed_cert(&self, service_name: &str) -> Result<(String, String)> {
-        let ssl_dir = PathBuf::from("/etc/nginx/ssl");
+        let ssl_dir = self.ssl_dir.clone();
 
         // Create SSL directory if it doesn't exist
         fs::create_dir_all(&ssl_dir).await.map_err(|e| {
@@ -1320,6 +1376,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: PathBuf::from("/nonexistent/available"),
             sites_enabled: PathBuf::from("/nonexistent/enabled"),
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
         let sites = adapter.list_enabled_sites().await.unwrap();
         assert!(sites.is_empty());
@@ -1339,6 +1396,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: available,
             sites_enabled: enabled,
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
         let sites = adapter.list_enabled_sites().await.unwrap();
         assert_eq!(sites.len(), 1);
@@ -1359,6 +1417,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: available,
             sites_enabled: dir.path().join("enabled"),
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
         let (has_ssl, port, cert) = adapter.detect_ssl_config("mysite").await.unwrap();
         assert!(!has_ssl);
@@ -1384,6 +1443,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: available,
             sites_enabled: enabled,
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
         let (has_ssl, _port, cert) = adapter.detect_ssl_config("secure-site").await.unwrap();
         assert!(has_ssl);
@@ -1400,6 +1460,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: dir.path().to_path_buf(),
             sites_enabled: dir.path().join("enabled"),
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
         adapter
             .create_fileserver_config(crate::ports::web::NginxFileServerConfig {
@@ -1451,6 +1512,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: available.clone(),
             sites_enabled: enabled,
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
 
         adapter
@@ -1494,6 +1556,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: available.clone(),
             sites_enabled: enabled,
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
 
         adapter
@@ -1526,6 +1589,7 @@ mod tests {
         let adapter = NginxAdapter {
             sites_available: dir.path().join("available"),
             sites_enabled: enabled,
+            ssl_dir: PathBuf::from("/nonexistent/ssl"),
         };
         let (has_ssl, _, _) = adapter.detect_ssl_config("nonexistent").await.unwrap();
         assert!(!has_ssl);

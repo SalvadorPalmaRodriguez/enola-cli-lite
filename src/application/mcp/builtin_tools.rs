@@ -293,6 +293,7 @@ pub(crate) fn register(
         ToolKind::Destructive,
         Arc::new(TorRemoveHandler {
             tor: tor.clone(),
+            nginx: nginx.clone(),
             tool_label: "wp_hide",
             domain: Some(crate::domain::naming::ServiceType::WordPress),
         }),
@@ -339,6 +340,7 @@ pub(crate) fn register(
         ToolKind::Destructive,
         Arc::new(TorRemoveHandler {
             tor: tor.clone(),
+            nginx: nginx.clone(),
             tool_label: "tor_remove",
             domain: None,
         }),
@@ -754,6 +756,8 @@ impl ToolHandler for WpPublishHandler {
 /// `force: true` explícito en los argumentos (la tool nunca lo presupone).
 struct TorRemoveHandler {
     tor: Arc<dyn TorManagerPort + Send + Sync>,
+    /// Site y certificado del servicio se retiran con él (P6).
+    nginx: Arc<dyn NginxManagerPort + Send + Sync>,
     tool_label: &'static str,
     /// Dominio de la tool (`wp_hide` → WordPress): `name` es el nombre del
     /// sitio y se usa el servicio canónico `<dominio>_<name>`. `None`
@@ -781,9 +785,8 @@ impl ToolHandler for TorRemoveHandler {
                 self.tool_label
             )));
         }
-        let nginx: Option<Arc<dyn NginxManagerPort + Send + Sync>> = None;
         let target = self.target(name);
-        RemoveTorService::new(self.tor.clone(), nginx)
+        RemoveTorService::new(self.tor.clone(), Some(self.nginx.clone()))
             .execute(&target)
             .await?;
         Ok(json!({ "name": name, "service": target, "removed": true }))
@@ -1225,11 +1228,63 @@ mod tests {
     }
 
     /// MCP-007 (7.3) — handlers mutantes: una prueba por tool con ports mockeados.
+    /// Nginx que acepta la limpieza de site/cert sin comprobarla.
+    fn nginx_any() -> Arc<MockNginxManagerPort> {
+        let mut n = MockNginxManagerPort::new();
+        n.expect_disable_site().returning(|_| Ok(())).times(0..);
+        n.expect_delete_site_config()
+            .returning(|_| Ok(()))
+            .times(0..);
+        n.expect_reload().returning(|| Ok(())).times(0..);
+        n.expect_delete_ssl_cert().returning(|_| Ok(())).times(0..);
+        Arc::new(n)
+    }
+
+    #[tokio::test]
+    async fn tor_remove_also_removes_nginx_site_and_cert() {
+        // P6: `tor_remove` quitaba solo el servicio Tor y dejaba el site
+        // (`tor create static web1` → servicio y site `web1`).
+        let mut tor = MockTorManagerPort::new();
+        tor.expect_remove_hidden_service()
+            .withf(|n| n == "web1")
+            .times(1)
+            .returning(|_| Ok(()));
+        let mut nginx = MockNginxManagerPort::new();
+        nginx
+            .expect_disable_site()
+            .withf(|s| s == "web1")
+            .times(1)
+            .returning(|_| Ok(()));
+        nginx
+            .expect_delete_site_config()
+            .withf(|s| s == "web1")
+            .times(1)
+            .returning(|_| Ok(()));
+        nginx.expect_reload().times(1).returning(|| Ok(()));
+        nginx
+            .expect_delete_ssl_cert()
+            .withf(|s| s == "web1")
+            .times(1)
+            .returning(|_| Ok(()));
+        let h = TorRemoveHandler {
+            tor: Arc::new(tor),
+            nginx: Arc::new(nginx),
+            tool_label: "tor_remove",
+            domain: None,
+        };
+        let r = h
+            .call(json!({"name": "web1", "force": true}))
+            .await
+            .unwrap();
+        assert_eq!(r["removed"], true);
+    }
+
     #[tokio::test]
     async fn tor_remove_requires_explicit_force() {
         let tor = MockTorManagerPort::new(); // no llamada esperada sin force
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
+            nginx: nginx_any(),
             tool_label: "tor_remove",
             domain: None,
         };
@@ -1246,6 +1301,7 @@ mod tests {
             .returning(|_| Ok(()));
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
+            nginx: nginx_any(),
             tool_label: "tor_remove",
             domain: None,
         };
@@ -1308,6 +1364,7 @@ mod tests {
             .returning(|_| Ok(()));
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
+            nginx: nginx_any(),
             tool_label: "wp_hide",
             domain: Some(crate::domain::naming::ServiceType::WordPress),
         };
@@ -1323,6 +1380,7 @@ mod tests {
         let tor = MockTorManagerPort::new();
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
+            nginx: nginx_any(),
             tool_label: "wp_hide",
             domain: Some(crate::domain::naming::ServiceType::WordPress),
         };
@@ -1501,6 +1559,7 @@ mod tests {
         // Sin expect_remove_hidden_service: si try_run borrara, panic.
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
+            nginx: nginx_any(),
             tool_label: "tor_remove",
             domain: None,
         };

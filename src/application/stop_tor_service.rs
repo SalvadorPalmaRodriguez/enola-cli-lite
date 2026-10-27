@@ -177,6 +177,9 @@ mod tests {
             self.disable_called.store(true, Ordering::SeqCst);
             Ok(())
         }
+        async fn delete_ssl_cert(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
         async fn delete_site_config(&self, _: &str) -> Result<()> {
             Ok(())
         }

@@ -658,24 +658,6 @@ struct FileShareInfo {
     service: crate::ports::tor::TorServiceInfo,
 }
 
-fn read_share_path_from_nginx(service_name: &str) -> Option<String> {
-    let candidates = [
-        format!("/etc/nginx/sites-available/fileserver_{}", service_name),
-        format!("/etc/nginx/sites-available/{}", service_name),
-    ];
-    for cfg_path in &candidates {
-        if let Ok(content) = std::fs::read_to_string(cfg_path) {
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if let Some(rest) = trimmed.strip_prefix("root ") {
-                    return Some(rest.trim_end_matches(';').trim().to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
 /// Nombre del share a partir del servicio Tor `fileserver_<name>`: es el que
 /// esperan `/api/files/{name}/…` y la UI.
 fn file_share_name(tor_name: &str) -> String {
@@ -691,7 +673,7 @@ async fn api_files_list() -> ApiResult<Vec<FileShareInfo>> {
         .into_iter()
         .map(|mut s| {
             s.name = file_share_name(&s.name);
-            let share_path = read_share_path_from_nginx(&s.name);
+            let share_path = commands::files::read_share_path(&s.name);
             FileShareInfo {
                 service: s,
                 share_path,

@@ -976,16 +976,8 @@ impl TorManagerPort for TorConfigAdapter {
                 continue;
             }
             let dir_name = entry.file_name().to_string_lossy().to_string();
-            // Support both legacy "hidden_service_" prefix and new "enola_" prefix
-            let name = if dir_name.starts_with("enola_") {
-                dir_name.strip_prefix("enola_").map(|s| s.to_string())
-            } else if dir_name.starts_with("hidden_service_") {
-                dir_name
-                    .strip_prefix("hidden_service_")
-                    .map(|s| s.to_string())
-            } else {
-                None
-            };
+            // Solo directorios `enola_<servicio>`.
+            let name = dir_name.strip_prefix("enola_").map(|s| s.to_string());
             if let Some(name) = name {
                 let hostname = self
                     .get_onion_address(&name)
@@ -1223,18 +1215,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_hidden_services_finds_legacy_prefix() {
+    async fn test_list_hidden_services_ignores_old_hidden_service_prefix() {
+        // Prefijo anterior `hidden_service_`: ya no se gestiona (solo `enola_`).
         let (adapter, _torrc, svc_dir, _conf) = test_adapter();
 
-        let svc_path = svc_dir.path().join("hidden_service_legacy");
+        let svc_path = svc_dir.path().join("hidden_service_old");
         std::fs::create_dir_all(&svc_path).unwrap();
-        std::fs::write(svc_path.join("hostname"), "legacy.onion\n").unwrap();
+        std::fs::write(svc_path.join("hostname"), "old.onion\n").unwrap();
 
         let services = adapter.list_hidden_services().await.unwrap();
-        assert_eq!(services.len(), 1);
-        assert_eq!(services[0].name, "legacy");
-        // get_onion_address looks in enola_ prefix, so legacy hostname shows as pending
-        assert_eq!(services[0].hostname, "pending...");
+        assert!(services.is_empty());
     }
 
     #[tokio::test]

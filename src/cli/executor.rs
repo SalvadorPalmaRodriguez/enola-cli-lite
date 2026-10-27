@@ -1479,13 +1479,7 @@ async fn execute_git(cmd: GitCommands, format: &str) -> CliResult<String> {
             if !ports.is_empty() {
                 sync_firewall_cleanup(&ports);
             }
-            // Remove Tor hidden service if it exists.
-            let tor_adapter = Arc::new(crate::adapters::tor::TorConfigAdapter::new());
-            let _ = crate::ports::tor::TorManagerPort::remove_hidden_service(
-                tor_adapter.as_ref(),
-                &name,
-            )
-            .await;
+            // El servicio Tor `git_<name>` lo retira `git::delete` (P5).
             // AA-013: Eliminar perfil AppArmor del servidor eliminado
             apparmor_remove_profile(&crate::domain::apparmor::AppArmorServiceType::Git, &name);
             Ok(format!("✅ Git server '{}' deleted", name))

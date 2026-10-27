@@ -911,7 +911,7 @@ pub enum TorCommands {
 pub enum TorAuthCommands {
     /// List authorized clients for a service
     List {
-        /// Service name (canonical or legacy)
+        /// Service name (full Tor service name, e.g. `wp_blog`)
         service: String,
 
         /// Instance name — when given, `service` is the domain
@@ -921,7 +921,7 @@ pub enum TorAuthCommands {
 
     /// Enable client authorization for a service
     Enable {
-        /// Service name (canonical or legacy)
+        /// Service name (full Tor service name, e.g. `wp_blog`)
         service: String,
 
         /// Instance name — when given, `service` is the domain
@@ -931,7 +931,7 @@ pub enum TorAuthCommands {
 
     /// Disable client authorization for a service
     Disable {
-        /// Service name (canonical or legacy)
+        /// Service name (full Tor service name, e.g. `wp_blog`)
         service: String,
 
         /// Instance name — when given, `service` is the domain
@@ -950,7 +950,7 @@ pub enum TorAuthCommands {
     ///   2. Client sends public key to operator (secure channel)
     ///   3. Operator runs: enola-cli tor auth add <service> --client alice --pubkey <key>
     Add {
-        /// Service name (canonical or legacy)
+        /// Service name (full Tor service name, e.g. `wp_blog`)
         service: String,
 
         /// Instance name — when given, `service` is the domain
@@ -967,7 +967,7 @@ pub enum TorAuthCommands {
 
     /// Revoke a client's authorization
     Revoke {
-        /// Service name (canonical or legacy)
+        /// Service name (full Tor service name, e.g. `wp_blog`)
         service: String,
 
         /// Instance name — when given, `service` is the domain
@@ -1008,7 +1008,7 @@ pub enum TorAuthCommands {
     /// The client must already exist (otherwise use `tor auth add`); rotation
     /// does not enable client auth on the service.
     Rotate {
-        /// Service name (canonical or legacy)
+        /// Service name (full Tor service name, e.g. `wp_blog`)
         service: String,
 
         /// Instance name — when given, `service` is the domain

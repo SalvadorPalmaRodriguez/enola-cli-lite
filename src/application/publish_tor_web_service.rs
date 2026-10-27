@@ -16,8 +16,7 @@
 
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::naming::{
-    find_legacy_v09, legacy_v09_hint, validate_service_name, validate_tor_service_name,
-    LegacyMatch, ServiceName, ServiceType,
+    validate_service_name, validate_tor_service_name, ServiceName, ServiceType,
 };
 use crate::ports::manifest::ManifestPort;
 use crate::ports::tor::TorManagerPort;
@@ -62,9 +61,6 @@ pub struct PublishTorWebResult {
     pub http_port: u16,
     pub https_port: Option<u16>,
     pub auth_enabled: bool,
-    /// Avisos no bloqueantes (p.ej. un posible servicio de v0.9.0 con el
-    /// nombre anterior que también usan otros comandos).
-    pub warnings: Vec<String>,
 }
 
 /// Caso de uso unificado: publica un servicio web tras Nginx + Tor `.onion`.
@@ -155,9 +151,6 @@ impl PublishTorWebService {
         } else {
             None
         };
-
-        // 0. Servicio de v0.9.0 con el nombre anterior (antes de cualquier efecto).
-        let warnings = self.check_v09_legacy(&request.name_canonical).await?;
 
         // 1. Certificado autofirmado canónico (D7) si ssl
         let cert = if request.ssl {
@@ -269,30 +262,7 @@ impl PublishTorWebService {
             http_port: request.http_port,
             https_port: if request.ssl { https_port } else { None },
             auth_enabled: request.auth,
-            warnings,
         })
-    }
-
-    /// Servicio de v0.9.0 con el nombre anterior (sin compatibilidad, v0.10.0):
-    /// si solo pudo crearlo este dominio, publicar dejaría dos `.onion` → error
-    /// accionable; si el nombre es ambiguo, se publica y se avisa. Si Tor no
-    /// puede listar servicios, no se bloquea la publicación.
-    async fn check_v09_legacy(&self, canonical: &str) -> Result<Vec<String>> {
-        let Ok(services) = self.tor_manager.list_hidden_services().await else {
-            return Ok(Vec::new());
-        };
-        let existing: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
-        match find_legacy_v09(canonical, &existing) {
-            Some((legacy, LegacyMatch::Unambiguous)) => Err(EnolaError::ValidationError(
-                legacy_v09_hint(canonical, &legacy),
-            )),
-            Some((legacy, LegacyMatch::Ambiguous)) => {
-                let hint = legacy_v09_hint(canonical, &legacy);
-                tracing::warn!("{hint}");
-                Ok(vec![hint])
-            }
-            None => Ok(Vec::new()),
-        }
     }
 }
 
@@ -345,68 +315,6 @@ mod tests {
         }
     }
 
-    fn tor_service(name: &str) -> crate::ports::tor::TorServiceInfo {
-        crate::ports::tor::TorServiceInfo {
-            name: name.into(),
-            hostname: format!("{name}.onion"),
-            hidden_service_dir: format!("/var/lib/tor/enola_{name}"),
-            ports: vec![],
-            clients: vec![],
-            active: true,
-            auth_enabled: false,
-        }
-    }
-
-    #[tokio::test]
-    async fn publish_refuses_when_v09_service_of_same_cms_exists() {
-        // `proxy_drupal-sitio` solo pudo crearlo `drupal publish sitio` en
-        // v0.9.0: publicar `drupal_sitio` dejaría dos .onion → error accionable.
-        let nginx = MockNginxManagerPort::new(); // ninguna llamada
-        let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services()
-            .returning(|| Ok(vec![tor_service("proxy_drupal-sitio")]));
-        let uc = PublishTorWebService::new(Arc::new(nginx), Arc::new(tor), mock_manifest());
-        let err = uc
-            .execute(req(ServiceType::Drupal, "drupal_sitio"))
-            .await
-            .unwrap_err()
-            .to_string();
-        assert!(
-            err.contains("sudo enola-cli tor remove proxy_drupal-sitio"),
-            "{err}"
-        );
-    }
-
-    #[tokio::test]
-    async fn publish_warns_but_continues_on_ambiguous_v09_name() {
-        // `proxy_blog` puede ser un `wp publish blog` de v0.9.0 o un
-        // `tor create web blog`: se publica `wp_blog` y se avisa.
-        let mut nginx = MockNginxManagerPort::new();
-        nginx.expect_create_proxy_config().returning(|_| Ok(()));
-        nginx.expect_validate_config().returning(|| Ok(true));
-        nginx.expect_enable_site().returning(|_| Ok(()));
-        nginx.expect_reload().returning(|| Ok(()));
-        let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services()
-            .returning(|| Ok(vec![tor_service("proxy_blog")]));
-        tor.expect_deploy_hidden_service()
-            .withf(|name, _| name == "wp_blog")
-            .returning(|_, _| Ok("wp.onion".to_string()));
-        tor.expect_reload_tor().returning(|| Ok(()));
-        let uc = PublishTorWebService::new(Arc::new(nginx), Arc::new(tor), mock_manifest());
-        let res = uc
-            .execute(req(ServiceType::WordPress, "wp_blog"))
-            .await
-            .unwrap();
-        assert_eq!(res.service_name, "wp_blog");
-        assert_eq!(res.warnings.len(), 1);
-        assert!(
-            res.warnings[0].contains("tor remove proxy_blog"),
-            "{:?}",
-            res.warnings
-        );
-    }
-
     #[tokio::test]
     async fn publish_proxy_web_http_uses_canonical_names() {
         // `tor create web web1`: tor `proxy_web1`, site `proxy_web1` (no proxy_proxy_)
@@ -425,7 +333,6 @@ mod tests {
         nginx.expect_reload().times(1).returning(|| Ok(()));
 
         let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| Ok(vec![]));
         tor.expect_deploy_hidden_service()
             .withf(|name, ports| name == "proxy_web1" && *ports == vec![(80u16, 10081u16)])
             .times(1)
@@ -475,7 +382,6 @@ mod tests {
         nginx.expect_reload().times(1).returning(|| Ok(()));
 
         let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| Ok(vec![]));
         tor.expect_deploy_hidden_service()
             .withf(|name, ports| {
                 name == "ai_dev" && *ports == vec![(80u16, 10081u16), (443u16, 15002u16)]
@@ -521,7 +427,6 @@ mod tests {
         nginx.expect_reload().times(1).returning(|| Ok(()));
 
         let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| Ok(vec![]));
         tor.expect_deploy_hidden_service()
             .withf(|name, ports| name == "fileserver_docs" && *ports == vec![(80u16, 20001u16)])
             .times(1)
@@ -568,7 +473,6 @@ mod tests {
         nginx.expect_reload().times(1).returning(|| Ok(()));
 
         let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| Ok(vec![]));
         tor.expect_deploy_hidden_service()
             .withf(|name, ports| {
                 name == "fileserver_docs" && *ports == vec![(80u16, 12001u16), (443u16, 15002u16)]
@@ -604,7 +508,6 @@ mod tests {
         nginx.expect_reload().times(1).returning(|| Ok(()));
 
         let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| Ok(vec![]));
         tor.expect_deploy_hidden_service()
             .withf(|name, _| name == "drupal_site")
             .times(1)
@@ -658,7 +561,6 @@ mod tests {
         nginx.expect_reload().times(1).returning(|| Ok(()));
 
         let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| Ok(vec![]));
         tor.expect_deploy_hidden_service()
             .withf(|name, ports| {
                 name == "git_repo" && *ports == vec![(80u16, 10081u16), (22u16, 22u16)]

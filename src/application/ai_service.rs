@@ -264,20 +264,9 @@ pub async fn enrich_instances_with_onion(
         return;
     };
     for inst in instances.iter_mut() {
-        // Por prioridad: primero el nombre canónico `ai_<name>` (D10); después,
-        // solo como fallback NO canónico, las formas legacy previas a la
-        // nomenclatura `<dominio>_<name>`. Se recorren los candidatos (no los
-        // servicios) para que el canónico gane aunque Tor liste antes un legacy.
-        let candidates = [
-            crate::domain::ai::ai_tor_service_name(&inst.name),
-            format!("proxy_ai_{}", inst.name),
-            format!("proxy_ai-{}", inst.name),
-            format!("ai-{}", inst.name),
-        ];
-        if let Some(found) = candidates
-            .iter()
-            .find_map(|c| tor_services.iter().find(|s| &s.name == c))
-        {
+        // Solo el nombre canónico `ai_<name>` (D10).
+        let canonical = crate::domain::ai::ai_tor_service_name(&inst.name);
+        if let Some(found) = tor_services.iter().find(|s| s.name == canonical) {
             if !found.hostname.is_empty() && !found.hostname.contains("pending") {
                 inst.onion_address = Some(found.hostname.clone());
             }
@@ -389,14 +378,26 @@ mod tests {
     async fn hide_ai_instance_removes_tor_and_nginx_config() {
         let mut tor = MockTorManagerPort::new();
         tor.expect_remove_hidden_service()
-            .withf(|name| name == "ai_dev" || name == "proxy_ai_dev")
+            .withf(|name| name == "ai_dev")
             .times(1)
             .returning(|_| Ok(()));
 
         let mut nginx = MockNginxManagerPort::new();
-        nginx.expect_disable_site().returning(|_| Ok(()));
-        nginx.expect_delete_site_config().returning(|_| Ok(()));
+        nginx
+            .expect_disable_site()
+            .withf(|s| s == "proxy_ai_dev")
+            .returning(|_| Ok(()));
+        nginx
+            .expect_delete_site_config()
+            .withf(|s| s == "proxy_ai_dev")
+            .returning(|_| Ok(()));
         nginx.expect_reload().returning(|| Ok(()));
+        // P2: el certificado del servicio se borra con él.
+        nginx
+            .expect_delete_ssl_cert()
+            .withf(|s| s == "ai_dev")
+            .times(1)
+            .returning(|_| Ok(()));
 
         let use_case = HideAiInstance::new(Arc::new(tor), Some(Arc::new(nginx)));
         use_case.execute("dev").await.unwrap();
@@ -434,44 +435,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn enrich_instances_with_onion_matches_proxy_ai_service() {
-        let mut tor = MockTorManagerPort::new();
-        tor.expect_list_hidden_services().returning(|| {
-            Ok(vec![TorServiceInfo {
-                name: "proxy_ai-dev".into(),
-                hostname: "devonion.onion".into(),
-                hidden_service_dir: "/var/lib/tor/enola_proxy_ai-dev".into(),
-                ports: vec![(80, "127.0.0.1:10081".to_string())],
-                clients: vec![],
-                active: true,
-                auth_enabled: false,
-            }])
-        });
-
-        let mut instances = vec![AiInstance {
-            name: "dev".into(),
-            model: "llama3.1:8b".into(),
-            api_port: Some(11435),
-            webui_port: Some(8081),
-            status: AiInstanceStatus::Running,
-            ollama_status: "Up".into(),
-            webui_status: "Up".into(),
-            gpu_enabled: false,
-            onion_address: None,
-        }];
-
-        enrich_instances_with_onion(&mut instances, &tor).await;
-        assert_eq!(
-            instances[0].onion_address.as_deref(),
-            Some("devonion.onion")
-        );
-    }
-
-    #[tokio::test]
-    async fn enrich_instances_with_onion_prefers_canonical_over_legacy() {
-        // Si coexisten el servicio legacy (`proxy_ai-dev`) y el canónico
-        // (`ai_dev`, D10), se muestra la `.onion` canónica aunque Tor liste
-        // antes el legacy: el orden lo fija la prioridad de nombres, no Tor.
+    async fn enrich_instances_with_onion_ignores_old_names() {
+        // Solo cuenta el canónico `ai_dev` (D10): los nombres anteriores
+        // (`proxy_ai-dev`, `ai-dev`) no se usan aunque Tor los liste antes.
         let service = |name: &str, host: &str| TorServiceInfo {
             name: name.into(),
             hostname: host.into(),
@@ -484,7 +450,8 @@ mod tests {
         let mut tor = MockTorManagerPort::new();
         tor.expect_list_hidden_services().returning(move || {
             Ok(vec![
-                service("proxy_ai-dev", "legacy.onion"),
+                service("proxy_ai-dev", "old.onion"),
+                service("ai-dev", "old2.onion"),
                 service("ai_dev", "canonical.onion"),
             ])
         });

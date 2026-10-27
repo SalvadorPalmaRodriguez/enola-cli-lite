@@ -80,6 +80,10 @@ pub trait NginxManagerPort {
     /// Returns (cert_path, key_path)
     async fn generate_self_signed_cert(&self, service_name: &str) -> Result<(String, String)>;
 
+    /// Borra el certificado TLS `<service_name>.{crt,key}` del servicio.
+    /// Sin certificado devuelve `Ok(())` (idempotente).
+    async fn delete_ssl_cert(&self, service_name: &str) -> Result<()>;
+
     /// Enable a site (symlink available -> enabled)
     async fn enable_site(&self, domain: &str) -> Result<()>;
 
