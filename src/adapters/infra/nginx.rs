@@ -196,6 +196,34 @@ mod sec_regression_tests {
     }
 }
 
+/// Cabeceras de todo bloque `server` de un fileserver (con y sin SSL).
+/// CSP estricta (B2): sin `'unsafe-inline'`; un HTML compartido no puede ejecutar
+/// scripts ni aplicar estilos inline.
+const FILESERVER_SECURITY_HEADERS: &str = r#"
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'" always;
+"#;
+
+/// Bloqueos de todo bloque `server` de un fileserver: ficheros ocultos y
+/// extensiones sensibles (SEC-018).
+const FILESERVER_DENY_LOCATIONS: &str = r#"
+    # Block hidden files
+    location ~ /\. {
+        deny all;
+        return 404;
+    }
+
+    # SEC-018: Block dangerous file extensions
+    location ~ \.(env|git|sql|pem|key|crt|der|p12|pfx)$ {
+        deny all;
+        return 404;
+    }
+"#;
+
 #[async_trait::async_trait]
 impl NginxManagerPort for NginxAdapter {
     async fn create_site_config(&self, config: NginxSiteConfig) -> Result<()> {
@@ -299,32 +327,14 @@ server {{
     # Security: Symlinks
     {}
 
-    # Security: Headers
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';" always;
-
+{headers}
     server_tokens off;
 
     location / {{
         {}
         try_files $uri $uri/ =404;
     }}
-
-    # Block hidden files
-    location ~ /\. {{
-        deny all;
-        return 404;
-    }}
-
-    # SEC-018: Block dangerous file extensions
-    location ~ \.(env|git|sql|pem|key|crt|der|p12|pfx)$ {{
-        deny all;
-        return 404;
-    }}
+{deny}
 
     access_log /var/log/nginx/fileserver_{}_access.log;
     error_log /var/log/nginx/fileserver_{}_error.log;
@@ -335,7 +345,9 @@ server {{
             symlinks_directive,
             method_restriction,
             config.service_name,
-            config.service_name
+            config.service_name,
+            headers = FILESERVER_SECURITY_HEADERS,
+            deny = FILESERVER_DENY_LOCATIONS,
         );
 
         let file_path = self
@@ -387,23 +399,13 @@ server {{
     autoindex_localtime on;
 
     disable_symlinks on;
-
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "no-referrer" always;
-
+{headers}
     server_tokens off;
 
     location / {{
         try_files $uri $uri/ =404;
     }}
-
-    location ~ /\. {{
-        deny all;
-        return 404;
-    }}
-
+{deny}
     access_log /var/log/nginx/fileserver_{service_name}_http_access.log;
     error_log /var/log/nginx/fileserver_{service_name}_http_error.log;
 }}
@@ -429,24 +431,14 @@ server {{
     autoindex_localtime on;
 
     disable_symlinks on;
-
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "no-referrer" always;
-    add_header Strict-Transport-Security "max-age=31536000" always;
+{headers}    add_header Strict-Transport-Security "max-age=31536000" always;
 
     server_tokens off;
 
     location / {{
         try_files $uri $uri/ =404;
     }}
-
-    location ~ /\. {{
-        deny all;
-        return 404;
-    }}
-
+{deny}
     access_log /var/log/nginx/fileserver_{service_name}_https_access.log;
     error_log /var/log/nginx/fileserver_{service_name}_https_error.log;
 }}
@@ -457,7 +449,9 @@ server {{
             cert_path = config.ssl_cert_path,
             key_path = config.ssl_key_path,
             service_name = config.service_name,
-            pqc_tls_directive = pqc_tls_directive
+            pqc_tls_directive = pqc_tls_directive,
+            headers = FILESERVER_SECURITY_HEADERS,
+            deny = FILESERVER_DENY_LOCATIONS,
         );
 
         let file_path = self
@@ -1395,6 +1389,55 @@ mod tests {
         assert!(has_ssl);
         assert!(cert.is_some());
         assert!(cert.unwrap().contains("test.crt"));
+    }
+
+    /// B2: todo bloque `server` del fileserver (con y sin SSL) lleva la misma CSP
+    /// estricta (sin `'unsafe-inline'`) y bloquea ficheros ocultos y extensiones
+    /// sensibles (SEC-018).
+    #[tokio::test]
+    async fn fileserver_sites_share_strict_csp_and_blocked_extensions() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let adapter = NginxAdapter {
+            sites_available: dir.path().to_path_buf(),
+            sites_enabled: dir.path().join("enabled"),
+        };
+        adapter
+            .create_fileserver_config(crate::ports::web::NginxFileServerConfig {
+                service_name: "plain".to_string(),
+                listen_port: 12011,
+                root_dir: "/srv/enola-files/plain".to_string(),
+                disable_symlinks: true,
+                allow_upload: false,
+            })
+            .await
+            .unwrap();
+        adapter
+            .create_fileserver_config_with_ssl(crate::ports::web::NginxFileServerConfigWithSsl {
+                service_name: "tls".to_string(),
+                http_port: 12012,
+                https_port: 15012,
+                root_dir: "/srv/enola-files/tls".to_string(),
+                ssl_cert_path: "/etc/nginx/ssl/fileserver_tls.crt".to_string(),
+                ssl_key_path: "/etc/nginx/ssl/fileserver_tls.key".to_string(),
+            })
+            .await
+            .unwrap();
+        let csp = "add_header Content-Security-Policy \"default-src 'self'; script-src 'self'; \
+                   style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; \
+                   frame-ancestors 'none'; base-uri 'none'; form-action 'self'\" always;";
+        for (site, blocks) in [("fileserver_plain", 1), ("fileserver_tls", 2)] {
+            let content = std::fs::read_to_string(adapter.sites_available.join(site)).unwrap();
+            assert!(!content.contains("unsafe-inline"), "{site}");
+            assert_eq!(content.matches(csp).count(), blocks, "{site}: CSP");
+            assert_eq!(
+                content
+                    .matches(r"location ~ \.(env|git|sql|pem|key|crt|der|p12|pfx)$")
+                    .count(),
+                blocks,
+                "{site}: SEC-018"
+            );
+            assert_eq!(content.matches(r"location ~ /\.").count(), blocks, "{site}");
+        }
     }
 
     #[tokio::test]
