@@ -26,12 +26,14 @@ REMOVE_DEPS=false
 ONLY_SECTIONS=""
 BINARY_PATH="/usr/local/bin/enola-cli"
 SHARE_DIR="/usr/local/share/enola"
-# Try SUDO_USER home first, then HOME, then /root
+# Home of the invoking user (SUDO_USER) from the passwd database: it is not
+# always /home/<user> (LDAP, /var/home, custom homes). Falls back to $HOME.
+INVOKER_HOME=""
 if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-}" != "root" ]; then
-    CONFIG_DIR="/home/${SUDO_USER}/.enola"
-else
-    CONFIG_DIR="${HOME}/.enola"
+    INVOKER_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
 fi
+[ -n "$INVOKER_HOME" ] || INVOKER_HOME="${HOME:-/root}"
+CONFIG_DIR="${INVOKER_HOME}/.enola"
 DATA_DIR="/srv"
 
 ALL_SECTIONS="binary config services tor nginx systemd apparmor docker ufw data deps"
@@ -95,6 +97,8 @@ rm_target_allowed() {
     [[ "$t" =~ ^/usr/local/share/enola(/.+)?$ ]] && return 0
     [[ "$t" =~ ^/opt/enola(-[^/]+)?(/.+)?$ ]] && return 0
     [[ "$t" =~ ^/home/[^/]+/\.enola$ || "$t" == "/root/.enola" ]] && return 0
+    [[ "$INVOKER_HOME" == /?* && "$t" == "${INVOKER_HOME}/.enola" ]] && return 0
+    [[ "$t" == "/etc/enola/git" ]] && return 0
     [[ "$t" =~ ^/var/lib/tor/enola_[^/]+$ ]] && return 0
     [[ "$t" =~ ^/etc/tor/enola\.d(/[^/]+)?$ ]] && return 0
     [[ "$t" =~ ^/etc/nginx/(sites-enabled|sites-available|conf\.d|ssl)/[^/]+$ ]] && return 0
@@ -489,6 +493,14 @@ if has_section data; then
         done
         for key in $ssl_keys; do
             [ -f "$key" ] && run_rm "$key"
+        done
+        # Forgejo admin hashes (root-only, outside the data volume).
+        [ -d /etc/enola/git ] && run_rm /etc/enola/git
+        # System users that owned the removed Forgejo/Ghost data.
+        for u in enola-git enola-ghost; do
+            if getent passwd "$u" >/dev/null 2>&1; then
+                run userdel "$u"
+            fi
         done
     fi
     echo ""

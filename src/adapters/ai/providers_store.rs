@@ -37,46 +37,66 @@ impl FsProvidersStore {
         Self { path }
     }
 
-    /// Escritura atómica con permisos `0600` desde el primer instante
-    /// (`O_EXCL` + temporal con nombre aleatorio + `rename`), vía
-    /// `atomic_secret_file` (MEGAPLAN F13.2.3, H-03). El directorio, si se
-    /// crea aquí, nace `0700`.
+    /// `(directorio, nombre)` del fichero.
+    fn split(&self) -> Result<(&std::path::Path, &str)> {
+        let bad = || {
+            EnolaError::InfrastructureError(format!(
+                "Ruta de providers no válida: '{}'",
+                self.path.display()
+            ))
+        };
+        let parent = self.path.parent().ok_or_else(bad)?;
+        let name = self
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(bad)?;
+        Ok((parent, name))
+    }
+
+    /// SEC-B6: escritura atómica `0600` dentro de `~/.enola` abierto sin
+    /// seguir symlinks (`SafeDir`, como `config.toml`, SEC-A6) y con el
+    /// invocador de `sudo` como dueño del directorio y del fichero (antes
+    /// quedaban de root en su home). Temporal `O_EXCL|O_NOFOLLOW` con nombre
+    /// aleatorio + `renameat` (H-03).
     fn write_atomic(&self, content: &str) -> Result<()> {
-        use std::os::unix::fs::DirBuilderExt;
-        if let Some(parent) = self.path.parent() {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)
-                .map_err(|e| {
-                    EnolaError::InfrastructureError(format!(
-                        "No se pudo crear '{}': {e}",
-                        parent.display()
-                    ))
-                })?;
-        }
-        crate::infrastructure::atomic_secret_file::write_secret_atomically(
-            &self.path,
-            content.as_bytes(),
-        )
-        .map_err(|e| {
+        use crate::infrastructure::safe_dir::{invoker_owner, open_user_config_dir};
+        let (parent, name) = self.split()?;
+        let owner = invoker_owner();
+        let io = |e: std::io::Error| {
             EnolaError::InfrastructureError(format!(
                 "No se pudo escribir '{}': {e}",
                 self.path.display()
             ))
-        })
+        };
+        open_user_config_dir(parent, owner)
+            .map_err(io)?
+            .write_atomic(name, content.as_bytes(), 0o600, owner)
+            .map_err(io)
     }
 }
+
+/// Tope de lectura de `providers.env` (unas pocas claves).
+const MAX_PROVIDERS_FILE_BYTES: u64 = 64 * 1024;
 
 #[async_trait::async_trait]
 impl AiProvidersStorePort for FsProvidersStore {
     async fn load(&self) -> Result<ProvidersFile> {
-        match std::fs::read_to_string(&self.path) {
-            Ok(raw) => parse_providers_env(&raw),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ProvidersFile::default()),
-            Err(e) => Err(EnolaError::InfrastructureError(format!(
-                "No se pudo leer providers.env: {e}"
-            ))),
+        use crate::infrastructure::safe_dir::{invoker_owner, open_user_config_dir};
+        let (parent, name) = self.split()?;
+        if !parent.exists() {
+            return Ok(ProvidersFile::default());
+        }
+        // SEC-B6: como root no se sigue un `providers.env` symlink (p. ej. a
+        // un fichero de otro usuario).
+        let raw = open_user_config_dir(parent, invoker_owner())
+            .and_then(|d| d.read_to_string_nofollow(name, MAX_PROVIDERS_FILE_BYTES))
+            .map_err(|e| {
+                EnolaError::InfrastructureError(format!("No se pudo leer providers.env: {e}"))
+            })?;
+        match raw {
+            Some(raw) => parse_providers_env(&raw),
+            None => Ok(ProvidersFile::default()),
         }
     }
 
@@ -187,6 +207,19 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o600, "permisos={mode:o}");
+    }
+
+    #[tokio::test]
+    async fn load_does_not_follow_symlinked_providers_file() {
+        // SEC-B6: un `providers.env` symlink no se lee (ni se filtra su contenido).
+        let dir = tempfile::tempdir().unwrap();
+        let enola_dir = dir.path().join(".enola");
+        std::fs::create_dir(&enola_dir).unwrap();
+        let victim = dir.path().join("secret");
+        std::fs::write(&victim, "ENOLA_PROVIDER_OPENAI_API_KEY=ajena\n").unwrap();
+        std::os::unix::fs::symlink(&victim, enola_dir.join("providers.env")).unwrap();
+        let store = FsProvidersStore::at(enola_dir.join("providers.env"));
+        assert!(store.load().await.is_err());
     }
 
     #[tokio::test]

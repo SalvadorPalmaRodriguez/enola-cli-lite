@@ -128,6 +128,15 @@ fn append_key(content: &str, pubkey: &str, comment: Option<&str>) -> Result<Opti
         return Ok(None);
     }
 
+    // SEC-B1: un `\n` en el comentario añadiría otra línea (otra clave, con
+    // opciones) a authorized_keys.
+    if let Some(c) = comment {
+        if c.len() > 256 || c.chars().any(char::is_control) {
+            return Err(EnolaError::ValidationError(
+                "Invalid comment: control characters or longer than 256 bytes".to_string(),
+            ));
+        }
+    }
     let comment_str = comment.unwrap_or("enola-managed");
     let new_line = if key_parts.len() >= 3 {
         pubkey.to_string()
@@ -162,6 +171,21 @@ mod tests {
             .execute_for_home(home_dir.path(), OWNER, "invalid-key", None)
             .await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn add_key_rejects_comment_with_newline() {
+        let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake";
+        for bad in [
+            "laptop\nssh-ed25519 AAAAevil attacker",
+            "a\rb",
+            "a\0b",
+            &"x".repeat(257),
+        ] {
+            assert!(append_key("", key, Some(bad)).is_err(), "{bad:?}");
+        }
+        let out = append_key("", key, Some("laptop de ana")).unwrap().unwrap();
+        assert_eq!(out, format!("{key} laptop de ana\n"));
     }
 
     #[test]

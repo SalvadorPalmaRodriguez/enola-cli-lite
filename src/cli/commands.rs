@@ -2181,6 +2181,7 @@ pub mod git {
             tor_adapter,
             Some(nginx_adapter),
             Arc::new(FileManifestAdapter::new()),
+            Arc::new(crate::adapters::infra::service_user::SystemServiceUser::new()),
         );
         let result = use_case
             .execute(name, http_port, ssh_port, ssl, admin_user, admin_pass)
@@ -2281,6 +2282,8 @@ pub mod git {
         // Clean up /srv data directory.
         let srv_dir = format!("/srv/enola-git/{}", name);
         let _ = std::fs::remove_dir_all(&srv_dir);
+        // SEC-M10: y el hash admin, que vive fuera del volumen.
+        let _ = std::fs::remove_file(crate::domain::naming::git_admin_creds_path(name));
 
         // Retira el .onion publicado + su site Nginx + su certificado: SOLO el
         // canónico `git_<name>` (`<name>` puede ser un `tor create` ajeno).
@@ -2570,6 +2573,22 @@ pub mod git {
             // fallaba en cada conexión tras editar el puerto SSH.
             let net_name = crate::application::deploy_git_server::git_network_name(name);
             let _ = docker_adapter.create_network(&net_name).await;
+            // SEC-M10: como en la creación, el proceso es `enola-git` y los
+            // datos son suyos (también los de servidores creados con uid 1000).
+            let (git_uid, git_gid) = {
+                use crate::ports::service_user::ServiceUserPort;
+                let su = crate::adapters::infra::service_user::SystemServiceUser::new();
+                let ids = su
+                    .ensure(crate::domain::naming::GIT_SERVICE_USER)
+                    .map_err(CliError::from)?;
+                su.chown_tree(
+                    std::path::Path::new(&format!("/srv/enola-git/{}", name)),
+                    ids.0,
+                    ids.1,
+                )
+                .map_err(CliError::from)?;
+                ids
+            };
             let run_result = std::process::Command::new("docker")
                 .args([
                     "run",
@@ -2592,9 +2611,9 @@ pub mod git {
                     "-p",
                     &format!("127.0.0.1:{}:22", new_ssh_port),
                     "-e",
-                    "USER_UID=1000",
+                    &format!("USER_UID={git_uid}"),
                     "-e",
-                    "USER_GID=1000",
+                    &format!("USER_GID={git_gid}"),
                     "-e",
                     "FORGEJO__server__INSTALL_LOCK=true",
                     &image,
@@ -2833,12 +2852,12 @@ pub mod git {
 
         /// Resuelve y verifica las credenciales de admin de Forgejo.
         ///
-        /// - Si existe `.enola-admin-creds` (modo CLI):
+        /// - Si existe `/etc/enola/git/<server>.creds` (modo CLI):
         ///   - Con `--admin-user` y `--admin-pass` explícitos: verifica contra el
         ///     hash bcrypt (o `ADMIN_PASS` legacy) almacenado (C-04b).
         ///   - Sin flags explícitas: pide la contraseña interactivamente y verifica
         ///     contra el hash bcrypt.
-        /// - Si no existe `.enola-admin-creds` (modo web):
+        /// - Si no existe `/etc/enola/git/<server>.creds` (modo web):
         ///   - Con `--admin-user` y `--admin-pass` explícitos: emite aviso de que
         ///     en modo web no hay hash local verificable (la operación `docker exec`
         ///     queda autorizada por privilegios root).
@@ -2849,8 +2868,8 @@ pub mod git {
             admin_user: Option<&str>,
             admin_pass: Option<&str>,
         ) -> CliResult<(String, String)> {
-            let creds_path =
-                std::path::PathBuf::from(format!("/srv/enola-git/{}/.enola-admin-creds", server));
+            // SEC-M10: fuera del volumen del contenedor (root-only).
+            let creds_path = crate::domain::naming::git_admin_creds_path(server);
             if let Some(res) =
                 verify_explicit_or_stored_creds(server, &creds_path, admin_user, admin_pass)
             {
@@ -2902,7 +2921,7 @@ pub mod git {
 
                 if !user.is_empty() {
                     // C-04(b): si se pasaron credenciales explícitas y existe
-                    // .enola-admin-creds, verificar usuario y contraseña contra
+                    // `/etc/enola/git/<server>.creds`, verificar usuario y contraseña contra
                     // el hash bcrypt (o plaintext legacy) en vez de aceptarlas
                     // sin comprobar.
                     if let (Some(u), Some(p)) = (admin_user, admin_pass) {
@@ -2958,12 +2977,12 @@ pub mod git {
                 }
             }
 
-            // Servidor en modo web (sin .enola-admin-creds): si se pasan flags
+            // Servidor en modo web (sin hash en /etc/enola/git): si se pasan flags
             // explícitas no vacías, avisar que no son verificables localmente.
             if let (Some(u), Some(p)) = (admin_user, admin_pass) {
                 if !u.is_empty() && !p.is_empty() {
                     eprintln!(
-                        "⚠️  Servidor '{}': credenciales admin en modo web no verificables localmente (sin .enola-admin-creds); operación autorizada por root.",
+                        "⚠️  Servidor '{}': credenciales admin en modo web no verificables localmente (sin hash en /etc/enola/git); operación autorizada por root.",
                         server
                     );
                     return Some(Ok((u.to_string(), p.to_string())));
@@ -3384,7 +3403,7 @@ pub mod git {
             #[test]
             fn verify_explicit_creds_checks_bcrypt_against_creds_file() {
                 let dir = tempfile::tempdir().expect("tempdir");
-                let creds_file = dir.path().join(".enola-admin-creds");
+                let creds_file = dir.path().join("srv.creds");
                 let hash = bcrypt::hash("CorrectHorse1!", 4).expect("bcrypt hash");
                 std::fs::write(
                     &creds_file,
@@ -4629,6 +4648,18 @@ pub mod ghost {
         let new_url = format!("url=http://127.0.0.1:{}", new_port);
         let port_mapping = format!("127.0.0.1:{}:{}", new_port, GHOST_INTERNAL_PORT);
         let volume_mapping = format!("{}:/var/lib/ghost/content", content_volume);
+        // SEC-M10: como en la creación, proceso y `content/` de `enola-ghost`
+        // (también en blogs creados cuando corría como `node`, uid 1000).
+        let ghost_user = {
+            use crate::ports::service_user::ServiceUserPort;
+            let su = crate::adapters::infra::service_user::SystemServiceUser::new();
+            let (uid, gid) = su
+                .ensure(crate::domain::naming::GHOST_SERVICE_USER)
+                .map_err(CliError::from)?;
+            su.chown_tree(std::path::Path::new(&content_volume), uid, gid)
+                .map_err(CliError::from)?;
+            format!("{uid}:{gid}")
+        };
 
         let run_status = std::process::Command::new("docker")
             .args([
@@ -4644,6 +4675,8 @@ pub mod ghost {
             // A25-08: paridad con la creación (no-new-privileges, caps, límites).
             .args(crate::infrastructure::container_limits::docker_run_hardening_args(&image))
             .args([
+                "--user",
+                &ghost_user,
                 "-v",
                 &volume_mapping,
                 "-p",
@@ -5235,25 +5268,19 @@ pub mod files {
             .map_err(|e| CliError::InvalidInput(e.to_string()))?;
         use std::process::Command;
 
-        // Try to read the actual root path from Nginx config (supports custom paths)
-        let nginx_config_paths = [
-            format!("/etc/nginx/sites-available/fileserver_{}", name),
-            format!("/etc/nginx/sites-available/{}", name),
-        ];
-        let default_path = format!("/srv/enola-files/{}", name);
-        let path = nginx_config_paths
-            .iter()
-            .find_map(|cfg_path| {
-                std::fs::read_to_string(cfg_path).ok().and_then(|content| {
-                    content.lines().find_map(|line| {
-                        let trimmed = line.trim();
-                        trimmed
-                            .strip_prefix("root ")
-                            .map(|rest| rest.trim_end_matches(';').trim().to_string())
-                    })
-                })
-            })
-            .unwrap_or(default_path);
+        // Carpeta real del share: solo su site `fileserver_<name>` (la de
+        // `sites-available/<name>` es de un `tor create raw|static` ajeno).
+        let path = read_share_path(name).unwrap_or_else(|| format!("/srv/enola-files/{}", name));
+        // SEC-B11: misma regla que al crear el share — el chown/chmod
+        // recursivo como root nunca toca rutas del sistema ni homes ajenos.
+        let canon = std::fs::canonicalize(&path)
+            .map_err(|e| CliError::InvalidInput(format!("Share path '{path}': {e}")))?;
+        let invoker_home = crate::infrastructure::drop_privs::invoking_user()
+            .and_then(|u| u.home)
+            .map(std::path::PathBuf::from);
+        crate::domain::rag::validate_share_location(&canon, invoker_home.as_deref())
+            .map_err(|e| CliError::InvalidInput(e.to_string()))?;
+        let path = canon.to_string_lossy().to_string();
 
         Command::new("chown")
             .args(["-R", "root:www-data", &path])

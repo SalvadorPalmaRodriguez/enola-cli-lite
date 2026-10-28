@@ -519,6 +519,10 @@ mod tests {
             "test run",
             "test benchmark",
             "ai finetune wizard",
+            // SEC-M1: imprimen secretos generados.
+            "tor auth generate --client alice",
+            "vpn peer add wg0 laptop --endpoint 1.2.3.4",
+            "git user create srv --username bob --email b@x.y",
         ] {
             assert!(
                 is_security(&evaluate_argv(&argv(cmd))),

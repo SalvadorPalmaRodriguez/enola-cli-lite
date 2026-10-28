@@ -1139,6 +1139,10 @@ mod tests {
             json!({"family": "update", "subcommand": "apply", "args": {"binary": "/tmp/x"}}),
             json!({"family": "test", "subcommand": "run"}),
             json!({"family": "test", "subcommand": "benchmark"}),
+            // SEC-M1 (D7): imprimen secretos generados.
+            json!({"family": "tor", "subcommand": "auth generate", "args": {"client": "alice"}}),
+            json!({"family": "vpn", "subcommand": "peer add", "args": {"interface": "wg0", "peer_name": "laptop", "endpoint": "1.2.3.4"}}),
+            json!({"family": "git", "subcommand": "user create", "args": {"server": "srv", "username": "bob", "email": "b@x.y"}}),
         ];
         for args in cases {
             let mock = MockProcessRunnerPort::new();

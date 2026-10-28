@@ -7,6 +7,7 @@ pub mod logging;
 pub mod nginx;
 pub mod port_checker; // PORTS-003 (177) — OS+Docker port availability check
 pub mod security;
+pub mod service_user; // SEC-M10 — useradd --system para Forgejo/Ghost
 pub mod systemd;
 pub mod ufw; // UFW firewall adapter (UFW-003)
 

@@ -566,6 +566,7 @@ pub const RAG_DENIED_PREFIXES: &[&str] = &[
     "/var/lib",
     "/var/log",
     "/var/run",
+    "/var/backups",
     "/opt/enola",
 ];
 
@@ -584,6 +585,51 @@ pub fn validate_rag_source_path(canon: &Path) -> Result<()> {
             return Err(EnolaError::ValidationError(format!(
                 "La fuente RAG '{s}' apunta a una ruta del sistema ({denied}) — no permitida"
             )));
+        }
+    }
+    Ok(())
+}
+
+/// SEC-B11: ¿puede `canon` (ruta ya canonicalizada) ser la carpeta de un
+/// share de ficheros? `files create`/`fix-perms` hacen sobre ella
+/// `chown -R root:www-data` + `chmod -R 750` como root, así que se excluyen:
+/// `/`, las rutas del sistema de [`RAG_DENIED_PREFIXES`], `/srv` y los datos de
+/// otros servicios (`/srv/enola-*` salvo dentro de `/srv/enola-files`), y
+/// `/home` salvo una subcarpeta del home del invocador (`invoker_home`;
+/// nunca el home entero ni el de otro usuario).
+pub fn validate_share_location(canon: &Path, invoker_home: Option<&Path>) -> Result<()> {
+    let deny = |why: &str| {
+        Err(EnolaError::ValidationError(format!(
+            "La carpeta compartida '{}' no está permitida: {why}",
+            canon.display()
+        )))
+    };
+    if !canon.is_absolute() || canon == Path::new("/") {
+        return deny("debe ser una carpeta absoluta distinta de /");
+    }
+    let s = canon.to_string_lossy();
+    if RAG_DENIED_PREFIXES
+        .iter()
+        .any(|d| s == *d || s.starts_with(&format!("{d}/")))
+    {
+        return deny("es una ruta del sistema");
+    }
+    let files_root = Path::new("/srv/enola-files");
+    if canon == Path::new("/srv") || canon == files_root {
+        return deny("es un directorio base de Enola");
+    }
+    if s.starts_with("/srv/enola-") && !canon.starts_with(files_root) {
+        return deny("contiene los datos de otro servicio de Enola");
+    }
+    if let Some(home) = invoker_home {
+        if canon == home {
+            return deny("es tu carpeta personal entera; usa una subcarpeta");
+        }
+    }
+    if canon.starts_with("/home") {
+        let inside_own = invoker_home.is_some_and(|h| canon.starts_with(h) && canon != h);
+        if !inside_own {
+            return deny("está en /home fuera de tu carpeta personal");
         }
     }
     Ok(())
@@ -938,6 +984,7 @@ mod tests {
             "/proc/self",
             "/sys/kernel",
             "/var/lib/x",
+            "/var/backups/passwd.bak",
         ] {
             assert!(
                 validate_rag_source_path(Path::new(bad)).is_err(),
@@ -975,5 +1022,56 @@ mod tests {
     fn collection_for_instance_derives_valid_name() {
         assert_eq!(collection_for_instance("dev").unwrap(), "rag_dev");
         assert!(collection_for_instance("Bad_Name").is_err());
+    }
+
+    // ── SEC-B11: carpetas de share ──
+
+    #[test]
+    fn share_path_rejects_etc() {
+        for bad in [
+            "/",
+            "/etc",
+            "/etc/nginx",
+            "/usr/share",
+            "/var/backups",
+            "/root/x",
+            "/srv",
+            "/srv/enola-files",
+        ] {
+            assert!(
+                validate_share_location(Path::new(bad), None).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn share_path_rejects_other_services_data() {
+        for bad in [
+            "/srv/enola-git/srv1",
+            "/srv/enola-wordpress/x",
+            "/srv/enola-ghost",
+        ] {
+            assert!(
+                validate_share_location(Path::new(bad), None).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(validate_share_location(Path::new("/srv/enola-files/docs"), None).is_ok());
+        assert!(validate_share_location(Path::new("/srv/media"), None).is_ok());
+    }
+
+    #[test]
+    fn share_path_rejects_other_users_home() {
+        let ana = Path::new("/home/ana");
+        assert!(validate_share_location(Path::new("/home/bob/fotos"), Some(ana)).is_err());
+        assert!(validate_share_location(Path::new("/home/ana"), Some(ana)).is_err());
+        assert!(validate_share_location(Path::new("/home"), Some(ana)).is_err());
+        assert!(validate_share_location(Path::new("/home/ana/compartir"), None).is_err());
+        assert!(validate_share_location(Path::new("/home/ana/compartir"), Some(ana)).is_ok());
+        // Home fuera de /home: ni el home entero ni nada en /home.
+        let alt = Path::new("/var/home/ana");
+        assert!(validate_share_location(alt, Some(alt)).is_err());
+        assert!(validate_share_location(Path::new("/var/home/ana/x"), Some(alt)).is_ok());
     }
 }

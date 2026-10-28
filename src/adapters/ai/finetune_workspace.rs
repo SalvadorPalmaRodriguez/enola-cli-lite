@@ -26,6 +26,16 @@ impl FinetuneWorkspacePort for FsFinetuneWorkspace {
     #[tracing::instrument(skip(self))]
     async fn read_dataset(&self, path: &Path, max_bytes: u64) -> Result<String> {
         let shown = path.display();
+        // SEC-M11: se lee como root; solo lo que el invocador de `sudo` podría
+        // leer, y se lee la ruta ya resuelta que se ha comprobado.
+        let path = &tokio::fs::canonicalize(path)
+            .await
+            .map_err(|e| EnolaError::ValidationError(format!("No se pudo leer '{shown}': {e}")))?;
+        if !crate::infrastructure::privileges::invoker_can_read(path) {
+            return Err(EnolaError::ValidationError(format!(
+                "Dataset '{shown}' no es legible por el usuario que ejecuta enola-cli"
+            )));
+        }
         let meta = tokio::fs::metadata(path)
             .await
             .map_err(|e| EnolaError::ValidationError(format!("No se pudo leer '{shown}': {e}")))?;

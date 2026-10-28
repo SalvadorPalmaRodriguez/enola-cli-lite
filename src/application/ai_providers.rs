@@ -7,7 +7,9 @@
 //
 // Hexagonal: usa SOLO `AiProvidersStorePort` + `ExternalAiPort`.
 
-use crate::domain::ai_providers::{key_status, validate_api_key, ExternalProvider, ProviderEntry};
+use crate::domain::ai_providers::{
+    key_status, validate_api_key, validate_endpoint, ExternalProvider, ProviderEntry,
+};
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::external_ai::{AiProvidersStorePort, ExternalAiPort, ProviderTestResult};
 use crate::ports::llm::ChatMessage;
@@ -105,11 +107,7 @@ impl ManageAiProviders {
             validate_api_key(k)?; // T9 — inyección de control
         }
         if let Some(ep) = &endpoint {
-            if !(ep.starts_with("https://") || ep.starts_with("http://")) {
-                return Err(EnolaError::ValidationError(format!(
-                    "El endpoint debe ser http(s): '{ep}'"
-                )));
-            }
+            validate_endpoint(ep)?; // SEC-M8 — http:// solo hacia loopback
         }
         let mut entry = self.store.get(provider).await?.unwrap_or(ProviderEntry {
             enabled: false,
@@ -170,11 +168,10 @@ impl ManageAiProviders {
                 provider.as_str()
             )));
         }
-        Ok((
-            key,
-            entry.effective_endpoint(provider),
-            entry.effective_model(provider),
-        ))
+        // SEC-M8: también al usarlo — `providers.env` puede editarse a mano.
+        let endpoint = entry.effective_endpoint(provider);
+        validate_endpoint(&endpoint)?;
+        Ok((key, endpoint, entry.effective_model(provider)))
     }
 
     /// `ai provider test <provider>` — ping real al provider.

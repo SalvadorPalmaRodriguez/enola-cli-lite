@@ -452,7 +452,8 @@ impl ServiceBlueprint {
                 // NginxAdapter::generate_self_signed_cert (/etc/nginx/ssl/{name}.crt|.key)
                 let mut paths = vec![PlannedPath {
                     path: format!("/srv/enola-git/{}", name),
-                    purpose: "Forgejo data (bind mount -> /data, chown 1000:1000)".to_string(),
+                    purpose: "Forgejo data (bind mount -> /data, owned by system user enola-git)"
+                        .to_string(),
                 }];
                 let mut notes = Vec::new();
                 if opts.ssl {

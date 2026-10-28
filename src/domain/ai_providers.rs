@@ -145,6 +145,52 @@ const MAX_API_KEY_LEN: usize = 512;
 /// Prefijo de las variables del archivo de providers.
 const ENV_PREFIX: &str = "ENOLA_PROVIDER_";
 
+/// Hosts a los que se admite `http://` (SEC-M8, D10): la clave viajaría en
+/// claro, así que solo se permite sin cifrar hacia la propia máquina
+/// (p. ej. un proxy o gateway local).
+const HTTP_LOOPBACK_HOSTS: &[&str] = &["127.0.0.1", "::1", "localhost"];
+
+/// SEC-M8: valida el endpoint de un provider. `https://` con host; `http://`
+/// solo hacia loopback. Se rechaza userinfo (`http://127.0.0.1@evil.com`
+/// apunta a `evil.com`) y cualquier carácter de control o espacio.
+pub fn validate_endpoint(ep: &str) -> Result<()> {
+    let bad = |why: &str| EnolaError::ValidationError(format!("Endpoint no válido '{ep}': {why}"));
+    if ep.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(bad("contiene espacios o caracteres de control"));
+    }
+    let (rest, is_http) = if let Some(r) = ep.strip_prefix("https://") {
+        (r, false)
+    } else if let Some(r) = ep.strip_prefix("http://") {
+        (r, true)
+    } else {
+        return Err(bad(
+            "debe empezar por https:// (o http:// hacia esta máquina)",
+        ));
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        return Err(bad("no admite usuario/contraseña en la URL"));
+    }
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        v6.split(']').next().unwrap_or_default()
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    };
+    if host.is_empty() {
+        return Err(bad("falta el host"));
+    }
+    if is_http
+        && !HTTP_LOOPBACK_HOSTS
+            .iter()
+            .any(|h| h.eq_ignore_ascii_case(host))
+    {
+        return Err(bad(
+            "http:// solo se admite hacia esta máquina (127.0.0.1, ::1, localhost); usa https://",
+        ));
+    }
+    Ok(())
+}
+
 /// Valida una API key: no vacía, sin `\n`/`\r`/`\0` (T9 — inyección en
 /// archivo env), dentro del máximo defensivo.
 pub fn validate_api_key(key: &str) -> Result<()> {
@@ -320,5 +366,46 @@ mod tests {
     fn key_status_never_reveals_value() {
         assert_eq!(key_status(&Some("sk-secret".into())), "(set)");
         assert_eq!(key_status(&None), "(not set)");
+    }
+
+    // ── SEC-M8: http:// solo hacia loopback ──
+
+    #[test]
+    fn endpoint_http_remote_rejected() {
+        for ep in [
+            "http://api.openai.com/v1",
+            "http://10.0.0.5:8080",
+            "http://127.0.0.1@evil.com/v1",
+            "http://127.0.0.1.evil.com",
+            "http://[2001:db8::1]:80",
+            "ftp://127.0.0.1",
+            "api.openai.com",
+            "https://",
+            "https://user:pw@api.openai.com",
+            "https://api.openai.com/v1 x",
+        ] {
+            assert!(validate_endpoint(ep).is_err(), "{ep}");
+        }
+    }
+
+    #[test]
+    fn endpoint_http_loopback_ok() {
+        for ep in [
+            "http://127.0.0.1:4000/v1",
+            "http://localhost:8080",
+            "http://LOCALHOST/v1",
+            "http://[::1]:11434/v1",
+            "https://api.openai.com/v1",
+            "https://openrouter.ai/api/v1?x=1",
+        ] {
+            assert!(validate_endpoint(ep).is_ok(), "{ep}");
+        }
+    }
+
+    #[test]
+    fn default_endpoints_are_valid() {
+        for p in ExternalProvider::all() {
+            assert!(validate_endpoint(p.default_endpoint()).is_ok(), "{p:?}");
+        }
     }
 }

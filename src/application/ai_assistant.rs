@@ -237,13 +237,13 @@ pub(crate) fn format_unreachable_ollama_guidance(
     let mut msg = format!(
         "No se pudo conectar con el motor de IA local (Ollama) en '{endpoint}' ({cause}).\n\n\
          Cómo solucionarlo:\n\
-         1. Si ya tienes Ollama instalado en el host, arráncalo:\n\
+         1. Recomendado: despliega una instancia aislada con Enola CLI:\n\
+            sudo enola-cli ai create\n\
+         2. Si ya tienes Ollama instalado en el host, arráncalo:\n\
             ollama serve\n\
             ollama pull {DEFAULT_AI_MODEL}\n\
-         2. Para instalar Ollama en el host:\n\
-            curl -fsSL https://ollama.com/install.sh | sh\n\
-         3. O despliega una instancia aislada con Enola CLI:\n\
-            sudo enola-cli ai create\n\
+         3. Para instalar Ollama en el host, sigue la guía oficial:\n\
+            https://ollama.com/download/linux\n\
          4. Si Ollama escucha en otra URL o puerto, indícalo con:\n\
             enola-cli ask \"...\" --endpoint http://127.0.0.1:<puerto>\n\
             (o configura ENOLA_AI_ENDPOINT / [ai].endpoint en ~/.enola/config.toml)."
@@ -1494,6 +1494,9 @@ mod tests {
         assert!(msg.contains("http://127.0.0.1:11434"));
         assert!(msg.contains("enola-cli ai create"));
         assert!(msg.contains("http://127.0.0.1:11435"));
+        // SEC-B9: nunca recomienda ejecutar un script descargado (`curl … | sh`).
+        assert!(!msg.contains("| sh"));
+        assert!(msg.contains("https://ollama.com/download"));
     }
 
     /// A25-10 (P5.3): clasificación default-deny de lecturas sensibles.

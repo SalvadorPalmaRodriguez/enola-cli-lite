@@ -700,12 +700,9 @@ server {{
             )));
         }
 
-        // Set proper permissions
-        Command::new("chmod")
-            .args(["600", &key_str])
-            .output()
-            .await
-            .ok();
+        // SEC-B4: clave privada 0600 comprobada (antes `chmod` sin mirar el
+        // resultado: un fallo dejaba la clave con el umask de openssl).
+        restrict_key_to_owner(&key_path)?;
 
         eprintln!("   [NGINX] Certificate generated: {:?}", cert_path);
         let _ = std::io::Write::flush(&mut std::io::stderr());
@@ -1344,9 +1341,40 @@ server {{
     }
 }
 
+/// SEC-B4: deja `path` en 0600 y lo verifica; error si no lo consigue.
+fn restrict_key_to_owner(path: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let fail =
+        |e: String| EnolaError::InfrastructureError(format!("TLS key {}: {}", path.display(), e));
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| fail(e.to_string()))?;
+    let mode = std::fs::symlink_metadata(path)
+        .map_err(|e| fail(e.to_string()))?
+        .permissions()
+        .mode()
+        & 0o777;
+    if mode != 0o600 {
+        return Err(fail(format!("mode {mode:o}, expected 600")));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+
+    #[test]
+    fn cert_key_is_forced_to_0600_or_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let key = tmp.path().join("k.key");
+        std::fs::write(&key, "x").unwrap();
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+        restrict_key_to_owner(&key).expect("0600");
+        let mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert!(restrict_key_to_owner(&tmp.path().join("missing.key")).is_err());
+    }
     use super::*;
 
     #[test]

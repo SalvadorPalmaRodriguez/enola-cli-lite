@@ -37,6 +37,7 @@ use crate::domain::error::{EnolaError, Result};
 use crate::ports::cms::{CmsAdapter, CmsLifecycle};
 use crate::ports::container::{ContainerConfig, ContainerPort};
 use crate::ports::manifest::ManifestPort;
+use crate::ports::service_user::ServiceUserPort;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -60,6 +61,8 @@ fn ghost_base_dir(override_dir: Option<&Path>) -> PathBuf {
 pub struct GhostCmsAdapter {
     container_manager: Arc<dyn ContainerPort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    /// SEC-M10: usuario de sistema `enola-ghost` dueño de `content/` y del proceso.
+    service_user: Arc<dyn ServiceUserPort + Send + Sync>,
     base_dir: Option<PathBuf>,
 }
 
@@ -71,20 +74,24 @@ impl GhostCmsAdapter {
         Self {
             container_manager,
             manifest,
+            service_user: Arc::new(crate::adapters::infra::service_user::SystemServiceUser::new()),
             base_dir: None,
         }
     }
 
-    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe).
+    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe)
+    /// y el usuario de servicio (sin `useradd` real).
     #[cfg(test)]
     pub fn new_with_base(
         container_manager: Arc<dyn ContainerPort + Send + Sync>,
         manifest: Arc<dyn ManifestPort + Send + Sync>,
         base_dir: PathBuf,
+        service_user: Arc<dyn ServiceUserPort + Send + Sync>,
     ) -> Self {
         Self {
             container_manager,
             manifest,
+            service_user,
             base_dir: Some(base_dir),
         }
     }
@@ -183,13 +190,22 @@ impl CmsLifecycle for GhostCmsAdapter {
         let inst_dir = base.join(&request.name);
         let content_volume = inst_dir.join("content");
 
-        // Crear el directorio en disco con modo 0700 si tests/local lo necesitan.
-        // En producción Docker lo crea con root; aquí solo aseguramos que existe
-        // si el operador lo pre-crea para overrides.
-        if !content_volume.exists() {
-            // No fatal si no podemos crearlo (Docker lo creará con sus permisos).
-            let _ = std::fs::create_dir_all(&content_volume);
-        }
+        // SEC-M10 (D6): Ghost corre como el usuario de sistema `enola-ghost`
+        // (no como `node`, uid 1000, que en el host es el operador) y
+        // `content/` es suyo antes de arrancar. Sin root, el entrypoint de la
+        // imagen ya no hace chown ni gosu.
+        std::fs::create_dir_all(&content_volume).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Cannot create {}: {}",
+                content_volume.display(),
+                e
+            ))
+        })?;
+        let (ghost_uid, ghost_gid) = self
+            .service_user
+            .ensure(crate::domain::naming::GHOST_SERVICE_USER)?;
+        self.service_user
+            .chown_tree(&content_volume, ghost_uid, ghost_gid)?;
 
         // 3. Env: forzar SQLite explícito y URL pública. Si el usuario no ha
         // configurado URL pública, Ghost usa http://localhost:{port}.
@@ -236,7 +252,7 @@ impl CmsLifecycle for GhostCmsAdapter {
             // SEC-019: Ghost needs write access for content
             read_only_rootfs: false,
             no_new_privileges: true,
-            ..Default::default()
+            user: Some(format!("{ghost_uid}:{ghost_gid}")),
         };
         self.container_manager.create_container(web_config).await?;
         self.container_manager.start_container(&web_name).await?;
@@ -442,15 +458,28 @@ mod tests {
         let mut mock = MockContainerPort::new();
         mock.expect_create_network().returning(|_| Ok(()));
         // SQLite ⇒ UN solo create_container (vs Drupal que llama 2 veces).
+        // SEC-M10: el proceso corre como `enola-ghost`, nunca como uid 1000.
         mock.expect_create_container()
             .times(1)
+            .withf(|c| c.user.as_deref() == Some("990:991"))
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(1).returning(|_| Ok(()));
+        let mut user = crate::ports::service_user::MockServiceUserPort::new();
+        user.expect_ensure()
+            .withf(|n| n == "enola-ghost")
+            .times(1)
+            .returning(|_| Ok((990, 991)));
+        let content = tmp.path().join("myblog/content");
+        user.expect_chown_tree()
+            .withf(move |p, u, g| p == content && *u == 990 && *g == 991)
+            .times(1)
+            .returning(|_, _, _| Ok(()));
 
         let adapter = GhostCmsAdapter::new_with_base(
             Arc::new(mock),
             Arc::new(mock_manifest()),
             tmp.path().to_path_buf(),
+            Arc::new(user),
         );
         let req = CmsCreateRequest {
             name: "myblog".to_string(),

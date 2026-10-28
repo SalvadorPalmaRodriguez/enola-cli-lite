@@ -56,6 +56,11 @@ impl DeployFileServer {
 
         // SEC-017: Validate share_path to prevent path traversal attacks
         let share_path_buf = validate_share_path(&share_path)?;
+        // SEC-B11: ni rutas del sistema ni homes ajenos (chown -R root:www-data).
+        let invoker_home = crate::infrastructure::drop_privs::invoking_user()
+            .and_then(|u| u.home)
+            .map(PathBuf::from);
+        crate::domain::rag::validate_share_location(&share_path_buf, invoker_home.as_deref())?;
 
         // 2. Secure Directory Creation
         self.file_manager.ensure_dir(&share_path_buf).await?;

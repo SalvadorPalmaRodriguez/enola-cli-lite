@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::adapters::web::web_errors::{ApiError, ApiResult};
+use crate::adapters::web::web_extract::{ValidIface, ValidName, ValidNames};
 use crate::adapters::web::web_server::AppState;
 use crate::cli::commands;
 
@@ -333,7 +334,7 @@ struct TorPublishRequest {
 }
 
 async fn api_tor_publish(
-    Path((service_type, name)): Path<(String, String)>,
+    ValidNames(service_type, name): ValidNames,
     Json(req): Json<TorPublishRequest>,
 ) -> ApiResult<String> {
     let ssl = req.ssl.unwrap_or(false);
@@ -370,7 +371,7 @@ async fn api_tor_publish(
     Ok(Json(result))
 }
 
-async fn api_tor_hide(Path((service_type, name)): Path<(String, String)>) -> ApiResult<()> {
+async fn api_tor_hide(ValidNames(service_type, name): ValidNames) -> ApiResult<()> {
     match service_type.as_str() {
         "git" => commands::git::hide(&name).await.map_err(ApiError::from)?,
         "wordpress" | "wp" => commands::wordpress::hide(&name)
@@ -400,7 +401,7 @@ async fn api_tor_hide(Path((service_type, name)): Path<(String, String)>) -> Api
 }
 
 async fn api_tor_rotate(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<String> {
     // SEC-005: la rotación destruye la dirección .onion actual de forma
@@ -468,12 +469,12 @@ async fn api_git_create(Json(req): Json<GitCreateRequest>) -> ApiResult<String> 
     Ok(Json(result))
 }
 
-async fn api_git_start(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_git_start(ValidName(name): ValidName) -> ApiResult<()> {
     commands::git::start(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
-async fn api_git_stop(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_git_stop(ValidName(name): ValidName) -> ApiResult<()> {
     commands::git::stop(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
@@ -505,7 +506,7 @@ fn require_confirm(provided: Option<&str>, expected: &str) -> Result<(), ApiErro
 }
 
 async fn api_git_delete(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<()> {
     require_confirm(confirm_of(&req), &name)?;
@@ -520,7 +521,7 @@ struct GitPublishRequest {
 }
 
 async fn api_git_publish(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<GitPublishRequest>,
 ) -> ApiResult<String> {
     let result = commands::git::publish(&name, req.ssl.unwrap_or(false), req.auth.unwrap_or(false))
@@ -529,7 +530,7 @@ async fn api_git_publish(
     Ok(Json(result))
 }
 
-async fn api_git_hide(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_git_hide(ValidName(name): ValidName) -> ApiResult<()> {
     commands::git::hide(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
@@ -563,14 +564,14 @@ async fn api_wp_create(Json(req): Json<WpCreateRequest>) -> ApiResult<String> {
     Ok(Json(result))
 }
 
-async fn api_wp_start(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_wp_start(ValidName(name): ValidName) -> ApiResult<()> {
     commands::wordpress::start(&name)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
-async fn api_wp_stop(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_wp_stop(ValidName(name): ValidName) -> ApiResult<()> {
     commands::wordpress::stop(&name)
         .await
         .map_err(ApiError::from)?;
@@ -578,7 +579,7 @@ async fn api_wp_stop(Path(name): Path<String>) -> ApiResult<()> {
 }
 
 async fn api_wp_delete(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<()> {
     require_confirm(confirm_of(&req), &name)?;
@@ -589,7 +590,7 @@ async fn api_wp_delete(
 }
 
 async fn api_wp_publish(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<TorPublishRequest>,
 ) -> ApiResult<String> {
     let result =
@@ -599,7 +600,7 @@ async fn api_wp_publish(
     Ok(Json(result))
 }
 
-async fn api_wp_hide(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_wp_hide(ValidName(name): ValidName) -> ApiResult<()> {
     commands::wordpress::hide(&name)
         .await
         .map_err(ApiError::from)?;
@@ -609,7 +610,7 @@ async fn api_wp_hide(Path(name): Path<String>) -> ApiResult<()> {
 // ── CMS (Drupal, Ghost, Magnolia, Strapi, Wagtail) — publish/hide only ────────
 
 async fn api_cms_publish(
-    Path((cms_type, name)): Path<(String, String)>,
+    ValidNames(cms_type, name): ValidNames,
     Json(req): Json<TorPublishRequest>,
 ) -> ApiResult<String> {
     let ssl = req.ssl.unwrap_or(false);
@@ -631,7 +632,7 @@ async fn api_cms_publish(
     Ok(Json(result))
 }
 
-async fn api_cms_hide(Path((cms_type, name)): Path<(String, String)>) -> ApiResult<()> {
+async fn api_cms_hide(ValidNames(cms_type, name): ValidNames) -> ApiResult<()> {
     match cms_type.as_str() {
         "drupal" => commands::drupal::hide(&name).await,
         "ghost" => commands::ghost::hide(&name).await,
@@ -702,7 +703,7 @@ async fn api_files_create(Json(req): Json<FilesCreateRequest>) -> ApiResult<Stri
 }
 
 async fn api_files_delete(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<()> {
     require_confirm(confirm_of(&req), &name)?;
@@ -799,7 +800,7 @@ async fn api_vpn_list() -> ApiResult<Vec<String>> {
 }
 
 async fn api_vpn_status(
-    Path(interface): Path<String>,
+    ValidIface(interface): ValidIface,
 ) -> ApiResult<crate::ports::vpn::VpnInterfaceStatus> {
     use crate::adapters::infra::vpn::WireGuardAdapter;
     use crate::application::vpn_manager::VpnManager;
@@ -811,7 +812,7 @@ async fn api_vpn_status(
     Ok(Json(status))
 }
 
-async fn api_vpn_start(Path(interface): Path<String>) -> ApiResult<()> {
+async fn api_vpn_start(ValidIface(interface): ValidIface) -> ApiResult<()> {
     use crate::adapters::infra::vpn::WireGuardAdapter;
     use crate::application::vpn_manager::VpnManager;
     let mgr = VpnManager::new(std::sync::Arc::new(WireGuardAdapter::new()));
@@ -822,7 +823,7 @@ async fn api_vpn_start(Path(interface): Path<String>) -> ApiResult<()> {
     Ok(Json(()))
 }
 
-async fn api_vpn_stop(Path(interface): Path<String>) -> ApiResult<()> {
+async fn api_vpn_stop(ValidIface(interface): ValidIface) -> ApiResult<()> {
     use crate::adapters::infra::vpn::WireGuardAdapter;
     use crate::application::vpn_manager::VpnManager;
     let mgr = VpnManager::new(std::sync::Arc::new(WireGuardAdapter::new()));
@@ -840,7 +841,7 @@ struct VpnDeleteRequest {
 }
 
 async fn api_vpn_delete(
-    Path(interface): Path<String>,
+    ValidIface(interface): ValidIface,
     Json(req): Json<VpnDeleteRequest>,
 ) -> ApiResult<()> {
     require_confirm(req.confirm.as_deref(), &interface)?;
@@ -924,18 +925,18 @@ async fn api_tor_create(Json(req): Json<TorCreateRequest>) -> ApiResult<String> 
     Ok(Json(result))
 }
 
-async fn api_tor_start(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_tor_start(ValidName(name): ValidName) -> ApiResult<()> {
     commands::tor::start(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
-async fn api_tor_stop(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_tor_stop(ValidName(name): ValidName) -> ApiResult<()> {
     commands::tor::stop(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
 async fn api_tor_remove(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<()> {
     require_confirm(confirm_of(&req), &name)?;
@@ -960,7 +961,7 @@ struct TorEditResponse {
 }
 
 async fn api_tor_edit(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<TorEditRequest>,
 ) -> ApiResult<TorEditResponse> {
     // If virtual_port is non-standard and not forced, return warning without applying
@@ -1015,7 +1016,7 @@ struct TorDetailResponse {
     ports: Vec<TorPortDetail>,
 }
 
-async fn api_tor_detail(Path(name): Path<String>) -> ApiResult<TorDetailResponse> {
+async fn api_tor_detail(ValidName(name): ValidName) -> ApiResult<TorDetailResponse> {
     use crate::adapters::tor::TorConfigAdapter;
     use crate::domain::naming::{ServiceLookup, ServiceName};
     use crate::ports::tor::TorManagerPort;
@@ -1395,7 +1396,7 @@ async fn api_console_run(
 /// B3 (re-verificación A25): Destructive en MCP (`tor_ssl` con confirm_token) →
 /// la web exige `{"confirm": "<name>"}` (paridad, SD-2).
 async fn api_tor_ssl(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<String> {
     require_confirm(confirm_of(&req), &name)?;
@@ -1416,7 +1417,7 @@ struct TorAuthInstanceQuery {
 }
 
 async fn api_tor_auth_list(
-    Path(service): Path<String>,
+    ValidName(service): ValidName,
     axum::extract::Query(q): axum::extract::Query<TorAuthInstanceQuery>,
 ) -> ApiResult<Vec<String>> {
     let clients = commands::tor::auth::list(&service, q.instance.as_deref())
@@ -1426,7 +1427,7 @@ async fn api_tor_auth_list(
 }
 
 async fn api_tor_auth_enable(
-    Path(service): Path<String>,
+    ValidName(service): ValidName,
     Json(req): Json<TorAuthInstanceQuery>,
 ) -> ApiResult<String> {
     commands::tor::auth::enable(&service, req.instance.as_deref())
@@ -1439,7 +1440,7 @@ async fn api_tor_auth_enable(
 }
 
 async fn api_tor_auth_disable(
-    Path(service): Path<String>,
+    ValidName(service): ValidName,
     Json(req): Json<TorAuthInstanceQuery>,
 ) -> ApiResult<String> {
     commands::tor::auth::disable(&service, req.instance.as_deref())
@@ -1459,7 +1460,7 @@ struct TorAuthAddRequest {
 }
 
 async fn api_tor_auth_add(
-    Path(service): Path<String>,
+    ValidName(service): ValidName,
     Json(req): Json<TorAuthAddRequest>,
 ) -> ApiResult<String> {
     commands::tor::auth::add(&service, req.instance.as_deref(), &req.client, &req.pubkey)
@@ -1485,7 +1486,7 @@ struct TorAuthRotateRequest {
 }
 
 async fn api_tor_auth_revoke(
-    Path(service): Path<String>,
+    ValidName(service): ValidName,
     Json(req): Json<TorAuthRevokeRequest>,
 ) -> ApiResult<String> {
     commands::tor::auth::revoke(&service, req.instance.as_deref(), &req.client)
@@ -1531,7 +1532,7 @@ async fn api_tor_auth_generate(
 /// key. The operator replaces the stored public key with it. The private key
 /// never reaches the operator, so no key material is returned here.
 async fn api_tor_auth_rotate(
-    Path(service): Path<String>,
+    ValidName(service): ValidName,
     Json(req): Json<TorAuthRotateRequest>,
 ) -> ApiResult<String> {
     commands::tor::auth::rotate(&service, req.instance.as_deref(), &req.client, &req.pubkey)
@@ -1545,7 +1546,7 @@ async fn api_tor_auth_rotate(
 
 // ── Git Complete ──────────────────────────────────────────────────────────────
 
-async fn api_git_status(Path(name): Path<String>) -> ApiResult<commands::git::GitServerInfo> {
+async fn api_git_status(ValidName(name): ValidName) -> ApiResult<commands::git::GitServerInfo> {
     let info = commands::git::status(&name).await.map_err(ApiError::from)?;
     Ok(Json(info))
 }
@@ -1556,7 +1557,7 @@ struct GitRegistrationRequest {
 }
 
 async fn api_git_registration(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<GitRegistrationRequest>,
 ) -> ApiResult<()> {
     commands::git::registration(&name, req.enable)
@@ -1565,7 +1566,7 @@ async fn api_git_registration(
     Ok(Json(()))
 }
 
-async fn api_git_registration_status(Path(name): Path<String>) -> ApiResult<serde_json::Value> {
+async fn api_git_registration_status(ValidName(name): ValidName) -> ApiResult<serde_json::Value> {
     let enabled = commands::git::registration_status(&name)
         .await
         .map_err(ApiError::from)?;
@@ -1581,7 +1582,7 @@ struct GitEditRequest {
 }
 
 async fn api_git_edit(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<GitEditRequest>,
 ) -> ApiResult<String> {
     let result = commands::git::edit(
@@ -1717,21 +1718,21 @@ async fn api_git_watcher() -> ApiResult<String> {
 
 // ── WordPress Complete ────────────────────────────────────────────────────────
 
-async fn api_wp_restart(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_wp_restart(ValidName(name): ValidName) -> ApiResult<()> {
     commands::wordpress::restart(&name)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
-async fn api_wp_update(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_wp_update(ValidName(name): ValidName) -> ApiResult<()> {
     commands::wordpress::update(&name)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
-async fn api_wp_config(Path(name): Path<String>) -> ApiResult<String> {
+async fn api_wp_config(ValidName(name): ValidName) -> ApiResult<String> {
     let config = commands::wordpress::config(&name)
         .await
         .map_err(ApiError::from)?;
@@ -1739,7 +1740,7 @@ async fn api_wp_config(Path(name): Path<String>) -> ApiResult<String> {
 }
 
 async fn api_wp_status(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
 ) -> ApiResult<commands::wordpress::WordPressStatus> {
     let status = commands::wordpress::status(&name)
         .await
@@ -1756,7 +1757,7 @@ struct WpEditRequest {
 }
 
 async fn api_wp_edit(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<WpEditRequest>,
 ) -> ApiResult<String> {
     let result = commands::wordpress::edit(
@@ -1824,7 +1825,7 @@ fn cms_prefix(cms_type: &str) -> &str {
     }
 }
 
-async fn api_cms_list(Path(cms_type): Path<String>) -> ApiResult<Vec<serde_json::Value>> {
+async fn api_cms_list(ValidName(cms_type): ValidName) -> ApiResult<Vec<serde_json::Value>> {
     let prefix = cms_prefix(&cms_type);
     let output = std::process::Command::new("docker")
         .args([
@@ -1883,7 +1884,7 @@ struct CmsCreateResponse {
 }
 
 async fn api_cms_create(
-    Path(cms_type): Path<String>,
+    ValidName(cms_type): ValidName,
     Json(req): Json<CmsCreateRequest>,
 ) -> ApiResult<CmsCreateResponse> {
     let adapter = build_cms_adapter(&cms_type)?;
@@ -1898,13 +1899,13 @@ async fn api_cms_create(
     Ok(Json(CmsCreateResponse { instance, warning }))
 }
 
-async fn api_cms_start(Path((cms_type, name)): Path<(String, String)>) -> ApiResult<()> {
+async fn api_cms_start(ValidNames(cms_type, name): ValidNames) -> ApiResult<()> {
     let adapter = build_cms_adapter(&cms_type)?;
     adapter.start(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
-async fn api_cms_stop(Path((cms_type, name)): Path<(String, String)>) -> ApiResult<()> {
+async fn api_cms_stop(ValidNames(cms_type, name): ValidNames) -> ApiResult<()> {
     let adapter = build_cms_adapter(&cms_type)?;
     adapter.stop(&name).await.map_err(ApiError::from)?;
     Ok(Json(()))
@@ -1917,7 +1918,7 @@ struct CmsDeleteRequest {
 }
 
 async fn api_cms_delete(
-    Path((cms_type, name)): Path<(String, String)>,
+    ValidNames(cms_type, name): ValidNames,
     Json(req): Json<CmsDeleteRequest>,
 ) -> ApiResult<()> {
     require_confirm(req.confirm.as_deref(), &name)?;
@@ -1930,7 +1931,7 @@ async fn api_cms_delete(
 }
 
 async fn api_cms_status(
-    Path((cms_type, name)): Path<(String, String)>,
+    ValidNames(cms_type, name): ValidNames,
 ) -> ApiResult<crate::domain::cms::CmsInstance> {
     let adapter = build_cms_adapter(&cms_type)?;
     let inst = adapter.status(&name).await.map_err(ApiError::from)?;
@@ -1943,7 +1944,7 @@ struct CmsEditRequest {
 }
 
 async fn api_cms_edit(
-    Path((cms_type, name)): Path<(String, String)>,
+    ValidNames(cms_type, name): ValidNames,
     Json(req): Json<CmsEditRequest>,
 ) -> ApiResult<String> {
     match cms_type.as_str() {
@@ -2020,7 +2021,7 @@ struct FilesEditRequest {
 }
 
 async fn api_files_edit(
-    Path(name): Path<String>,
+    ValidName(name): ValidName,
     Json(req): Json<FilesEditRequest>,
 ) -> ApiResult<String> {
     let result = commands::files::edit(&name, req.port)
@@ -2029,7 +2030,7 @@ async fn api_files_edit(
     Ok(Json(result))
 }
 
-async fn api_files_fix_perms(Path(name): Path<String>) -> ApiResult<()> {
+async fn api_files_fix_perms(ValidName(name): ValidName) -> ApiResult<()> {
     commands::files::fix_perms(&name)
         .await
         .map_err(ApiError::from)?;
@@ -2840,7 +2841,7 @@ async fn api_setup_pqc_tls_events(
 
 // ── Console Help Per Command ──────────────────────────────────────────────────
 
-async fn api_console_help_command(Path(command): Path<String>) -> ApiResult<serde_json::Value> {
+async fn api_console_help_command(ValidName(command): ValidName) -> ApiResult<serde_json::Value> {
     let binary = std::env::current_exe().map_err(|e| ApiError {
         error: format!("cannot locate binary: {}", e),
         code: 500,
@@ -3060,6 +3061,13 @@ async fn api_docs(Path(topic): Path<String>) -> ApiResult<String> {
         code: 500,
     })?;
     let parts: Vec<&str> = topic.splitn(2, '/').collect();
+    // SEC-M3: las partes van como argv; nunca como flags.
+    if parts.iter().any(|p| p.is_empty() || p.starts_with('-')) {
+        return Err(ApiError {
+            error: format!("invalid docs topic: '{topic}'"),
+            code: 400,
+        });
+    }
     let mut args = vec!["docs".to_string()];
     for p in &parts {
         args.push(p.to_string());
@@ -3312,6 +3320,128 @@ async fn api_doctor_security() -> ApiResult<String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// SEC-M3: todo segmento de nombre de la URL se valida antes del handler
+    /// (400), sin ejecutar nada. Si se añade una ruta con `{param}`, va aquí.
+    #[tokio::test]
+    async fn invalid_name_returns_400() {
+        let state = Arc::new(AppState::new(
+            "t".repeat(32),
+            std::time::Duration::from_secs(3600),
+            Arc::new(|_t: &str| true),
+        ));
+        let app = Router::new()
+            .nest("/api", api_routes(state.clone()))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        // Espacio, puntos, flag y mayúsculas: inválidos para `ValidName`;
+        // los tres primeros también para `ValidIface`.
+        // (`..` solo no sirve: el cliente HTTP normaliza la URL.)
+        for bad in ["a%20b", "a..b", "-rf", "Wp"] {
+            let one = [
+                "tor/{}/start",
+                "tor/{}/stop",
+                "tor/{}/remove",
+                "tor/{}/edit",
+                "tor/{}/detail",
+                "tor/{}/rotate",
+                "tor/ssl/{}",
+                "tor/auth/{}/list",
+                "tor/auth/{}/enable",
+                "tor/auth/{}/disable",
+                "tor/auth/{}/add",
+                "tor/auth/{}/revoke",
+                "tor/auth/{}/rotate",
+                "console/help/{}",
+                "git/{}/start",
+                "git/{}/stop",
+                "git/{}/status",
+                "git/{}/delete",
+                "git/{}/publish",
+                "git/{}/hide",
+                "git/{}/registration",
+                "git/{}/registration/status",
+                "git/{}/edit",
+                "wp/{}/start",
+                "wp/{}/stop",
+                "wp/{}/restart",
+                "wp/{}/delete",
+                "wp/{}/publish",
+                "wp/{}/hide",
+                "wp/{}/update",
+                "wp/{}/config",
+                "wp/{}/status",
+                "wp/{}/edit",
+                "cms/{}/list",
+                "cms/{}/create",
+                "files/{}/delete",
+                "files/{}/edit",
+                "files/{}/fix-perms",
+                "vpn/status/{}",
+                "vpn/{}/start",
+                "vpn/{}/stop",
+                "vpn/{}/delete",
+            ];
+            let two = [
+                "tor/publish/{}/{}",
+                "tor/hide/{}/{}",
+                "cms/{}/{}/start",
+                "cms/{}/{}/stop",
+                "cms/{}/{}/delete",
+                "cms/{}/{}/status",
+                "cms/{}/{}/edit",
+                "cms/{}/{}/publish",
+                "cms/{}/{}/hide",
+            ];
+            let mut paths: Vec<String> = one
+                .iter()
+                // `ValidIface` admite mayúsculas (nombres de interfaz Linux).
+                .filter(|p| !(bad == "Wp" && p.starts_with("vpn/")))
+                .map(|p| p.replace("{}", bad))
+                .collect();
+            for p in two {
+                paths.push(p.replacen("{}", bad, 1).replacen("{}", "ok", 1));
+                paths.push(p.replacen("{}", "ok", 1).replacen("{}", bad, 1));
+            }
+            let client = reqwest::Client::new();
+            for p in paths {
+                let url = format!("http://{addr}/api/{p}");
+                for get in [true, false] {
+                    let req = if get {
+                        client.get(&url)
+                    } else {
+                        client.post(&url)
+                    };
+                    let r = req
+                        .header("Authorization", "t".repeat(32))
+                        .send()
+                        .await
+                        .unwrap();
+                    // 405 = método no montado en esa ruta; el otro método da 400.
+                    let st = r.status().as_u16();
+                    assert!(
+                        st == 400 || st == 405,
+                        "{} {p}: {st}",
+                        if get { "GET" } else { "POST" }
+                    );
+                }
+            }
+        }
+    }
+
+    /// SEC-M3: `/docs/{*topic}` pasa sus partes como argv de `enola-cli docs`;
+    /// una parte que empiece por `-` se rechaza (no se inyectan flags).
+    #[tokio::test]
+    async fn docs_topic_rejects_flag_like_parts() {
+        for t in ["--help", "search/-x", "search/--version"] {
+            let r = api_docs(Path(t.to_string())).await;
+            assert!(matches!(r, Err(ref e) if e.code == 400), "{t}");
+        }
+    }
     use super::*;
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
@@ -3480,7 +3610,7 @@ mod tests {
     /// B3: `tor ssl` desde la web exige confirm (paridad con MCP).
     #[tokio::test]
     async fn tor_ssl_requires_confirm() {
-        let r = api_tor_ssl(Path("x".to_string()), None).await;
+        let r = api_tor_ssl(ValidName("x".to_string()), None).await;
         assert_eq!(r.err().map(|e| e.code), Some(409));
     }
 }

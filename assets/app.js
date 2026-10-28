@@ -1639,11 +1639,23 @@
         });
     }
 
+    // SEC-B5: el historial vive en localStorage (en claro, sin caducidad):
+    // los valores de flags secretos se guardan como ***.
+    const SECRET_FLAG_RE = /(--(?:password|admin-pass|admin-password|db-password|token|api-key))(=|\s+)("[^"]*"|'[^']*'|\S+)/g;
+    function redactSecrets(cmd) {
+        return String(cmd).replace(SECRET_FLAG_RE, '$1$2***');
+    }
+
     let consoleHistory = [];
     let consoleHistoryIdx = -1;
     try { consoleHistory = JSON.parse(localStorage.getItem('enola_console_history') || '[]'); } catch(e) { consoleHistory = []; }
+    if (!Array.isArray(consoleHistory)) consoleHistory = [];
+    // Historiales guardados antes de SEC-B5: se limpian al cargar.
+    consoleHistory = consoleHistory.map(redactSecrets);
+    try { localStorage.setItem('enola_console_history', JSON.stringify(consoleHistory)); } catch(e) {}
 
-    function saveConsoleHistory(cmd) {
+    function saveConsoleHistory(raw) {
+        const cmd = redactSecrets(raw);
         if (cmd && cmd !== consoleHistory[consoleHistory.length - 1]) {
             consoleHistory.push(cmd);
             if (consoleHistory.length > 50) consoleHistory = consoleHistory.slice(-50);

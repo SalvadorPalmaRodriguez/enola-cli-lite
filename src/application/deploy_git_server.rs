@@ -2,6 +2,7 @@ use crate::domain::error::{EnolaError, Result};
 use crate::ports::container::{ContainerConfig, ContainerPort};
 use crate::ports::manifest::ManifestPort;
 use crate::ports::port_checker::PortCheckerPort;
+use crate::ports::service_user::ServiceUserPort;
 use crate::ports::tor::TorManagerPort;
 use crate::ports::web::{NginxManagerPort, NginxProxyConfigWithSsl};
 use std::collections::HashMap;
@@ -48,8 +49,12 @@ pub struct DeployGitServer {
     nginx_manager: Option<Arc<dyn NginxManagerPort + Send + Sync>>,
     port_checker: Option<Arc<dyn PortCheckerPort + Send + Sync>>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
+    /// SEC-M10: usuario de sistema `enola-git` dueño de los datos y del proceso.
+    service_user: Arc<dyn ServiceUserPort + Send + Sync>,
     /// Directorio base de datos (`/srv/enola-git`); inyectable en tests.
     data_base: PathBuf,
+    /// SEC-M10: directorio del hash admin (`/etc/enola/git`); inyectable en tests.
+    creds_dir: PathBuf,
 }
 
 impl DeployGitServer {
@@ -58,6 +63,7 @@ impl DeployGitServer {
         tor_manager: Arc<dyn TorManagerPort + Send + Sync>,
         nginx_manager: Option<Arc<dyn NginxManagerPort + Send + Sync>>,
         manifest: Arc<dyn ManifestPort + Send + Sync>,
+        service_user: Arc<dyn ServiceUserPort + Send + Sync>,
     ) -> Self {
         Self {
             container_manager,
@@ -65,13 +71,16 @@ impl DeployGitServer {
             nginx_manager,
             port_checker: None,
             manifest,
+            service_user,
             data_base: PathBuf::from(DEFAULT_GIT_DATA_BASE),
+            creds_dir: PathBuf::from(crate::domain::naming::GIT_ADMIN_CREDS_DIR),
         }
     }
 
-    /// Tests: directorio base de datos en un tempdir.
+    /// Tests: directorios de datos y de credenciales en un tempdir.
     #[cfg(test)]
     pub fn with_data_base(mut self, base: PathBuf) -> Self {
+        self.creds_dir = base.join("creds");
         self.data_base = base;
         self
     }
@@ -140,16 +149,22 @@ impl DeployGitServer {
         })?;
         let host_data_path = self.data_base.join(service_name);
 
-        // Create the data directory with correct ownership BEFORE starting the container.
-        // Forgejo runs as UID/GID 1000 and needs write access to /data.
-        // With no-new-privileges, the container cannot chown root-owned directories.
-        // Best-effort: if this fails (e.g. in unit tests without root), Docker will
-        // create the directory automatically when mounting the volume.
-        let _ = std::fs::create_dir_all(&host_data_path);
-        // chown to 1000:1000 (matching USER_UID/USER_GID env vars)
-        let _ = std::process::Command::new("chown")
-            .args(["-R", "1000:1000", &host_data_path.to_string_lossy()])
-            .status();
+        // SEC-M10 (D6): el proceso Forgejo corre como el usuario de sistema
+        // `enola-git` (no como uid 1000, que en el host es el operador) y los
+        // datos son suyos ANTES de arrancar: con no-new-privileges el
+        // contenedor no puede hacer chown de un directorio de root.
+        std::fs::create_dir_all(&host_data_path).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Cannot create {}: {}",
+                host_data_path.display(),
+                e
+            ))
+        })?;
+        let (git_uid, git_gid) = self
+            .service_user
+            .ensure(crate::domain::naming::GIT_SERVICE_USER)?;
+        self.service_user
+            .chown_tree(&host_data_path, git_uid, git_gid)?;
 
         let mut ports = HashMap::new();
         ports.insert(http_port, 3000u16);
@@ -162,8 +177,8 @@ impl DeployGitServer {
         );
 
         let mut env = HashMap::new();
-        env.insert("USER_UID".to_string(), "1000".to_string());
-        env.insert("USER_GID".to_string(), "1000".to_string());
+        env.insert("USER_UID".to_string(), git_uid.to_string());
+        env.insert("USER_GID".to_string(), git_gid.to_string());
         // Configuración base de Forgejo via ENV (formato: FORGEJO__sección__CLAVE)
         env.insert(
             "FORGEJO__server__DOMAIN".to_string(),
@@ -287,8 +302,9 @@ impl DeployGitServer {
         // Si se proporcionaron credenciales admin (modo CLI), guardarlas localmente
         // para que `git user list/create/delete` puedan autenticarse sin pedirlas.
         if let (Some(user), Some(pass)) = (admin_user, admin_pass) {
-            // SEC-EXT-LIC-032: credenciales auxiliares con permisos owner-only.
-            let _ = write_admin_creds_hash(&host_data_path, user, pass);
+            // SEC-EXT-LIC-032 + SEC-M10: hash en `/etc/enola/git/<name>.creds`
+            // (0600 root, directorio 0700), fuera del volumen del contenedor.
+            let _ = write_admin_creds_hash(&self.creds_dir, service_name, user, pass);
         }
 
         // 5. Configure Nginx Reverse Proxy with SSL (only when --ssl and Nginx available)
@@ -350,8 +366,13 @@ impl DeployGitServer {
     }
 }
 
-fn write_admin_creds_hash(creds_dir: &std::path::Path, user: &str, pass: &str) -> Result<()> {
-    let creds_path = creds_dir.join(".enola-admin-creds");
+fn write_admin_creds_hash(
+    creds_dir: &std::path::Path,
+    server: &str,
+    user: &str,
+    pass: &str,
+) -> Result<()> {
+    let creds_path = creds_dir.join(format!("{server}.creds"));
     // SEC-002: Store bcrypt hash instead of plaintext password.
     let hashed = bcrypt::hash(pass, 12)
         .map_err(|e| EnolaError::InfrastructureError(format!("bcrypt hash failed: {}", e)))?;
@@ -370,12 +391,8 @@ fn write_admin_creds_hash(creds_dir: &std::path::Path, user: &str, pass: &str) -
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        // SEC-FIX-GIT-PERMS (2026-05-14): El directorio raíz de datos Forgejo DEBE ser 0o755
-        // para que el proceso git (UID 1000) pueda atravesarlo. Antes era 0o700 (root-only),
-        // lo que hacía que Forgejo fallara al leer /data/gitea/conf/app.ini con permission denied.
-        // La protección de las credenciales viene del archivo .enola-admin-creds (0o600, root:root):
-        // el directorio no necesita permisos 700 porque el FILE ya es solo-owner.
-        std::fs::set_permissions(creds_dir, std::fs::Permissions::from_mode(0o755)).map_err(
+        // SEC-M10: solo root atraviesa el directorio de credenciales.
+        std::fs::set_permissions(creds_dir, std::fs::Permissions::from_mode(0o700)).map_err(
             |e| {
                 EnolaError::InfrastructureError(format!(
                     "Cannot set creds dir permissions {}: {}",
@@ -436,7 +453,38 @@ mod tests {
         should_fail: bool,
         fail_on_start: bool,
         created_containers: Mutex<Vec<String>>,
+        created_configs: Mutex<Vec<ContainerConfig>>,
         started_containers: Mutex<Vec<String>>,
+    }
+
+    /// SEC-M10: usuario de sistema falso (uid 990 / gid 991) que registra
+    /// las llamadas.
+    #[derive(Default)]
+    struct FakeServiceUser {
+        fail: bool,
+        ensured: Mutex<Vec<String>>,
+        chowned: Mutex<Vec<(PathBuf, u32, u32)>>,
+    }
+
+    impl ServiceUserPort for FakeServiceUser {
+        fn ensure(&self, name: &str) -> Result<(u32, u32)> {
+            if self.fail {
+                return Err(EnolaError::InfrastructureError("useradd failed".into()));
+            }
+            self.ensured.lock().unwrap().push(name.to_string());
+            Ok((990, 991))
+        }
+        fn chown_tree(&self, path: &std::path::Path, uid: u32, gid: u32) -> Result<()> {
+            self.chowned
+                .lock()
+                .unwrap()
+                .push((path.to_path_buf(), uid, gid));
+            Ok(())
+        }
+    }
+
+    fn fake_user() -> Arc<FakeServiceUser> {
+        Arc::new(FakeServiceUser::default())
     }
 
     impl MockContainerManager {
@@ -445,6 +493,7 @@ mod tests {
                 should_fail: false,
                 fail_on_start: false,
                 created_containers: Mutex::new(vec![]),
+                created_configs: Mutex::new(vec![]),
                 started_containers: Mutex::new(vec![]),
             }
         }
@@ -454,6 +503,7 @@ mod tests {
                 should_fail: true,
                 fail_on_start: false,
                 created_containers: Mutex::new(vec![]),
+                created_configs: Mutex::new(vec![]),
                 started_containers: Mutex::new(vec![]),
             }
         }
@@ -463,6 +513,7 @@ mod tests {
                 should_fail: false,
                 fail_on_start: true,
                 created_containers: Mutex::new(vec![]),
+                created_configs: Mutex::new(vec![]),
                 started_containers: Mutex::new(vec![]),
             }
         }
@@ -481,7 +532,9 @@ mod tests {
                     .lock()
                     .unwrap()
                     .push(config.name.clone());
-                Ok(config.name)
+                let name = config.name.clone();
+                self.created_configs.lock().unwrap().push(config);
+                Ok(name)
             }
         }
         async fn start_container(&self, id: &str) -> Result<()> {
@@ -626,11 +679,13 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
+        let user = Arc::new(FakeServiceUser::default());
         let use_case = DeployGitServer::new(
             container.clone(),
             tor.clone(),
             None,
             Arc::new(mock_manifest()),
+            user.clone(),
         )
         .with_port_checker(Arc::new(FreePortChecker))
         .with_data_base(data_base.path().to_path_buf());
@@ -664,6 +719,70 @@ mod tests {
         // Tor is NOT auto-published on create (manual publish model)
         let deployed = tor.deployed_services.lock().unwrap();
         assert_eq!(deployed.len(), 0);
+
+        // SEC-M10: proceso y datos del usuario de sistema `enola-git`, no uid 1000.
+        assert_eq!(*user.ensured.lock().unwrap(), vec!["enola-git".to_string()]);
+        assert_eq!(
+            *user.chowned.lock().unwrap(),
+            vec![(data_base.path().join("mygit"), 990, 991)]
+        );
+        let env = &container.created_configs.lock().unwrap()[0].env;
+        assert_eq!(env.get("USER_UID").map(String::as_str), Some("990"));
+        assert_eq!(env.get("USER_GID").map(String::as_str), Some("991"));
+    }
+
+    #[tokio::test]
+    async fn deploy_git_writes_admin_creds_outside_data_dir() {
+        let container = Arc::new(MockContainerManager::new());
+        let tor = Arc::new(MockTorManager::new());
+        let data_base = tempfile::tempdir().unwrap();
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_port_checker(Arc::new(FreePortChecker))
+                .with_data_base(data_base.path().to_path_buf());
+        use_case
+            .execute(
+                "credsgit",
+                58520,
+                58521,
+                false,
+                Some("admin"),
+                Some("pw-123456"),
+            )
+            .await
+            .expect("deploy");
+        // El volumen montado en el contenedor (`/data`) no contiene el hash.
+        assert!(!data_base
+            .path()
+            .join("credsgit/.enola-admin-creds")
+            .exists());
+        assert!(data_base.path().join("creds/credsgit.creds").exists());
+    }
+
+    #[tokio::test]
+    async fn deploy_git_fails_if_service_user_cannot_be_created() {
+        let container = Arc::new(MockContainerManager::new());
+        let tor = Arc::new(MockTorManager::new());
+        let data_base = tempfile::tempdir().unwrap();
+        let user = Arc::new(FakeServiceUser {
+            fail: true,
+            ..Default::default()
+        });
+        let use_case = DeployGitServer::new(
+            container.clone(),
+            tor,
+            None,
+            Arc::new(mock_manifest()),
+            user,
+        )
+        .with_port_checker(Arc::new(FreePortChecker))
+        .with_data_base(data_base.path().to_path_buf());
+        let r = use_case
+            .execute("nouser", 58522, 58523, false, None, None)
+            .await;
+        assert!(r.is_err());
+        // Sin usuario no se crea el contenedor (nunca con uid 1000 por defecto).
+        assert!(container.created_configs.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -671,8 +790,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case.execute("", 58510, 58511, false, None, None).await;
 
@@ -686,19 +806,18 @@ mod tests {
     }
 
     #[test]
-    fn write_admin_creds_hash_sets_0755_dir_and_0600_file() {
+    fn write_admin_creds_hash_sets_0700_dir_and_0600_file() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = tmp.path().join("git-data");
-        write_admin_creds_hash(&dir, "admin", "secret").expect("write creds");
+        let dir = tmp.path().join("creds");
+        write_admin_creds_hash(&dir, "mygit", "admin", "secret").expect("write creds");
 
-        let file = dir.join(".enola-admin-creds");
+        let file = dir.join("mygit.creds");
         let dir_meta = std::fs::metadata(&dir).expect("dir metadata");
         let file_meta = std::fs::metadata(&file).expect("file metadata");
         let dir_mode = dir_meta.permissions().mode() & 0o777;
         let file_mode = file_meta.permissions().mode() & 0o777;
-        // SEC-FIX-GIT-PERMS: directorio 0o755 (Forgejo UID 1000 debe poder atravesarlo),
-        // archivo 0o600 (solo root puede leer las credenciales admin).
-        assert_eq!(dir_mode, 0o755);
+        // SEC-M10: directorio 0o700 y archivo 0o600 (solo root).
+        assert_eq!(dir_mode, 0o700);
         assert_eq!(file_mode, 0o600);
 
         let uid = unsafe { libc::geteuid() };
@@ -720,8 +839,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("my git server", 58506, 58507, false, None, None)
@@ -741,8 +861,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("git@server!", 58508, 58509, false, None, None)
@@ -762,8 +883,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("my_git_server", 58502, 58503, false, None, None)
@@ -777,8 +899,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("my-git-server", 58504, 58505, false, None, None)
@@ -792,8 +915,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::failing());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         // Puertos únicos para evitar race condition con tests paralelos (§flaky-ports)
         let result = use_case
@@ -814,8 +938,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::failing_on_start());
         let tor = Arc::new(MockTorManager::new());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         // Puertos únicos para evitar race condition con tests paralelos (§flaky-ports)
         let result = use_case
@@ -838,8 +963,9 @@ mod tests {
         let container = Arc::new(MockContainerManager::new());
         let tor = Arc::new(MockTorManager::failing());
         let data_base = tempfile::tempdir().unwrap();
-        let use_case = DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()))
-            .with_data_base(data_base.path().to_path_buf());
+        let use_case =
+            DeployGitServer::new(container, tor, None, Arc::new(mock_manifest()), fake_user())
+                .with_data_base(data_base.path().to_path_buf());
 
         let result = use_case
             .execute("mygit", 59500, 59501, false, None, None)

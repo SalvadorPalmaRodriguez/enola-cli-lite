@@ -23,6 +23,7 @@ pub mod port_config;
 pub mod process_runner; // MCP-004 — ejecución de enola-cli como subproceso (argv)
 pub mod rag; // Fase 12 — puertos RAG (vector store, fuentes, aprovisionamiento)
 pub mod service;
+pub mod service_user; // SEC-M10 — usuarios de sistema dedicados (Forgejo, Ghost)
 pub mod test_runner;
 pub mod tor;
 pub mod vpn; // Tarea 162 — WireGuard VPN port trait

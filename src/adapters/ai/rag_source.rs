@@ -7,6 +7,7 @@
 
 use crate::domain::error::{EnolaError, Result};
 use crate::domain::rag;
+use crate::infrastructure::privileges::invoker_can_read;
 use crate::ports::rag::{RagSourceFile, RagSourcePort, WordpressPost};
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,13 @@ impl FsRagSource {
 
 /// Recorrido síncrono de `root` (ver `RagSourcePort::read_tree`).
 fn read_tree_blocking(root: &Path, max_file_bytes: u64) -> Result<Vec<RagSourceFile>> {
+    // SEC-M7: se lee como root; solo lo que el invocador de `sudo` podría leer.
+    if !invoker_can_read(root) {
+        return Err(EnolaError::ValidationError(format!(
+            "'{}' no es legible por el usuario que ejecuta enola-cli",
+            root.display()
+        )));
+    }
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(path) = stack.pop() {
@@ -35,6 +43,10 @@ fn read_tree_blocking(root: &Path, max_file_bytes: u64) -> Result<Vec<RagSourceF
         })?;
         if canon != *root && !canon.starts_with(root) {
             tracing::warn!("skip {:?}: escapa del root de ingesta", canon);
+            continue;
+        }
+        if !invoker_can_read(&canon) {
+            tracing::warn!("skip {:?}: no legible por el invocador", canon);
             continue;
         }
         if canon.is_dir() {

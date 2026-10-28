@@ -289,6 +289,14 @@ pub(crate) const FORBIDDEN_PATHS: &[(&str, &[&str])] = &[
     // Fase 14.5 — `ai finetune wizard` es un asistente interactivo TTY:
     // vetado para `enola_run_command` (bloquearía al agente).
     ("ai", &["finetune", "wizard"]),
+    // SEC-M1 (D7) — imprimen un secreto generado (clave privada X25519,
+    // configuración WireGuard con `PrivateKey`, contraseña aleatoria de
+    // Forgejo) que acabaría en el contexto del agente. Se vetan en vez de
+    // redactar la salida: redactar por patrones nunca es completo. El
+    // dashboard los ofrece con sus propios botones.
+    ("tor", &["auth", "generate"]),
+    ("vpn", &["peer", "add"]),
+    ("git", &["user", "create"]),
 ];
 
 /// `true` si la familia está prohibida para `enola_run_command`.

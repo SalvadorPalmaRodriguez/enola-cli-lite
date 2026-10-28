@@ -120,6 +120,19 @@ pub fn validate_tor_service_name(name: &str) -> Result<(), EnolaError> {
     Ok(())
 }
 
+/// SEC-M10 (D6): usuario de sistema del proceso Forgejo (`USER_UID`/`USER_GID`).
+pub const GIT_SERVICE_USER: &str = "enola-git";
+/// SEC-M10 (D6): usuario de sistema del proceso Ghost (`--user`).
+pub const GHOST_SERVICE_USER: &str = "enola-ghost";
+/// SEC-M10: directorio root-only con el hash admin de cada servidor Forgejo.
+/// Fuera de `/srv/enola-git/<name>`, que el contenedor monta en `/data`.
+pub const GIT_ADMIN_CREDS_DIR: &str = "/etc/enola/git";
+
+/// Ruta del hash admin del servidor Forgejo `server` (ver [`GIT_ADMIN_CREDS_DIR`]).
+pub fn git_admin_creds_path(server: &str) -> std::path::PathBuf {
+    std::path::Path::new(GIT_ADMIN_CREDS_DIR).join(format!("{server}.creds"))
+}
+
 /// Service types supported by Enola
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceType {

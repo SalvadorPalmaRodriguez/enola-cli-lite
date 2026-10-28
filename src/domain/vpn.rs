@@ -123,6 +123,20 @@ impl VpnServer {
         }
     }
 
+    /// `Address` del servidor en su interfaz: IP del servidor con el prefijo
+    /// de la subred (`10.8.0.1/24`). Con `/32` el kernel no enruta a los peers
+    /// y `validate_peer_ip` rechazaría cualquier peer. Prefijo ausente o fuera
+    /// de 8..=30 → `/24`.
+    pub fn server_address(&self) -> String {
+        let prefix = self
+            .subnet
+            .split_once('/')
+            .and_then(|(_, p)| p.trim().parse::<u8>().ok())
+            .filter(|p| (8..=30).contains(p))
+            .unwrap_or(24);
+        format!("{}/{}", self.server_ip, prefix)
+    }
+
     /// Number of active peers.
     pub fn active_peer_count(&self) -> usize {
         self.peers
@@ -164,6 +178,14 @@ pub fn validate_vpn_name(name: &str) -> Result<(), String> {
     if name.len() > 15 {
         return Err(format!(
             "VPN interface name '{}' is too long (max 15 chars for Linux interfaces)",
+            name
+        ));
+    }
+    // SEC-M3: empieza por letra o dígito — un `-` inicial se leería como
+    // flag en `wg`/`wg-quick`/`ip`.
+    if !name.starts_with(|c: char| c.is_ascii_alphanumeric()) {
+        return Err(format!(
+            "VPN name '{}' must start with a letter or digit",
             name
         ));
     }
@@ -551,5 +573,31 @@ mod tests {
         // Sin subred conocida: solo forma.
         assert!(validate_peer_ip("10.9.0.7", None).is_ok());
         assert!(validate_peer_ip("10.9.0.7/32", None).is_err());
+    }
+
+    #[test]
+    fn vpn_name_rejects_leading_dash_or_underscore() {
+        for bad in ["-rf", "--up", "_wg"] {
+            assert!(validate_vpn_name(bad).is_err(), "{bad}");
+        }
+        assert!(validate_vpn_name("wg0").is_ok());
+        assert!(validate_vpn_name("0wg-x_1").is_ok());
+    }
+
+    #[test]
+    fn server_address_uses_subnet_prefix_and_admits_peers() {
+        let srv = VpnServer::new("wg0", 51820, "10.8.0.0/24");
+        assert_eq!(srv.server_address(), "10.8.0.1/24");
+        assert!(validate_peer_ip("10.8.0.2", Some(&srv.server_address())).is_ok());
+        assert_eq!(
+            VpnServer::new("wg0", 51820, "10.9.0.0/16").server_address(),
+            "10.9.0.1/16"
+        );
+        for odd in ["10.8.0.0", "10.8.0.0/32", "10.8.0.0/x"] {
+            assert_eq!(
+                VpnServer::new("wg0", 51820, odd).server_address(),
+                "10.8.0.1/24"
+            );
+        }
     }
 }
