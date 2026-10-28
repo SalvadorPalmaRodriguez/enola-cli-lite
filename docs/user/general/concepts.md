@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/concepts.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-08-08
+> **Versión:** 2.1 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de conceptos**
 > **Referencias:** commands.md, docs/user/general/commands.md
 > **English:** [`docs/en/concepts.md`](../../en/concepts.md)
@@ -147,7 +147,7 @@ Enola soporta 6 CMS con diferentes stacks:
 | WordPress | PHP | MariaDB | 2 (web + db) | 512 MB | 80 |
 | Drupal | PHP | MariaDB | 2 (web + db) | 768 MB | 80 |
 | Ghost | Node.js | SQLite | 1 (web) | ~256 MB | 2368 |
-| Magnolia | Java | — | 1 (Tomcat) | ≥4 GB | 8080 |
+| Magnolia | Java | Postgres | 2 (web + db) | 3 GB (límite) | 8080 |
 | Strapi | Node.js | Postgres | 2 (web + db) | 512 MB | 1337 |
 | Wagtail | Python | Postgres | 2 (web + db) | 512 MB | 8000 |
 

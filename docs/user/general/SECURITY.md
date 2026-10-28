@@ -1,4 +1,4 @@
-> **Versión:** 1.4 | **Actualizado:** 2026-10-28
+> **Versión:** 1.5 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
@@ -161,12 +161,11 @@ Versiones para instancias **nuevas** (2026-10-25):
 | Ghost | `ghost:6.72.0-alpine` (SQLite) | rama 6.x (Ghost solo soporta la mayor actual) |
 | Strapi | `enola/strapi:5.49.0-node22` + `postgres:16.15` | Node 22 LTS: 2027-04-30 · PostgreSQL 16: 2028-11-09 |
 | Wagtail | `enola/wagtail:7.4.4-py313` (construida por Enola; Django 5.2 LTS) | Wagtail 7.4 LTS: 2027-11-02 · Django 5.2 LTS: 2028-04-30 |
-| Magnolia | `magnolia-docker` (oficial) | ⚠️ sin mantenimiento upstream desde 2020 |
+| Magnolia | `enola/magnolia:6.4.11-jdk21` (construida por Enola; Tomcat 10.1, Java 21) + `postgres:16.15` | Java 21 (Temurin LTS): 2029-12-31 · PostgreSQL 16: 2028-11-09 |
 
-Magnolia se mantiene porque no existe una imagen pública mantenida que la sustituya:
-Enola la fija por digest, sin capabilities extra, y **avisa al crearla y al publicarla**.
-Evita publicarla en Tor o asume que el software interno no recibe parches de seguridad.
-Wagtail ya no tiene este residuo: Enola construye su propia imagen desde la rama LTS.
+Wagtail y Magnolia ya no usan imágenes de terceros abandonadas: Enola construye las suyas
+desde las versiones mantenidas (Wagtail 7.4 LTS; Magnolia Community 6.4 con el WAR oficial
+verificado por SHA-256), con las dependencias fijadas, proceso sin root y sin capabilities.
 
 **Instancias existentes** creadas con versiones anteriores de Enola **no se migran
 solas** (sus datos podrían no ser compatibles). `sudo enola-cli doctor --security`

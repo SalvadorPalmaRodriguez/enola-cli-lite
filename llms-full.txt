@@ -69,7 +69,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `wp` — WordPress. Extra: `restart`, `update` (with backup), `config`, `edit [--http-port] [--https-port] [--ssl] [--auto-ports]`. Port range 8080-9000 (auto).
 - `drupal` — drupal:10-apache + mariadb:10.11. Extra: `edit --http-port` (atomic container recreation).
 - `ghost` — ghost:5-alpine + embedded SQLite, container port 2368. Extra: `edit --http-port`.
-- `magnolia` — ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2 DB. Minimum 1.5 GB RAM (warns if <1536 MB); 4 GB recommended for comfortable operation.
+- `magnolia` — enola/magnolia (Magnolia Community 6.4 on Tomcat 10.1 + Java 21, built locally on first create) + postgres:16-alpine, container port 8080, web container limited to 3 GB RAM (warns if <1536 MB available).
 - `strapi` — Node + postgres:16-alpine. 6 per-instance secrets (db_password, app_keys, api_token_salt, admin_jwt_secret, jwt_secret, transfer_token_salt). Extra: `build-image [--force]` (build production image once before first create).
 - `wagtail` — enola/wagtail (empty Wagtail 7.4 LTS project, built locally on first create) + postgres:16-alpine, container port 8000.
 

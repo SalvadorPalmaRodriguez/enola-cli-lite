@@ -536,7 +536,7 @@ sudo enola-cli ghost edit <nombre> --http-port <PUERTO>
 
 ## ☕ Magnolia - CMS Java
 
-Gestiona instancias Magnolia CMS. Stack: `ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest` (Tomcat, Java) con base de datos H2 embebida. **Requiere ≥4 GB de RAM disponibles.**
+Gestiona instancias Magnolia CMS. Stack: `enola/magnolia` (Magnolia Community 6.4 sobre Tomcat 10.1 + Java 21, construido en local en el primer `create`) + `postgres:16-alpine`. El contenedor web tiene un límite de 3 GB de RAM.
 
 ```bash
 # Listar instancias

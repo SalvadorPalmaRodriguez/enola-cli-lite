@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands.md`
-> **Versión:** 3.8 | **Actualizado:** 2026-10-22
+> **Versión:** 3.9 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Índice de comandos**
 > **English:** [`docs/en/commands.md`](../../en/commands.md)
 > **Referencias:** commands.md
@@ -32,7 +32,7 @@ sudo enola-cli docs search <TÉRMINO>     # buscar en toda la documentación
 | WordPress | `wp` | Sitios WordPress + MariaDB | [wp/commands-wp.md](../wp/commands-wp.md) |
 | Drupal | `drupal` | Sitios Drupal + MariaDB | [drupal/commands-drupal.md](../drupal/commands-drupal.md) |
 | Ghost | `ghost` | Blogs Ghost + SQLite (1 contenedor, ~256 MB) | [ghost/commands-ghost.md](../ghost/commands-ghost.md) |
-| Magnolia | `magnolia` | CMS Java Magnolia (Tomcat, ≥4 GB RAM) | [magnolia/commands-magnolia.md](../magnolia/commands-magnolia.md) |
+| Magnolia | `magnolia` | CMS Java Magnolia (Tomcat + PostgreSQL, límite 3 GB RAM) | [magnolia/commands-magnolia.md](../magnolia/commands-magnolia.md) |
 | Strapi | `strapi` | Headless CMS Strapi (Node + Postgres) | [strapi/commands-strapi.md](../strapi/commands-strapi.md) |
 | Wagtail | `wagtail` | CMS Wagtail (Python/Django + Postgres) | [wagtail/commands-wagtail.md](../wagtail/commands-wagtail.md) |
 | Files | `files` | Servidores de archivos anónimos via Tor | [files/commands-files.md](../files/commands-files.md) |
