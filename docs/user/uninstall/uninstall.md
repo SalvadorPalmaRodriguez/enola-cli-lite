@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/uninstall/uninstall.md`
-> **Versión:** 4.0 | **Actualizado:** 2026-08-03
+> **Versión:** 4.1 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de desinstalación**
 > **Referencias:** commands-simple.md (comando `uninstall`)
 
@@ -41,14 +41,14 @@ sudo enola-cli uninstall --yes
 
 El desinstalador usa el **manifiesto** (`/usr/local/share/enola/manifest`) como fuente de verdad para borrar exactamente lo que Enola creó. Si no hay manifiesto, usa detección heurística por prefijos.
 
-1. **Docker**: contenedores registrados en el manifiesto (`docker_container`) + fallback por prefijos `enola-*`, `wp-*`, `db-*`, `strapi-*`, `wagtail-*`, `ghost-*`, `magnolia-*`, `drupal-*`; redes registradas (`docker_network`) + fallback `enola-*`, `strapi-*`, `wagtail-*`; imágenes `enola-*`; volúmenes `enola-*`.
+1. **Docker**: contenedores registrados en el manifiesto (`docker_container`) + fallback por prefijos `enola-*`, `wp-*`, `db-*`, `strapi-*`, `wagtail-*`, `ghost-*`, `magnolia-*`, `drupal-*`; redes registradas (`docker_network`) + fallback `enola-*`, `strapi-*`, `wagtail-*`; imágenes `enola-*` y las que construye Enola para los CMS (`enola/strapi`, `enola/wagtail`, `enola/magnolia`); volúmenes `enola-*`.
 2. **Nginx**: configs registradas en el manifiesto (`nginx_config`) + fallback `proxy_*`, `fileserver_*` en sites-enabled/available y conf.d + recarga nginx.
 3. **Tor**: servicios registrados en el manifiesto (`tor_service`) → borra `/var/lib/tor/enola_{name}` y `/etc/tor/enola.d/{name}.conf` + fallback globbing + limpieza de torrc.
 4. **UFW**: puertos registrados en el manifiesto (`ufw_rule`) → borra reglas TCP loopback y UDP exactas + fallback por comentario `# enola-cli`.
 5. **systemd**: timers `enola-*` + servicios VPN registrados (`vpn_service` → `wg-quick@{name}`).
 6. **AppArmor**: perfiles registrados en el manifiesto (`apparmor_profile`) + fallback `enola-*` en `/etc/apparmor.d/`.
 7. **Binario**: `/usr/local/bin/enola-cli` + `/usr/local/share/enola/` + `/opt/enola/`.
-8. **Datos** (sin `--keep-data`): `/srv/enola-*` + configs VPN (`vpn_config` → `/etc/wireguard/{name}.conf`) + certificados SSL (`ssl_cert`, `ssl_key`).
+8. **Datos** (sin `--keep-data`): `/srv/enola-*` + los usuarios de sistema de los servicios (`enola-git`, `enola-ghost`, `enola-wagtail`, `enola-magnolia`) + configs VPN (`vpn_config` → `/etc/wireguard/{name}.conf`) + certificados SSL (`ssl_cert`, `ssl_key`).
 9. **Config usuario**: `~/.enola/` (session, config, config.toml, trusted_minisign_keys.json).
 
 > **Tus herramientas están seguras**: por defecto el desinstalador NO ejecuta `apt remove` ni desinstala Docker, Tor, Nginx, UFW, Rust, Python o minisign. Solo con `--remove-deps` desinstala las dependencias que **Enola instaló** (según el manifiesto). Las que tú ya tenías antes de instalar Enola **NUNCA** se tocan, aunque uses `--remove-deps`.

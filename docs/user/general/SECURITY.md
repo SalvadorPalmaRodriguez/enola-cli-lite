@@ -1,4 +1,4 @@
-> **Versión:** 1.5 | **Actualizado:** 2026-10-28
+> **Versión:** 1.6 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
@@ -63,8 +63,9 @@ file "$BIN" | grep -q stripped && echo OK
   se usa directamente sin prompt (migración transparente).
 - Todo admin de Forgejo se crea con `--must-change-password=true`,
   forzando rotación de contraseña en el primer login.
-- Forgejo y Ghost corren como usuarios de sistema propios (`enola-git`,
-  `enola-ghost`; sin shell ni home), dueños de sus datos. Antes usaban el uid
+- Forgejo, Ghost, Wagtail y Magnolia corren como usuarios de sistema propios
+  (`enola-git`, `enola-ghost`, `enola-wagtail`, `enola-magnolia`; sin shell ni
+  home), dueños de sus datos. Antes usaban el uid
   1000, que en Ubuntu/Debian es la cuenta del primer usuario (con `sudo`): un
   escape del contenedor caía en ella. Los servidores y blogs ya creados pasan al
   usuario nuevo la próxima vez que se editen (`git edit`, `ghost edit`).

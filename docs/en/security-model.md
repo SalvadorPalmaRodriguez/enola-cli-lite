@@ -1,5 +1,5 @@
 > **User document:** `docs/en/security-model.md`
-> **Version:** 3.4 (2026-10-28)
+> **Version:** 3.5 (2026-10-28)
 > **Audience:** end users, security researchers, journalists.
 > **Spanish original:** [`docs/user/general/SECURITY.md`](../user/general/SECURITY.md)
 > **Updated:** 2026-10-25
@@ -65,8 +65,9 @@ file "$BIN" | grep -q stripped && echo OK
   it is used directly without prompt (transparent migration).
 - Every Forgejo admin is created with `--must-change-password=true`,
   forcing password rotation on first login.
-- Forgejo and Ghost run as their own system users (`enola-git`,
-  `enola-ghost`; no shell, no home) that own their data. They used to run as
+- Forgejo, Ghost, Wagtail and Magnolia run as their own system users
+  (`enola-git`, `enola-ghost`, `enola-wagtail`, `enola-magnolia`; no shell, no
+  home) that own their data. They used to run as
   uid 1000, which on Ubuntu/Debian is the first user's account (with `sudo`):
   a container escape landed there. Existing servers and blogs switch to the new
   user the next time they are edited (`git edit`, `ghost edit`).
