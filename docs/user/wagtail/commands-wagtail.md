@@ -1,13 +1,13 @@
 > **Documento usuario:** `docs/user/wagtail/commands-wagtail.md`
-> **Versión:** 2.4 | **Actualizado:** 2026-10-26
+> **Versión:** 3.0 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
 # 🐍 Wagtail — Comandos `enola-cli wagtail`
 
-> **Stack:** `wagtail/bakerydemo:latest` (sitio demo Python/Django) + Postgres. Datos en `/srv/enola-wagtail/{name}/`.
-> Secrets montados como Docker secrets en `/run/secrets/` e inyectados via
-> entrypoint wrapper (no plaintext en env vars).
+> **Stack:** `enola/wagtail:7.4.4-py313` (proyecto Wagtail vacío, rama 7.4 LTS, construido por Enola) + Postgres 16. Datos en `/srv/enola-wagtail/{name}/`.
+> Secrets montados como ficheros en `/run/secrets/` y leídos por la propia imagen
+> (nunca en variables de entorno).
 
 Wagtail es un CMS Python del catálogo Enola. Ideal para sitios con contenido
 estructurado, editor amigable y ecosistema Django. Stack: 2 contenedores
@@ -27,10 +27,16 @@ Sin flags ni argumentos.
 
 ---
 
-> ⚠️ **Imagen sin mantenimiento upstream**: la demo oficial `wagtail/bakerydemo` no se
-> actualiza desde 2021 (Python 3.7, sin parches de seguridad). Enola la mantiene fijada
-> por digest y muestra un aviso al crear y al publicar; `doctor --security` la señala.
-> Evita publicarla en Tor o asume el riesgo.
+> ℹ️ **Imagen construida por Enola.** La primera vez que ejecutas `wagtail create`,
+> Enola construye `enola/wagtail:7.4.4-py313` en tu máquina (~3-6 min, ~470 MB de disco,
+> necesita Internet para descargar Python y los paquetes). Las siguientes veces la
+> reutiliza. Es un proyecto Wagtail **vacío**, como el de la guía oficial
+> (`wagtail start`): verás la página de bienvenida de Wagtail y el panel `/admin/`,
+> no un sitio de demostración. Wagtail 7.4 es una rama LTS con soporte hasta 2027-11-02.
+>
+> **Instancias antiguas** (creadas con la demo `wagtail/bakerydemo`): no se migran.
+> `doctor --security` las señala como fin de vida; para pasar a la imagen nueva,
+> haz `wagtail delete <nombre> --force` y vuelve a crearla.
 
 ## `wagtail create`
 
@@ -49,6 +55,10 @@ sudo enola-cli wagtail create --name <NOMBRE> --http-port <PUERTO>
 ```bash
 sudo enola-cli wagtail create --name miweb --http-port 8300
 ```
+
+**Acceso al panel:** abre `http://127.0.0.1:<puerto>/admin/` (el arranque inicial
+tarda ~30-60 s). El usuario es `admin` y la contraseña está en
+`/srv/enola-wagtail/<nombre>/secrets/admin_password` (solo legible con `sudo`).
 
 ---
 
@@ -154,24 +164,22 @@ sudo enola-cli wagtail hide <NOMBRE>
 
 ## Gestión de secrets
 
-Wagtail (Django/bakerydemo) no soporta el patrón `_FILE` para leer secrets
-desde archivos. Enola CLI usa un **entrypoint wrapper** para inyectar secrets
-de forma segura:
+La imagen `enola/wagtail` lee sus secretos directamente de ficheros, sin pasar por
+variables de entorno ni por la línea de comandos:
 
 1. **Generación**: al crear una instancia, se generan 3 secrets
    (db_password, django_secret_key, admin_password) y se escriben en
    `/srv/enola-wagtail/<name>/secrets/` con permisos `0600`.
 
-2. **Montaje**: los secrets se montan como Docker secrets en `/run/secrets/`
-   (read-only) dentro del contenedor Wagtail.
+2. **Propietario**: el proceso corre como el usuario de sistema `enola-wagtail`
+   (sin root, sin capabilities), por lo que ese directorio y `media/` son suyos.
 
-3. **Inyección**: un script `entrypoint.sh` (montado en `/entrypoint.sh`)
-   lee `db_password` y `django_secret_key` desde `/run/secrets/`, construye
-   `DATABASE_URL` y exporta `SECRET_KEY` antes de ejecutar
-   `python manage.py runserver 0.0.0.0:8000`.
+3. **Montaje**: los secrets se montan en `/run/secrets/` (solo lectura). Los ajustes
+   de Django leen `django_secret_key` y `db_password` de ahí, y el arranque crea el
+   superusuario `admin` con `admin_password` la primera vez.
 
-4. **Verificación**: `docker inspect` no muestra `DATABASE_URL` ni `SECRET_KEY`
-   en las variables de entorno del contenedor.
+4. **Verificación**: `docker inspect` no muestra contraseñas ni claves en las
+   variables de entorno del contenedor.
 
 ---
 

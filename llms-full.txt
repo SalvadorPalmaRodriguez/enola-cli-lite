@@ -71,7 +71,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `ghost` — ghost:5-alpine + embedded SQLite, container port 2368. Extra: `edit --http-port`.
 - `magnolia` — ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest (Tomcat, Java) with embedded H2 DB. Minimum 1.5 GB RAM (warns if <1536 MB); 4 GB recommended for comfortable operation.
 - `strapi` — Node + postgres:16-alpine. 6 per-instance secrets (db_password, app_keys, api_token_salt, admin_jwt_secret, jwt_secret, transfer_token_salt). Extra: `build-image [--force]` (build production image once before first create).
-- `wagtail` — wagtail/bakerydemo:latest (demo site) + postgres:16-alpine, container port 8000.
+- `wagtail` — enola/wagtail (empty Wagtail 7.4 LTS project, built locally on first create) + postgres:16-alpine, container port 8000.
 
 ### files — anonymous file sharing
 - `files list` / `files create -n <name> [--auth] [--ssl]` / `files edit <name> [-p <port>]` / `files delete <name> --force` / `files fix-perms <name>`

@@ -1,5 +1,5 @@
 > **User document:** `docs/en/security-model.md`
-> **Version:** 3.2 (2026-10-28)
+> **Version:** 3.3 (2026-10-28)
 > **Audience:** end users, security researchers, journalists.
 > **Spanish original:** [`docs/user/general/SECURITY.md`](../user/general/SECURITY.md)
 > **Updated:** 2026-10-25
@@ -148,10 +148,11 @@ Docker image pinned by digest (`image@sha256:…`) with a known end-of-support d
 Containers start with no capabilities (`cap_drop: ALL`) except the minimum each image
 needs, and the Git server runs on its own Docker network. New instances use
 WordPress 6.9 (PHP 8.3) + MariaDB 11.4 LTS, Forgejo 15 LTS, Drupal 11.4 + MariaDB
-10.11 LTS, Ghost 6 (SQLite), Strapi on Node 22 LTS + PostgreSQL 16. The upstream
-Wagtail demo image (since 2021) and Magnolia image (since 2020) are unmaintained; they
-are kept (no maintained alternative exists) and Enola warns when creating or publishing
-them.
+10.11 LTS, Ghost 6 (SQLite), Strapi on Node 22 LTS + PostgreSQL 16. Wagtail
+runs from an image Enola builds locally (empty project on the 7.4 LTS branch, Django 5.2
+LTS, non-root service user). The upstream Magnolia image (since 2020) is unmaintained; it
+is kept (no maintained alternative exists) and Enola warns when creating or publishing
+it.
 
 Existing instances created by earlier Enola versions are **not migrated
 automatically**; `sudo enola-cli doctor --security` lists them under `image-eol`.

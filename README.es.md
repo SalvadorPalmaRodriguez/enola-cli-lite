@@ -587,7 +587,7 @@ sudo enola-cli strapi hide <nombre>
 
 ## 🐦 Wagtail - CMS Django
 
-Gestiona instancias Wagtail. Stack: `wagtail/bakerydemo:latest` (sitio demo Python/Django) + `postgres:16-alpine`.
+Gestiona instancias Wagtail. Stack: `enola/wagtail` (proyecto Wagtail 7.4 LTS vacío, construido en local en el primer `create`) + `postgres:16-alpine`.
 
 ```bash
 # Listar instancias
