@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/git/commands-git.md`
-> **Versión:** 2.6 | **Actualizado:** 2026-10-27
+> **Versión:** 2.7 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -245,7 +245,7 @@ Lista los usuarios del servidor Git.
 > en el primer login antes de usar este comando. Alternativamente, pasar
 > `--admin-user` y `--admin-pass` explícitamente.
 > La contraseña admin se almacena como hash bcrypt (no plaintext) en
-> `/srv/enola-git/<name>/.enola-admin-creds`. Al ejecutar comandos que requieren
+> `/etc/enola/git/<name>.creds` (solo root). Al ejecutar comandos que requieren
 > credenciales admin sin `--admin-pass`, se pedirá la contraseña interactivamente.
 
 ```bash
@@ -281,8 +281,8 @@ sudo enola-cli git user create <SERVIDOR> --username <USER> --email <EMAIL> [--p
 | `--email` / `-e` | String | Sí | Email del usuario |
 | `--password` / `-p` | String | No | Contraseña del usuario (solo compatibilidad de scripts; emite warning porque queda visible en argv `/proc/*/cmdline`). Si se omite (recomendado), Forgejo genera una contraseña aleatoria (`--random-password` + `--must-change-password=true`) que se muestra una sola vez por stderr sin pasar por argv. |
 | `--admin` | Bool | No | Dar permisos de administrador (default: `false`) |
-| `--admin-user` | String | No | Admin de Forgejo (verificado contra `.enola-admin-creds` si existe; obligatorio en modo web) |
-| `--admin-pass` | String | No | Contraseña admin (verificada contra bcrypt en `.enola-admin-creds` si existe; obligatoria en modo web) |
+| `--admin-user` | String | No | Admin de Forgejo (verificado contra `/etc/enola/git/<SERVIDOR>.creds` si existe; obligatorio en modo web) |
+| `--admin-pass` | String | No | Contraseña admin (verificada contra bcrypt en `/etc/enola/git/<SERVIDOR>.creds` si existe; obligatoria en modo web) |
 
 ---
 
@@ -311,17 +311,20 @@ sudo enola-cli git user delete <SERVIDOR> --username <USER> [--admin-user <USER>
 ### Almacenamiento de credenciales
 
 Cuando se crea un servidor Git en modo CLI (`--admin-user` + `--admin-pass`),
-las credenciales se guardan en `/srv/enola-git/<name>/.enola-admin-creds`:
+las credenciales se guardan en `/etc/enola/git/<name>.creds`:
 
 - La contraseña se almacena como **hash bcrypt** (cost 12), nunca como plaintext.
-- El archivo tiene permisos `0600` (solo root).
+- El archivo tiene permisos `0600` y su directorio `0700` (solo root). Vive
+  fuera de `/srv/enola-git/<name>`, que el contenedor monta en `/data`: un
+  Forgejo comprometido no puede leerlo ni cambiarlo.
+- `git delete` lo borra junto con el servidor.
 - Formato: `ADMIN_USER=<user>` + `ADMIN_PASS_HASH=$2b$...` + `ADMIN_PASS_HASH_ALGO=bcrypt`
 
 ### Prompt interactivo
 
 Al ejecutar `git user list/create/delete` sin `--admin-pass`:
 
-1. El CLI lee el archivo `.enola-admin-creds`.
+1. El CLI lee el archivo `/etc/enola/git/<name>.creds`.
 2. Si encuentra `ADMIN_PASS_HASH`, pide la contraseña interactivamente:
 
    ```

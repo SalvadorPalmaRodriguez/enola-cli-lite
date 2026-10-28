@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/mcp/commands-mcp.md`
-> **Versión:** 1.5 | **Actualizado:** 2026-10-25
+> **Versión:** 1.6 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md, config-reference.md
 
@@ -56,7 +56,10 @@ donde la hoja la declare, y **confirmación de dos pasos**): `wp_publish`,
 
 **Vetadas siempre** (`enola_run_command` no las despacha con ninguna
 política): las familias `mcp`, `ask`, `ssh`, `uninstall`, `web` y `setup`, y las
-rutas `update apply`, `test run` y `test benchmark`. Tampoco son
+rutas `update apply`, `test run` y `test benchmark`, y las que imprimen un
+secreto generado (`tor auth generate`, `vpn peer add`, `git user create`):
+esas claves y contraseñas acabarían en el contexto del agente. Hazlas desde
+la terminal o con los botones del panel web. Tampoco son
 expresables las flags `--binary`/`--allow-unsigned` de `update`, ni
 ningún valor de flag que empiece por `-`.
 
@@ -148,7 +151,7 @@ la operación aprobada es exactamente la que se mostró.
   basta; se exige `confirm_token` monouso vinculado a la operación.
 - `enola_run_command` **nunca** despacha las familias `mcp`, `ask`, `ssh`,
   `uninstall`, `web`, `setup` ni las rutas `update apply`, `test run`,
-  `test benchmark`; las flags `--binary`/`--allow-unsigned` de `update`
+  `test benchmark`, `tor auth generate`, `vpn peer add`, `git user create`; las flags `--binary`/`--allow-unsigned` de `update`
   no son expresables, y todo valor de flag que empieza por `-` se
   rechaza. Nunca construye cadenas de shell: argv tipado + validación
   contra el árbol.

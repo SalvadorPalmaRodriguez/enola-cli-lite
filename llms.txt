@@ -39,7 +39,9 @@ require `force: true` and a single-use `confirm_token` bound to the exact
 arguments (300-second lifetime). `try_run: true` validates and simulates
 without side effects. `enola_run_command` uses typed argv and never dispatches
 the `mcp`, `ask`, `ssh`, `uninstall`, `web` or `setup` families, nor the
-`update apply`, `test run` or `test benchmark` paths. When running with
+`update apply`, `test run` or `test benchmark` paths, nor the commands that
+print a generated secret (`tor auth generate`, `vpn peer add`,
+`git user create`). When running with
 elevated privileges, fix argv, environment, policy source and audit-log
 location in a trusted launcher; do not grant a wildcard sudo rule such as
 `enola-cli mcp *`.

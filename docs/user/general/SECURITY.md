@@ -1,4 +1,4 @@
-> **Versión:** 1.2 | **Actualizado:** 2026-10-25
+> **Versión:** 1.3 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
@@ -56,13 +56,18 @@ file "$BIN" | grep -q stripped && echo OK
 ### 2.1 Credenciales admin de Forgejo
 
 - Las credenciales admin de Forgejo se almacenan como **hash bcrypt** (cost 12),
-  nunca como plaintext, en `/srv/enola-git/<name>/.enola-admin-creds`.
+  nunca como plaintext, en `/etc/enola/git/<name>.creds` (0600, solo root, fuera del volumen del contenedor).
 - Al ejecutar comandos `git user list/create/delete` sin `--admin-pass`,
   el CLI **pide la contraseña interactivamente** y la verifica contra el hash.
 - Compatibilidad: si existe un archivo con formato anterior (`ADMIN_PASS=plaintext`),
   se usa directamente sin prompt (migración transparente).
 - Todo admin de Forgejo se crea con `--must-change-password=true`,
   forzando rotación de contraseña en el primer login.
+- Forgejo y Ghost corren como usuarios de sistema propios (`enola-git`,
+  `enola-ghost`; sin shell ni home), dueños de sus datos. Antes usaban el uid
+  1000, que en Ubuntu/Debian es la cuenta del primer usuario (con `sudo`): un
+  escape del contenedor caía en ella. Los servidores y blogs ya creados pasan al
+  usuario nuevo la próxima vez que se editen (`git edit`, `ghost edit`).
 
 ### 2.2 Secrets en contenedores CMS
 

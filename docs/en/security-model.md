@@ -1,5 +1,5 @@
 > **User document:** `docs/en/security-model.md`
-> **Version:** 3.1 (2026-08-04)
+> **Version:** 3.2 (2026-10-28)
 > **Audience:** end users, security researchers, journalists.
 > **Spanish original:** [`docs/user/general/SECURITY.md`](../user/general/SECURITY.md)
 > **Updated:** 2026-10-25
@@ -58,13 +58,18 @@ file "$BIN" | grep -q stripped && echo OK
 ### 2.1 Forgejo admin credentials
 
 - Forgejo admin credentials are stored as **bcrypt hashes** (cost 12),
-  never as plaintext, in `/srv/enola-git/<name>/.enola-admin-creds`.
+  never as plaintext, in `/etc/enola/git/<name>.creds` (0600, root only, outside the container volume).
 - When running `git user list/create/delete` commands without `--admin-pass`,
   the CLI **prompts for the password interactively** and verifies it against the hash.
 - Compatibility: if a legacy file exists (`ADMIN_PASS=plaintext`),
   it is used directly without prompt (transparent migration).
 - Every Forgejo admin is created with `--must-change-password=true`,
   forcing password rotation on first login.
+- Forgejo and Ghost run as their own system users (`enola-git`,
+  `enola-ghost`; no shell, no home) that own their data. They used to run as
+  uid 1000, which on Ubuntu/Debian is the first user's account (with `sudo`):
+  a container escape landed there. Existing servers and blogs switch to the new
+  user the next time they are edited (`git edit`, `ghost edit`).
 
 ### 2.2 Secrets in CMS containers
 

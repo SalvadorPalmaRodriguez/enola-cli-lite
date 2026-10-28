@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/files/commands-files.md`
-> **Versión:** 2.3 | **Actualizado:** 2026-10-27
+> **Versión:** 2.4 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -131,6 +131,12 @@ sudo enola-cli files fix-perms <NOMBRE>
 
 > Establece `root:www-data` con permisos `750` para que Nginx pueda leer los archivos.
 > Ejecútalo después de copiar archivos manualmente al directorio del share.
+>
+> Solo actúa sobre la carpeta del share `fileserver_<NOMBRE>` (por defecto
+> `/srv/enola-files/<NOMBRE>`), nunca sobre la de otro servicio con el mismo
+> nombre. Se niega si esa carpeta es una ruta del sistema (`/etc`, `/usr`,
+> `/var/lib`…), datos de otro servicio de Enola (`/srv/enola-git`…), tu carpeta
+> personal entera o la de otro usuario.
 
 ---
 

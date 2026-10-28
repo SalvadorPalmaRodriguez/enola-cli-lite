@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ghost/commands-ghost.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-10-24
+> **Versión:** 2.2 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -180,10 +180,11 @@ sudo enola-cli ghost edit <NOMBRE> --http-port <PUERTO>
 |---------|--------|
 | Contenedor web | `ghost-{name}` (anti-colisión con `wp-{name}` y `drupal-{name}`) |
 | Red Docker | `enola_net_ghost_{name}` |
-| Datos | `/srv/enola-ghost/{name}/content/` |
+| Datos | `/srv/enola-ghost/{name}/content/` (dueño: `enola-ghost`) |
+| Usuario del proceso | `enola-ghost` (usuario de sistema, sin shell ni home; nunca el uid 1000) |
 | SQLite db (dentro del contenedor) | `/var/lib/ghost/content/data/ghost.db` |
-| Tor service | `ghost-{name}` |
-| Hostname `.onion` | `/var/lib/tor/enola_ghost-{name}/hostname` |
+| Tor service | `ghost_{name}` |
+| Hostname `.onion` | `/var/lib/tor/enola_ghost_{name}/hostname` |
 
 ---
 

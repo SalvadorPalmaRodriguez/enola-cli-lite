@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/ai/commands-ai.md`
-> **Versión:** 1.17 | **Actualizado:** 2026-10-26
+> **Versión:** 1.18 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands-ask.md, ../general/commands.md, ../general/config-reference.md, ../mcp/commands-mcp.md
 
@@ -92,19 +92,19 @@ enola-cli ai finetune wizard
 | `ai model validate <N> <F>` | `ReadOnly` | Parsea el header GGUF (magic + versión v2/v3 + contadores) y reporta familia/cuantización inferidas. |
 | `ai model refresh <N>` | `Mutating` | Re-escanea la biblioteca y el registro de la instancia. |
 | `ai rag status <N>` | `ReadOnly` | Estado del índice RAG: vector store, documentos indexados y fuentes ligadas. |
-| `ai rag ingest <N> <PATH>` | `Mutating` | Ingere un fichero o directorio en el índice vectorial de la instancia (canonicaliza la ruta, rechaza rutas del sistema, salta dotfiles y escapes por symlink). Si Ollama no devuelve embeddings, falla sin indexar nada (en TTY ofrece reintentar / hash / cancelar); `--embedding-fallback hash` indexa por hash por elección explícita. |
+| `ai rag ingest <N> <PATH>` | `Mutating` | Ingere un fichero o directorio en el índice vectorial de la instancia (canonicaliza la ruta, rechaza rutas del sistema, salta dotfiles y escapes por symlink). Con `sudo` solo lee lo que tu propio usuario podría leer. Si Ollama no devuelve embeddings, falla sin indexar nada (en TTY ofrece reintentar / hash / cancelar); `--embedding-fallback hash` indexa por hash por elección explícita. |
 | `ai rag ingest-docs <N>` | `Mutating` | Indexa la documentación de enola-cli embebida en el binario en la colección `enola_docs` de la instancia (la que consulta `docs_lookup`). Reconstruye la colección en cada ejecución (sin restos tras actualizar el binario) y nunca toca tu índice (`ingest`/`sync`). Misma política de embeddings que `ingest`, incluido `--embedding-fallback hash`. |
-| `ai rag bind <N> -s <T> -p <P> --force` | `Destructive` | Liga una fuente (`git`, `filesystem`, `wordpress`) al índice para `sync`. Exige `--force`; las rutas se canonicalizan y se rechazan prefijos del sistema (`/etc`, `/root`, `/proc`…). |
+| `ai rag bind <N> -s <T> -p <P> --force` | `Destructive` | Liga una fuente (`git`, `filesystem`, `wordpress`) al índice para `sync`. Exige `--force`; las rutas se canonicalizan y se rechazan prefijos del sistema (`/etc`, `/root`, `/proc`, `/var/backups`…); con `sudo`, `sync` solo indexa ficheros que tu usuario podría leer. |
 | `ai rag sync <N>` | `Mutating` | Re-ingiere todas las fuentes ligadas (`git pull --ff-only` como usuario invocador para fuentes git; REST `/wp-json/wp/v2/posts` para wordpress). Admite `--embedding-fallback hash` como `ingest`. |
 | `ai rag config <N> [--show]` | `Mutating` | Muestra o edita `rag_config.json` (chunking, presets `docs|code|faq|large`, backend `chroma|qdrant`). |
 | `ai benchmark <N>` | `Mutating` | Mide tokens/s (eval_duration de Ollama), latencia media y tamaño del modelo sobre la instancia (`--runs`, `--model`, `--prompt`). |
 | `ai provider list` | `ReadOnly` | Lista providers BYOK y su estado (la key solo aparece como `(set)`/`(not set)`). |
 | `ai provider status <P>` | `ReadOnly` | Estado de un provider concreto (sin revelar la key). |
-| `ai provider set <P>` | `Mutating` | Configura clave/modelo/endpoint. La key se lee por prompt TTY seguro o `--key-stdin` — **nunca por argv**. |
+| `ai provider set <P>` | `Mutating` | Configura clave/modelo/endpoint. El endpoint debe ser `https://`; `http://` solo se admite hacia esta máquina (`127.0.0.1`, `::1`, `localhost`), porque la clave viajaría sin cifrar. La key se lee por prompt TTY seguro o `--key-stdin` — **nunca por argv**. |
 | `ai provider remove <P> --force` | `Destructive` | Borra la entrada del provider de `~/.enola/providers.env`. Exige `--force`. |
 | `ai provider test <P>` | `Mutating` | Ping mínimo al provider: envía datos fuera → exige consentimiento (`--accept-risks` o prompt `[s/N]` en TTY; sin TTY falla cerrado). |
 | `ask --provider <P>` | — | Chat single-shot por el provider externo **sin tool registry** (el cloud no ejecuta comandos enola). Mismo gate de privacidad. |
-| `ai finetune prepare <F>` | `Mutating` | Valida un dataset JSONL (`alpaca\|chatml\|sharegpt\|text`, auto-detectado), convierte a ChatML canónico y genera `train.jsonl`/`val.jsonl` con split determinista (`--val-ratio`). |
+| `ai finetune prepare <F>` | `Mutating` | Con `sudo`, el dataset debe ser legible por tu usuario. Valida un dataset JSONL (`alpaca\|chatml\|sharegpt\|text`, auto-detectado), convierte a ChatML canónico y genera `train.jsonl`/`val.jsonl` con split determinista (`--val-ratio`). |
 | `ai finetune validate <F>` | `Mutating` | Pre-flight: esquema + tamaño + VRAM (`HardwareProbePort`) + modelo base — antes de gastar horas de cómputo. |
 | `ai finetune start <N> --dataset <F> --force` | `Destructive` | Lanza el contenedor `enola-ai-<n>-finetune-<job>` (`enola-finetune:latest`, 16 GiB, GPU si hay, read-only rootfs, sin puertos/red, como usuario sin privilegios UID 65532 — nunca root) con el script LoRA embebido. Dataset debe ser ChatML. Exige `--force`. |
 | `ai finetune status <N>` | `ReadOnly` | Lista los jobs de la instancia y reconcilia los `Running` con el exit real de su contenedor (`Completed`/`Failed` + `finished_at`/`error` persistidos en `finetune/jobs.json`). |

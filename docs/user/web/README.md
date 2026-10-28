@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/web/README.md`
-> **Versión:** 2.4 | **Actualizado:** 2026-10-27
+> **Versión:** 2.5 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 
 # Enola Web Dashboard
@@ -630,7 +630,9 @@ All fields except `name` are optional and default like the CLI
 The console runs any CLI command **except** the ones no third party may run
 (the same list the MCP server refuses): `web`, `mcp`, `setup`, `uninstall`,
 `ssh`, `ask`, `update apply`, `test run`, `test benchmark`,
-`ai finetune wizard`, the `--allow-unsigned`/`--binary` update flags and the
+`ai finetune wizard`, the commands that print a generated secret
+(`tor auth generate`, `vpn peer add`, `git user create` — use their buttons in
+the Tor, VPN and Git tabs), the `--allow-unsigned`/`--binary` update flags and the
 global URL overrides (`--tor-socks`, `--binary-base-url`, `--web-url`,
 `--docs-url`). Those answer `403` — use the CLI.
 
