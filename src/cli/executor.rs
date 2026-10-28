@@ -2286,16 +2286,20 @@ async fn execute_magnolia(cmd: MagnoliaCommands, format: &str) -> CliResult<Stri
             sync_firewall_ports(&[http_port]);
             Ok(format!(
                 "✅ Magnolia '{}' created (status: {}). \
-                 Open http://127.0.0.1:{}/ to complete the setup wizard.\n   \
-                 Stack: {} (Tomcat — needs ≥4 GB RAM).\n\
+                 Open http://127.0.0.1:{}/.magnolia/admincentral in ~1 min \
+                 (first start installs the modules).\n   \
+                 Log in as `superuser`; the password is in \
+                 /srv/enola-magnolia/{}/secrets/admin_password.\n   \
+                 Stack: {} (Tomcat 10.1, Java 21, 3 GB limit) + PostgreSQL 16.\n\
                  ⚠️  Complete the setup FIRST, then publish on Tor:\n\
                     enola-cli magnolia publish {}{}",
                 name,
                 inst.status,
                 http_port,
+                name,
                 adapter.descriptor().default_image,
                 name,
-                // A25-N3: imagen sin mantenimiento upstream — se mantiene con aviso.
+                // Aviso de imagen sin mantenimiento (vacío desde A25-N3: imagen propia).
                 crate::domain::images::unmaintained_warning(&crate::domain::images::MAGNOLIA)
                     .map(|w| format!("\n{w}"))
                     .unwrap_or_default(),

@@ -102,13 +102,13 @@ pub enum Commands {
     Ghost(GhostCommands),
 
     // ═══════════════════════════════════════════════════════════════════
-    // MAGNOLIA CMS (CMS-MAGNOLIA-CLI — Tomcat + H2/Postgres)
+    // MAGNOLIA CMS (CMS-MAGNOLIA-CLI — Tomcat + PostgreSQL)
     // ═══════════════════════════════════════════════════════════════════
     /// DOC-SYNC: docs/user/magnolia/commands-magnolia.md
     /// Manage Magnolia CMS instances (CMS-MAGNOLIA-CLI)
     ///
-    /// Stack: magnolia-docker (Tomcat, Java; upstream image unmaintained since 2020) with embedded H2.
-    /// Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.
+    /// Stack: enola/magnolia (Magnolia Community 6.4 on Tomcat 10.1 + Java 21; built locally on first create) + postgres:16.
+    /// Note: the container is limited to 3 GB RAM; needs ≥1.5 GB available on the host (warns if <1536 MB).
     ///
     /// Examples:
     ///   sudo enola-cli magnolia create --name mysite --http-port 8100
@@ -1631,7 +1631,7 @@ pub enum MagnoliaCommands {
 
     /// Create a new Magnolia instance
     ///
-    /// Stack: magnolia-docker (Tomcat; upstream image unmaintained since 2020) with embedded H2. Needs ≥1.5 GB RAM (warns if <1536 MB); 4 GB recommended.
+    /// Stack: enola/magnolia (Magnolia Community 6.4, Tomcat 10.1, Java 21; built locally on first create, ~900 MB) + postgres:16. The web container is limited to 3 GB RAM; needs ≥1.5 GB available (warns if <1536 MB). Log in at /.magnolia/admincentral as `superuser`; the password is in /srv/enola-magnolia/<name>/secrets/admin_password.
     /// Container prefix: `magnolia-`.
     Create {
         /// Instance name (alphanumeric + `_-`)

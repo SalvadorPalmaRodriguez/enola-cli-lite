@@ -127,6 +127,9 @@ pub const GHOST_SERVICE_USER: &str = "enola-ghost";
 /// A25-N3: usuario de sistema del proceso Wagtail (`--user`), dueño de `media/` y
 /// de los secretos que lee el contenedor.
 pub const WAGTAIL_SERVICE_USER: &str = "enola-wagtail";
+/// A25-N3: usuario de sistema del proceso Magnolia (`--user`), dueño de `/data`
+/// (repositorio, índices, claves) y de los secretos que lee el contenedor.
+pub const MAGNOLIA_SERVICE_USER: &str = "enola-magnolia";
 /// SEC-M10: directorio root-only con el hash admin de cada servidor Forgejo.
 /// Fuera de `/srv/enola-git/<name>`, que el contenedor monta en `/data`.
 pub const GIT_ADMIN_CREDS_DIR: &str = "/etc/enola/git";

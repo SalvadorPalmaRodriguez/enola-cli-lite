@@ -188,20 +188,19 @@ pub const POSTGRES: ImageSpec = ImageSpec {
     cap_add: DB_CAPS,
 };
 
-/// Magnolia: upstream solo publica `latest` (imagen de 2020-11-19, OpenJDK
-/// 11.0.8, Tomcat 9.0.38). Pineada por digest para que al menos sea
-/// reproducible; residual documentado (A25-N3).
+/// Magnolia CE: imagen construida en local desde `Dockerfile.magnolia`
+/// (Magnolia Community 6.4.11 sobre Tomcat 10.1 + Java 21 LTS; base `tomcat`
+/// pineada por digest en el propio Dockerfile; repositorio JCR en PostgreSQL).
+/// El tag cambia con Magnolia/Java para forzar la reconstrucción. A25-N3.
 pub const MAGNOLIA: ImageSpec = ImageSpec {
     key: "magnolia",
-    image: "ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker",
-    digest: Some("sha256:cadb30ab24b9e30703f171d66b56d2ef06a8e0fe56fe590e5c4b35c7800649e6"),
-    eol: Some("2020-11-19"),
-    eol_source: "image created 2020-11-19; ghcr publishes only :latest (no updates since)",
-    unmaintained: Some(
-        "upstream image unmaintained since 2020 (OpenJDK 11.0.8, Tomcat 9.0.38); \
-         no maintained public image — pending operator decision (A25-N3)",
-    ),
-    cap_add: DB_CAPS,
+    image: "enola/magnolia:6.4.11-jdk21",
+    digest: None,
+    eol: None,
+    eol_source: "Magnolia publishes no fixed EOL for 6.4 (fixes ship as 6.4.x releases); \
+                 Java 21 Temurin LTS supported until 2029-12-31 (endoflife.date/eclipse-temurin)",
+    unmaintained: None,
+    cap_add: &[],
 };
 
 /// Wagtail: imagen construida en local desde `Dockerfile.wagtail` (proyecto
@@ -399,7 +398,7 @@ mod tests {
     #[test]
     fn unmaintained_warning_only_for_residual_images() {
         assert!(unmaintained_warning(&WAGTAIL).is_none());
-        assert!(unmaintained_warning(&MAGNOLIA).is_some());
+        assert!(unmaintained_warning(&MAGNOLIA).is_none());
         assert!(unmaintained_warning(&GHOST).is_none());
         assert!(unmaintained_warning(&FORGEJO).is_none());
     }
@@ -438,6 +437,19 @@ mod tests {
         assert!(eol_reason("wagtail/bakerydemo:release-4469a5a", "2026-10-28").is_some());
     }
 
+    /// A25-N3: Magnolia CE se construye en local (Tomcat 10.1 + Java 21), sin
+    /// digest ni aviso, con PostgreSQL como almacén (la imagen no lleva H2).
+    #[test]
+    fn magnolia_is_built_locally_on_tomcat_10_1_and_java_21() {
+        assert_eq!(MAGNOLIA.image, "enola/magnolia:6.4.11-jdk21");
+        assert!(MAGNOLIA.digest.is_none());
+        assert!(MAGNOLIA.unmaintained.is_none());
+        assert!(MAGNOLIA.cap_add.is_empty());
+        assert!(MAGNOLIA.eol_source.contains("Magnolia"));
+        assert!(!MAGNOLIA.is_eol("2026-10-28"));
+        assert_eq!(MAGNOLIA.repository(), "enola/magnolia");
+    }
+
     #[test]
     fn repository_and_reference_parsing() {
         assert_eq!(repository_of("ghost:6.72.0-alpine"), "ghost");
@@ -461,7 +473,12 @@ mod tests {
         assert!(eol_reason("ghost:5-alpine", t).is_some());
         assert!(eol_reason("enola/strapi:5.49.0", t).is_some());
         assert!(eol_reason("wagtail/bakerydemo:latest", t).is_some());
-        assert!(eol_reason(&MAGNOLIA.reference(), t).is_some());
+        assert!(eol_reason(
+            "ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker:latest",
+            t
+        )
+        .is_some());
+        assert!(eol_reason(&MAGNOLIA.reference(), t).is_none());
         // Soportadas hoy.
         assert!(eol_reason(&FORGEJO.reference(), t).is_none());
         assert!(eol_reason(&MARIADB_WORDPRESS.reference(), t).is_none());

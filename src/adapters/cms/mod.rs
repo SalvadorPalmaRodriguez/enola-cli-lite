@@ -12,7 +12,7 @@ pub mod ghost; // CMS-GHOST-001 — Adapter Ghost (SQLite, sin contenedor BD)
 pub mod magnolia;
 pub mod strapi; // CMS-STRAPI-001 — Adapter Strapi v4 (Node.js headless + Postgres)
 pub mod wagtail; // CMS-WAGTAIL-001 — Adapter Wagtail (Python/Django + Postgres)
-pub mod wordpress; // CMS-MAGNOLIA-001 — Adapter Magnolia Community (Java/Tomcat + H2 embebido)
+pub mod wordpress; // CMS-MAGNOLIA-001 — Adapter Magnolia Community (Java/Tomcat + PostgreSQL)
 
 use crate::domain::cms::{CmsDescriptor, CmsKind};
 use crate::ports::cms::CmsAdapter;
@@ -242,16 +242,13 @@ mod tests {
 
     #[test]
     fn catalog_contains_magnolia() {
-        // CMS-MAGNOLIA-001: Magnolia registrado con H2 embebido (sin BD externa).
+        // CMS-MAGNOLIA-001 / A25-N3: Magnolia registrado con PostgreSQL (BD externa).
         let d = descriptor_by_kind(CmsKind::Magnolia).expect("Magnolia must be registered");
         assert_eq!(d.default_image, crate::domain::images::MAGNOLIA.image);
         assert_eq!(d.container_prefix, "magnolia-");
         assert_eq!(d.data_root, "/srv/enola-magnolia");
-        assert_eq!(d.db_stack, crate::domain::cms::DbStack::None);
-        assert!(
-            !d.requires_db(),
-            "Magnolia+H2 embedded does NOT require external DB"
-        );
+        assert_eq!(d.db_stack, crate::domain::cms::DbStack::Postgres);
+        assert!(d.requires_db(), "Magnolia+PostgreSQL requires external DB");
     }
 
     #[test]

@@ -1579,7 +1579,7 @@
       ]
     },
     {
-      "description": "Stack: magnolia-docker (Tomcat, Java; upstream image unmaintained since 2020) with embedded H2. Note: needs ≥1.5 GB RAM available on the host (warns if <1536 MB); 4 GB recommended.",
+      "description": "Stack: enola/magnolia (Magnolia Community 6.4 on Tomcat 10.1 + Java 21; built locally on first create) + postgres:16. Note: the container is limited to 3 GB RAM; needs ≥1.5 GB available on the host (warns if <1536 MB).",
       "flags": [],
       "name": "magnolia",
       "subcommands": [

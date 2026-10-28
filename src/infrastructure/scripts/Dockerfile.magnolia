@@ -1,0 +1,82 @@
+# Dockerfile.magnolia — Imagen Magnolia CMS Community Edition (A25-N3).
+#
+# Magnolia CE 6.4 (GPLv3) sobre Tomcat 10.1 + Java 21 LTS, con PostgreSQL como
+# almacén del repositorio JCR (Jackrabbit) en lugar de la H2 embebida. Reemplaza
+# a la imagen comunitaria `magnolia-docker` (publicada en 2020, Tomcat 9.0.38 y
+# OpenJDK 11.0.8 sin parches).
+#
+# El usuario NUNCA invoca este Dockerfile a mano: `enola-cli magnolia create` lo
+# extrae del binario (include_str!) y construye la imagen una sola vez si falta.
+#
+# Cadena de suministro:
+#   - Base `tomcat` (imagen oficial de Docker) pineada por digest
+#     (scripts/dev/refresh_image_digests.sh). Al cambiarla o subir Magnolia,
+#     actualizar el tag `enola/magnolia:<ver>-jdk<NN>` en src/domain/images.rs.
+#   - WAR oficial de Magnolia desde su Nexus, verificado por SHA-256.
+#   - El WAR no trae el driver de PostgreSQL: se añade pgjdbc (BSD-2-Clause) desde
+#     Maven Central, verificado por SHA-256 (Central publica el SHA-1; el SHA-256
+#     se fijó tras comprobar que el SHA-1 coincide).
+#   - Proceso sin root; la aplicación es de solo lectura y todo lo escribible
+#     (repositorio, índices, claves, logs) vive en el volumen /data.
+ARG TOMCAT_IMAGE=tomcat:10.1.61-jre21-temurin-noble@sha256:a6e9a43128a4f7547f8d11e4892078f6b1370bb46e465f8a2a0f7b7b5e7d21e9
+ARG MAGNOLIA_VERSION=6.4.11
+ARG MAGNOLIA_WAR_SHA256=12c70572f7b65316aed922ee6c8cc5d9ad08e691adac248dcf346e9e4eb57b77
+ARG PGJDBC_VERSION=42.7.14
+ARG PGJDBC_SHA256=73914527305a40cce504b0d3d90b23caf565136912d607ae8ae7c5895512332c
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 — fetch: descarga, verifica y expande el WAR (unzip solo vive aquí).
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ${TOMCAT_IMAGE} AS fetch
+ARG MAGNOLIA_VERSION
+ARG MAGNOLIA_WAR_SHA256
+ARG PGJDBC_VERSION
+ARG PGJDBC_SHA256
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN curl -fsSL -o magnolia.war \
+        "https://nexus.magnolia-cms.com/repository/magnolia.public.releases/info/magnolia/bundle/magnolia-community-webapp/${MAGNOLIA_VERSION}/magnolia-community-webapp-${MAGNOLIA_VERSION}.war" \
+    && echo "${MAGNOLIA_WAR_SHA256}  magnolia.war" | sha256sum -c - \
+    && curl -fsSL -o postgresql.jar \
+        "https://repo1.maven.org/maven2/org/postgresql/postgresql/${PGJDBC_VERSION}/postgresql-${PGJDBC_VERSION}.jar" \
+    && echo "${PGJDBC_SHA256}  postgresql.jar" | sha256sum -c - \
+    && unzip -q magnolia.war -d ROOT \
+    && cp postgresql.jar ROOT/WEB-INF/lib/postgresql.jar
+
+# Plantilla de Jackrabbit: la configuración PostgreSQL OFICIAL del WAR con los
+# datos de conexión como marcadores (el entrypoint los rellena al arrancar; la
+# clave nunca queda en la imagen).
+RUN sed -E \
+        -e 's|(name="url" value=")[^"]*|\1@DB_URL@|' \
+        -e 's|(name="user" value=")[^"]*|\1@DB_USER@|' \
+        -e 's|(name="password" value=")[^"]*|\1@DB_PASSWORD@|' \
+        ROOT/WEB-INF/config/repo-conf/jackrabbit-bundle-postgres-search.xml \
+        > /build/jackrabbit-postgres.xml.tmpl \
+    && grep -c '@DB_URL@\|@DB_USER@\|@DB_PASSWORD@' /build/jackrabbit-postgres.xml.tmpl
+
+# Ajustes de Enola al final de magnolia.properties (la última definición gana).
+COPY magnolia_enola.properties /build/magnolia_enola.properties
+RUN cat /build/magnolia_enola.properties >> ROOT/WEB-INF/config/default/magnolia.properties
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — runtime.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ${TOMCAT_IMAGE}
+COPY --from=fetch /build/ROOT /usr/local/tomcat/webapps/ROOT
+COPY --from=fetch /build/jackrabbit-postgres.xml.tmpl /opt/enola/jackrabbit-postgres.xml.tmpl
+COPY docker-entrypoint.magnolia.sh /usr/local/bin/docker-entrypoint.sh
+
+# Tomcat escribe en logs/temp/work; la aplicación NO se modifica. Los logs van a
+# la consola (docker logs), no a ficheros.
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh \
+    && mkdir -p /data /usr/local/tomcat/conf/Catalina/localhost \
+    && chmod 1777 /usr/local/tomcat/logs /usr/local/tomcat/temp /usr/local/tomcat/work /data
+
+# Sin root. `enola-cli` lo sustituye por el usuario de sistema `enola-magnolia`
+# (`--user uid:gid`); los ficheros de la aplicación son de root y de lectura pública.
+USER 10001:10001
+EXPOSE 8080
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
