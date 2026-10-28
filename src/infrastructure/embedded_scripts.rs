@@ -13,6 +13,48 @@ pub const STRAPI_DOCKERFILE_NAME: &str = "Dockerfile.strapi";
 /// reconstruir; ver `domain::images::STRAPI`).
 pub const STRAPI_IMAGE_TAG: &str = crate::domain::images::STRAPI.image;
 
+// ── Wagtail production image (A25-N3) ─────────────────────────────────────
+/// Directorio canónico donde se extrae el contexto de build de Wagtail.
+pub const WAGTAIL_DOCKER_DIR: &str = "/opt/enola/docker/wagtail";
+/// Dockerfile de la imagen Wagtail (proyecto vacío, rama LTS) embebido en el binario.
+pub(crate) const DOCKERFILE_WAGTAIL: &str = include_str!("scripts/Dockerfile.wagtail");
+/// Dependencias exactas con hash (`pip-compile --generate-hashes`).
+pub(crate) const REQUIREMENTS_WAGTAIL: &str = include_str!("scripts/requirements.wagtail.txt");
+/// Entrypoint de la imagen: migraciones, superusuario inicial y gunicorn.
+pub(crate) const ENTRYPOINT_WAGTAIL: &str = include_str!("scripts/docker-entrypoint.wagtail.sh");
+/// Ajustes de producción (`website/settings/production.py`).
+pub(crate) const SETTINGS_WAGTAIL: &str = include_str!("scripts/wagtail_production_settings.py");
+/// URLconf con la ruta de `media/` antes del comodín de Wagtail.
+pub(crate) const URLS_WAGTAIL: &str = include_str!("scripts/wagtail_enola_urls.py");
+/// Nombre canónico del Dockerfile de Wagtail extraído al disco.
+pub const WAGTAIL_DOCKERFILE_NAME: &str = "Dockerfile.wagtail";
+/// Tag de la imagen Wagtail construida localmente (ligado a la versión: cambiarla
+/// obliga a reconstruir; ver `domain::images::WAGTAIL`).
+pub const WAGTAIL_IMAGE_TAG: &str = crate::domain::images::WAGTAIL.image;
+
+/// Extrae a `dir` el contexto de build completo de Wagtail y lo devuelve.
+/// Siempre sobrescribe: un contexto obsoleto de una versión anterior del
+/// binario produciría una imagen distinta de la que el tag promete.
+pub fn ensure_wagtail_context_in(dir: &Path) -> Result<PathBuf, String> {
+    extract_script(DOCKERFILE_WAGTAIL, dir, WAGTAIL_DOCKERFILE_NAME)?;
+    extract_script(REQUIREMENTS_WAGTAIL, dir, "requirements.wagtail.txt")?;
+    extract_script(SETTINGS_WAGTAIL, dir, "wagtail_production_settings.py")?;
+    extract_script(URLS_WAGTAIL, dir, "wagtail_enola_urls.py")?;
+    let ep = extract_script(ENTRYPOINT_WAGTAIL, dir, "docker-entrypoint.wagtail.sh")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&ep, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("No se pudo hacer ejecutable {:?}: {}", ep, e))?;
+    }
+    Ok(dir.to_path_buf())
+}
+
+/// Contexto de build de Wagtail en el directorio canónico (`/opt/enola/docker/wagtail`).
+pub fn ensure_wagtail_context() -> Result<PathBuf, String> {
+    ensure_wagtail_context_in(Path::new(WAGTAIL_DOCKER_DIR))
+}
+
 // ── Strapi Dockerfile ─────────────────────────────────────────────────────
 /// Devuelve la ruta del `Dockerfile.strapi`, extrayéndolo del binario si no existe.
 pub fn ensure_strapi_dockerfile() -> Result<PathBuf, String> {
@@ -63,6 +105,91 @@ fn extract_script(content: &str, dir: &Path, filename: &str) -> Result<PathBuf, 
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    // ── Wagtail (A25-N3): contexto de build embebido ────────────────────────
+    #[test]
+    fn wagtail_context_writes_all_build_files_and_overwrites_stale_ones() {
+        let tmp = TempDir::new().expect("tempdir");
+        std::fs::write(tmp.path().join(WAGTAIL_DOCKERFILE_NAME), "viejo").unwrap();
+        let ctx = ensure_wagtail_context_in(tmp.path()).expect("contexto");
+        assert_eq!(ctx, tmp.path());
+        for f in [
+            WAGTAIL_DOCKERFILE_NAME,
+            "requirements.wagtail.txt",
+            "docker-entrypoint.wagtail.sh",
+            "wagtail_production_settings.py",
+            "wagtail_enola_urls.py",
+        ] {
+            assert!(tmp.path().join(f).is_file(), "falta {f}");
+        }
+        // A diferencia de Strapi, un Dockerfile obsoleto NO se reutiliza:
+        // tras actualizar el binario hay que construir con el contenido nuevo.
+        let df = std::fs::read_to_string(tmp.path().join(WAGTAIL_DOCKERFILE_NAME)).unwrap();
+        assert_ne!(df, "viejo");
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(tmp.path().join("docker-entrypoint.wagtail.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "el entrypoint debe ser ejecutable");
+    }
+
+    #[test]
+    fn wagtail_image_tag_matches_domain_spec() {
+        assert_eq!(WAGTAIL_IMAGE_TAG, crate::domain::images::WAGTAIL.image);
+    }
+
+    /// Invariantes de seguridad del Dockerfile (SD-9/SD-10, A25-N3).
+    #[test]
+    fn wagtail_dockerfile_is_pinned_non_root_and_has_no_dev_server() {
+        // Solo las instrucciones: los comentarios pueden citar lo que se evita.
+        let code: String = DOCKERFILE_WAGTAIL
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let df = code.as_str();
+        assert!(
+            df.lines()
+                .any(|l| l.starts_with("ARG PYTHON_IMAGE=") && l.contains("@sha256:")),
+            "la base Python debe ir pineada por digest"
+        );
+        assert!(
+            df.contains("--require-hashes"),
+            "pip con hashes obligatorios"
+        );
+        assert!(df.contains("USER "), "el proceso no debe ser root");
+        assert!(
+            ENTRYPOINT_WAGTAIL.contains("exec gunicorn"),
+            "servidor de producción"
+        );
+        assert!(!ENTRYPOINT_WAGTAIL.contains("runserver"));
+        for banned in ["runserver", ":latest", "pip install wagtail"] {
+            assert!(!df.contains(banned), "prohibido en el Dockerfile: {banned}");
+        }
+        assert!(
+            REQUIREMENTS_WAGTAIL.contains("wagtail==7.4.4")
+                && REQUIREMENTS_WAGTAIL.contains("--hash=sha256:"),
+            "dependencias fijadas con hash"
+        );
+    }
+
+    /// El entrypoint no debe volcar secretos a variables de entorno ni a argv.
+    #[test]
+    fn wagtail_entrypoint_and_settings_read_secrets_from_files_only() {
+        let ep = ENTRYPOINT_WAGTAIL;
+        assert!(ep.contains("/run/secrets/admin_password"));
+        assert!(!ep.contains("export SECRET_KEY") && !ep.contains("DJANGO_SUPERUSER_PASSWORD"));
+        assert!(
+            ep.contains("exec "),
+            "debe terminar en exec (PID 1 = gunicorn)"
+        );
+        let st = SETTINGS_WAGTAIL;
+        assert!(st.contains("\"/run/secrets\""));
+        assert!(st.contains("_secret(\"django_secret_key\")"));
+        assert!(st.contains("_secret(\"db_password\")"));
+        assert!(!st.contains("DEBUG = True"));
+    }
 
     // TEST-COV-UNIT-003: cubrir extract_script directamente con tmpdir
     #[test]

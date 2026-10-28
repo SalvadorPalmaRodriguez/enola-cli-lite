@@ -1,0 +1,58 @@
+# Dockerfile.wagtail — Imagen Wagtail de producción (A25-N3).
+#
+# Sigue la guía oficial de Wagtail (https://docs.wagtail.org/en/stable/getting_started/):
+# `pip install wagtail` + `wagtail start`, es decir, un proyecto VACÍO (no la demo
+# bakerydemo, abandonada desde 2021). Wagtail 7.4 es la rama LTS (EOL 2027-11-02)
+# y corre sobre Django 5.2 LTS (EOL 2028-04-30).
+#
+# El usuario NUNCA invoca este Dockerfile a mano: `enola-cli wagtail create` lo
+# extrae del binario (include_str!) y construye la imagen una sola vez si falta.
+#
+# Cadena de suministro:
+#   - Base pineada por digest (scripts/dev/refresh_image_digests.sh). Al cambiarla,
+#     actualizar el tag `enola/wagtail:<ver>-py<NN>` en src/domain/images.rs.
+#   - Dependencias EXACTAS con hash (requirements.wagtail.txt, pip-compile
+#     --generate-hashes) e instaladas con --require-hashes.
+#   - Sin compiladores en la imagen final; proceso sin root; sin servidor de
+#     desarrollo (gunicorn + whitenoise).
+ARG PYTHON_IMAGE=python:3.13.18-slim-trixie@sha256:76baad6037690d6e8c4397fbcaef17bca6f19eecef822b708fe8fa3417d30bb5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 — builder: entorno virtual con las dependencias verificadas por hash.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ${PYTHON_IMAGE} AS builder
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
+COPY requirements.wagtail.txt /tmp/requirements.txt
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.txt
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — runtime.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ${PYTHON_IMAGE}
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DJANGO_SETTINGS_MODULE=website.settings.production
+COPY --from=builder /opt/venv /opt/venv
+WORKDIR /srv/app
+
+# Proyecto vacío, como la guía oficial. Se descartan los ficheros de despliegue
+# de ejemplo que genera la plantilla (usan el servidor de desarrollo).
+RUN wagtail start website . \
+    && rm -f requirements.txt Dockerfile .dockerignore
+COPY wagtail_production_settings.py /srv/app/website/settings/production.py
+COPY wagtail_enola_urls.py /srv/app/website/enola_urls.py
+COPY docker-entrypoint.wagtail.sh /usr/local/bin/docker-entrypoint.sh
+
+# Estáticos en build (sin secretos: WAGTAIL_IMAGE_BUILD=1 usa una clave de relleno que
+# jamás llega al contenedor en ejecución). `media/` es el único volumen.
+RUN WAGTAIL_IMAGE_BUILD=1 python manage.py collectstatic --noinput \
+    && mkdir -p /srv/app/media \
+    && chmod 0755 /usr/local/bin/docker-entrypoint.sh
+
+# Sin root. `enola-cli` lo sustituye por el usuario de sistema `enola-wagtail`
+# (`--user uid:gid`); los ficheros de la app son de root y de lectura pública.
+USER 10001:10001
+EXPOSE 8000
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

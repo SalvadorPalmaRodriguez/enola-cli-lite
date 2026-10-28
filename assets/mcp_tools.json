@@ -1938,7 +1938,7 @@
       ]
     },
     {
-      "description": "Stack: wagtail/bakerydemo (demo site, Python/Django; upstream image unmaintained since 2021) + postgres:16.",
+      "description": "Stack: enola/wagtail (empty Wagtail 7.4 LTS project, Python/Django; built locally on first create) + postgres:16.",
       "flags": [],
       "name": "wagtail",
       "subcommands": [

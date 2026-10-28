@@ -140,7 +140,7 @@ pub enum Commands {
     /// DOC-SYNC: docs/user/wagtail/commands-wagtail.md
     /// Manage Wagtail CMS instances (CMS-WAGTAIL-CLI)
     ///
-    /// Stack: wagtail/bakerydemo (demo site, Python/Django; upstream image unmaintained since 2021) + postgres:16.
+    /// Stack: enola/wagtail (empty Wagtail 7.4 LTS project, Python/Django; built locally on first create) + postgres:16.
     ///
     /// Examples:
     ///   sudo enola-cli wagtail create --name mysite --http-port 8200

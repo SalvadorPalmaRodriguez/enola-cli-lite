@@ -7,7 +7,9 @@
 //   - DB Postgres 16 (no MariaDB) — primer Postgres del catálogo.
 //
 // Stack:
-//   - Web: `wagtail/bakerydemo:latest` (oficial)  — Django + Wagtail framework.
+//   - Web: `enola/wagtail:<ver>-py<NN>` construida en local desde el Dockerfile
+//          embebido (A25-N3): proyecto vacío `wagtail start`, rama 7.4 LTS,
+//          gunicorn + whitenoise, proceso `enola-wagtail` sin root.
 //   - BD:  `postgres:16-alpine` en contenedor separado.
 //
 // Naming (§13.3 — prefijos distintos garantizan aislamiento Tor/Nginx):
@@ -16,12 +18,13 @@
 //   - Network:    `enola_net_wagtail_{name}`
 //
 // Paths (§13.2):
-//   - App:        `/srv/enola-wagtail/{name}/app/`     → `/app`
+//   - Media:      `/srv/enola-wagtail/{name}/media/`   → `/srv/app/media`
 //   - DB:         `/srv/enola-wagtail/{name}/db/`      → `/var/lib/postgresql/data`
 //   - Secrets:    `/srv/enola-wagtail/{name}/secrets/` → `/run/secrets/` (modo 0700/0600)
 //
-// Setup wizard (§13.1): Wagtail genera `superuser` por env. Tras boot el
-// admin queda disponible en `/admin/`. Códigos aceptables durante boot:
+// Setup wizard (§13.1): el ENTRYPOINT de la imagen crea el superusuario `admin`
+// con la contraseña de `secrets/admin_password`. Tras boot el admin queda
+// disponible en `/admin/`. Códigos aceptables durante boot:
 // 200/301/302/304/500 (errores transitorios mientras Django carga).
 //
 // Puerto interno: Wagtail/Django escuchan en 8000 dentro del contenedor.
@@ -36,8 +39,9 @@ use crate::domain::cms::{
 };
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::cms::{CmsAdapter, CmsLifecycle};
-use crate::ports::container::{ContainerConfig, ContainerPort};
+use crate::ports::container::{ContainerConfig, ContainerPort, ImageBuildConfig};
 use crate::ports::manifest::ManifestPort;
+use crate::ports::service_user::ServiceUserPort;
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -57,11 +61,15 @@ fn wagtail_base_dir(override_dir: Option<&Path>) -> PathBuf {
     }
 }
 
-/// Adapter Wagtail. Igual que Drupal, solo necesita `ContainerPort`.
+/// Adapter Wagtail. Igual que Drupal, solo necesita `ContainerPort`; además
+/// resuelve el usuario de sistema bajo el que corre el proceso (SD-9/SD-10).
 pub struct WagtailCmsAdapter {
     container_manager: Arc<dyn ContainerPort + Send + Sync>,
     manifest: Arc<dyn ManifestPort + Send + Sync>,
     base_dir: Option<PathBuf>,
+    service_user: Arc<dyn ServiceUserPort + Send + Sync>,
+    /// Directorio del contexto de build; `None` = el canónico `/opt/enola/docker/wagtail`.
+    build_dir: Option<PathBuf>,
 }
 
 impl WagtailCmsAdapter {
@@ -73,21 +81,60 @@ impl WagtailCmsAdapter {
             container_manager,
             manifest,
             base_dir: None,
+            service_user: Arc::new(crate::adapters::infra::service_user::SystemServiceUser::new()),
+            build_dir: None,
         }
     }
 
-    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe).
+    /// Constructor para tests: inyecta el base_dir sin usar env vars (thread-safe),
+    /// el usuario de servicio (sin `useradd` real) y el directorio de build.
     #[cfg(test)]
     pub fn new_with_base(
         container_manager: Arc<dyn ContainerPort + Send + Sync>,
         manifest: Arc<dyn ManifestPort + Send + Sync>,
         base_dir: PathBuf,
+        service_user: Arc<dyn ServiceUserPort + Send + Sync>,
+        build_dir: PathBuf,
     ) -> Self {
         Self {
             container_manager,
             manifest,
             base_dir: Some(base_dir),
+            service_user,
+            build_dir: Some(build_dir),
         }
+    }
+
+    /// A25-N3: construye `enola/wagtail:<ver>` desde el contexto embebido si la
+    /// imagen no existe. Se llama ANTES de tocar red, secretos o contenedores,
+    /// así un build fallido no deja residuos.
+    async fn ensure_image(&self) -> Result<()> {
+        use crate::infrastructure::embedded_scripts as emb;
+        let tag = emb::WAGTAIL_IMAGE_TAG;
+        if self.container_manager.image_exists(tag).await? {
+            return Ok(());
+        }
+        let ctx = match &self.build_dir {
+            Some(dir) => emb::ensure_wagtail_context_in(dir),
+            None => emb::ensure_wagtail_context(),
+        }
+        .map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Cannot prepare the Wagtail build context: {e}"
+            ))
+        })?;
+        eprintln!(
+            "🏗️  Building the Wagtail image {tag} (first time only, ~3-6 min, needs Internet)..."
+        );
+        self.container_manager
+            .build_image(ImageBuildConfig {
+                dockerfile_path: ctx.join(emb::WAGTAIL_DOCKERFILE_NAME),
+                context_path: ctx,
+                tag: tag.to_string(),
+                build_args: HashMap::new(),
+            })
+            .await?;
+        Ok(())
     }
 
     fn web_container_name(name: &str) -> String {
@@ -180,6 +227,9 @@ impl CmsLifecycle for WagtailCmsAdapter {
             )
         })?;
 
+        // 0. Imagen propia (se construye una vez si falta).
+        self.ensure_image().await?;
+
         let web_name = Self::web_container_name(&request.name);
         let db_name = Self::db_container_name(&request.name);
         let net_name = Self::network_name(&request.name);
@@ -211,9 +261,26 @@ impl CmsLifecycle for WagtailCmsAdapter {
             write_secret_file(&secrets_dir, "django_secret_key", &django_secret)?;
         let admin_pass_path = write_secret_file(&secrets_dir, "admin_password", &admin_pass)?;
 
-        // 3. Volúmenes persistentes.
+        // 3. Volúmenes persistentes + usuario de servicio. El proceso corre como
+        // `enola-wagtail` (sin root, `cap_drop ALL`): los secretos que lee desde
+        // /run/secrets y `media/` tienen que ser suyos. Postgres sigue leyendo
+        // `db_password` gracias a DAC_OVERRIDE (DB_CAPS).
         let db_volume = inst_dir.join("db");
-        let app_volume = inst_dir.join("app");
+        let media_volume = inst_dir.join("media");
+        std::fs::create_dir_all(&media_volume).map_err(|e| {
+            EnolaError::InfrastructureError(format!(
+                "Cannot create {}: {}",
+                media_volume.display(),
+                e
+            ))
+        })?;
+        let (wagtail_uid, wagtail_gid) = self
+            .service_user
+            .ensure(crate::domain::naming::WAGTAIL_SERVICE_USER)?;
+        self.service_user
+            .chown_tree(&media_volume, wagtail_uid, wagtail_gid)?;
+        self.service_user
+            .chown_tree(&secrets_dir, wagtail_uid, wagtail_gid)?;
 
         // 4. Contenedor BD (Postgres 16) — primer Postgres del catálogo CMS.
         // POSTGRES_PASSWORD_FILE permite leer la contraseña desde /run/secrets/
@@ -267,12 +334,15 @@ impl CmsLifecycle for WagtailCmsAdapter {
         self.container_manager.start_container(&db_name).await?;
         let _ = self.manifest.append("docker_container", &db_name);
 
-        // 5. Contenedor Wagtail (Django).
-        // wagtail/bakerydemo:latest espera variables de entorno DATABASE_URL y
-        // SECRET_KEY. Se inyectan a través de archivos en /run/secrets/ por
-        // simetría con WP/Drupal (no por línea de comandos).
+        // 5. Contenedor Wagtail (imagen propia `enola/wagtail`, A25-N3).
+        // La imagen lleva su ENTRYPOINT (migraciones, superusuario inicial y
+        // gunicorn). Los secretos llegan como ficheros en /run/secrets (SEC-001):
+        // ni variables de entorno ni argv, así no salen en `docker inspect`.
         let mut web_volumes = HashMap::new();
-        web_volumes.insert(app_volume.to_string_lossy().to_string(), "/app".to_string());
+        web_volumes.insert(
+            media_volume.to_string_lossy().to_string(),
+            "/srv/app/media".to_string(),
+        );
 
         let mut web_ports = HashMap::new();
         web_ports.insert(http_port, WAGTAIL_INTERNAL_PORT);
@@ -291,58 +361,20 @@ impl CmsLifecycle for WagtailCmsAdapter {
             admin_pass_path.to_string_lossy().to_string(),
         );
 
-        // bakerydemo espera DATABASE_URL y SECRET_KEY como env vars estándar.
-        // SEC-001: Secrets are mounted as Docker secrets at /run/secrets/ and
-        // injected via an entrypoint wrapper script. This avoids plaintext
-        // secrets in the container's env (visible via `docker inspect`).
+        // Solo configuración no sensible.
         let mut web_env = HashMap::new();
-        web_env.insert(
-            "ENOLA_WAGTAIL_INTERNAL_PORT".to_string(),
-            WAGTAIL_INTERNAL_PORT.to_string(),
-        );
-
-        // SEC-001: Entrypoint wrapper that reads secrets from /run/secrets/ and
-        // exports them as env vars before exec'ing the original Wagtail entrypoint.
-        let entrypoint_script = r#"#!/bin/sh
-# SEC-001: Read secrets from /run/secrets/ and export as env vars
-DB_PASS="$(cat /run/secrets/db_password)"
-DJANGO_SECRET="$(cat /run/secrets/django_secret_key)"
-export DATABASE_URL="postgres://wagtail:${DB_PASS}@${DB_HOST:-db}:5432/wagtail"
-export SECRET_KEY="${DJANGO_SECRET}"
-exec "$@"
-"#;
-        let entrypoint_path = inst_dir.join("entrypoint.sh");
-        crate::infrastructure::atomic_secret_file::write_atomic(
-            &entrypoint_path,
-            entrypoint_script.as_bytes(),
-            0o755,
-        )
-        .map_err(|e| {
-            EnolaError::InfrastructureError(format!("Cannot write entrypoint script: {}", e))
-        })?;
-
-        // Mount the entrypoint wrapper into the container
-        web_volumes.insert(
-            entrypoint_path.to_string_lossy().to_string(),
-            "/entrypoint.sh".to_string(),
-        );
+        web_env.insert("WAGTAIL_DB_HOST".to_string(), db_name.clone());
+        web_env.insert("WAGTAIL_DB_NAME".to_string(), "wagtail".to_string());
+        web_env.insert("WAGTAIL_DB_USER".to_string(), "wagtail".to_string());
 
         let web_config = ContainerConfig {
             name: web_name.clone(),
             image: crate::domain::images::WAGTAIL.image.to_string(),
-            // A25-07/08: tag fijo + digest + cap_drop ALL / cap_add mínimo (domain::images).
+            // Imagen construida en local: sin digest (el tag fija la versión).
             image_digest: crate::domain::images::WAGTAIL.digest_string(),
             cap_drop: crate::domain::images::ImageSpec::cap_drop_all(),
             cap_add: crate::domain::images::WAGTAIL.cap_add_vec(),
-            // SEC-001: Use entrypoint wrapper to inject secrets from files
-            command: Some(vec![
-                "/bin/sh".to_string(),
-                "/entrypoint.sh".to_string(),
-                "python".to_string(),
-                "manage.py".to_string(),
-                "runserver".to_string(),
-                "0.0.0.0:8000".to_string(),
-            ]),
+            command: None,
             env: web_env,
             ports: web_ports,
             volumes: web_volumes,
@@ -356,10 +388,11 @@ exec "$@"
             nano_cpus: None,
             pids_limit: None,
             secrets: web_secrets,
-            // SEC-019: Wagtail needs write access for content
+            // SEC-019: Wagtail escribe solo en `media/` (volumen); el resto de la
+            // imagen es de lectura. Se mantiene rw hasta validar con E2E.
             read_only_rootfs: false,
             no_new_privileges: true,
-            ..Default::default()
+            user: Some(format!("{wagtail_uid}:{wagtail_gid}")),
         };
         self.container_manager.create_container(web_config).await?;
         self.container_manager.start_container(&web_name).await?;
@@ -631,10 +664,43 @@ mod tests {
         assert!(err.contains("http_port"), "got: {}", err);
     }
 
+    /// Usuario de servicio simulado: `enola-wagtail` = 990:991.
+    fn mock_user() -> crate::ports::service_user::MockServiceUserPort {
+        let mut u = crate::ports::service_user::MockServiceUserPort::new();
+        u.expect_ensure()
+            .withf(|n| n == "enola-wagtail")
+            .returning(|_| Ok((990, 991)));
+        u.expect_chown_tree().returning(|_, _, _| Ok(()));
+        u
+    }
+
+    fn adapter_with(
+        mock: MockContainerPort,
+        user: crate::ports::service_user::MockServiceUserPort,
+        tmp: &Path,
+    ) -> WagtailCmsAdapter {
+        WagtailCmsAdapter::new_with_base(
+            Arc::new(mock),
+            Arc::new(mock_manifest()),
+            tmp.join("data"),
+            Arc::new(user),
+            tmp.join("ctx"),
+        )
+    }
+
+    fn create_req() -> CmsCreateRequest {
+        CmsCreateRequest {
+            name: "myblog".to_string(),
+            http_port: Some(8085),
+            db_password: Some("custompass".to_string()),
+        }
+    }
+
     #[tokio::test]
     async fn create_provisions_two_containers_postgres_and_returns_initializing() {
         let tmp = tempfile::tempdir().unwrap();
         let mut mock = MockContainerPort::new();
+        mock.expect_image_exists().returning(|_| Ok(true));
         mock.expect_create_network().returning(|_| Ok(()));
         // Postgres ⇒ DOS create_container (vs Ghost que llama 1 vez).
         mock.expect_create_container()
@@ -642,23 +708,154 @@ mod tests {
             .returning(|c| Ok(c.name));
         mock.expect_start_container().times(2).returning(|_| Ok(()));
 
-        let adapter = WagtailCmsAdapter::new_with_base(
-            Arc::new(mock),
-            Arc::new(mock_manifest()),
-            tmp.path().to_path_buf(),
-        );
-        let req = CmsCreateRequest {
-            name: "myblog".to_string(),
-            http_port: Some(8085),
-            db_password: Some("custompass".to_string()),
-        };
-        let inst = adapter.create(req).await.expect("create should succeed");
+        let adapter = adapter_with(mock, mock_user(), tmp.path());
+        let inst = adapter
+            .create(create_req())
+            .await
+            .expect("create should succeed");
         assert_eq!(inst.kind, CmsKind::Wagtail);
         assert_eq!(inst.name, "myblog");
         assert_eq!(inst.status, CmsStatus::Initializing);
         assert_eq!(inst.http_port, Some(8085));
         assert_eq!(inst.db_port, None);
         assert!(inst.onion_address.is_none());
+    }
+
+    /// A25-N3: si la imagen no existe, `create` la construye desde el contexto
+    /// embebido (una vez) ANTES de crear red, secretos o contenedores.
+    #[tokio::test]
+    async fn create_builds_the_image_when_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut mock = MockContainerPort::new();
+        mock.expect_image_exists()
+            .withf(|i| i == crate::domain::images::WAGTAIL.image)
+            .returning(|_| Ok(false));
+        mock.expect_build_image()
+            .times(1)
+            .withf(|c| {
+                c.tag == crate::domain::images::WAGTAIL.image
+                    && c.dockerfile_path.ends_with("Dockerfile.wagtail")
+                    && c.dockerfile_path.is_file()
+                    && c.context_path.join("requirements.wagtail.txt").is_file()
+            })
+            .returning(|c| Ok(c.tag));
+        mock.expect_create_network().returning(|_| Ok(()));
+        mock.expect_create_container().returning(|c| Ok(c.name));
+        mock.expect_start_container().returning(|_| Ok(()));
+
+        let adapter = adapter_with(mock, mock_user(), tmp.path());
+        adapter.create(create_req()).await.expect("create ok");
+    }
+
+    #[tokio::test]
+    async fn create_skips_the_build_when_the_image_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut mock = MockContainerPort::new();
+        mock.expect_image_exists().returning(|_| Ok(true));
+        mock.expect_build_image().times(0);
+        mock.expect_create_network().returning(|_| Ok(()));
+        mock.expect_create_container().returning(|c| Ok(c.name));
+        mock.expect_start_container().returning(|_| Ok(()));
+
+        let adapter = adapter_with(mock, mock_user(), tmp.path());
+        adapter.create(create_req()).await.expect("create ok");
+    }
+
+    /// Un build fallido no deja residuos: ni red, ni contenedores, ni datos.
+    #[tokio::test]
+    async fn create_leaves_no_residue_when_the_build_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut mock = MockContainerPort::new();
+        mock.expect_image_exists().returning(|_| Ok(false));
+        mock.expect_build_image()
+            .times(1)
+            .returning(|_| Err(EnolaError::InfrastructureError("pip falló".into())));
+        mock.expect_create_network().times(0);
+        mock.expect_create_container().times(0);
+
+        let adapter = adapter_with(mock, mock_user(), tmp.path());
+        let err = adapter.create(create_req()).await.unwrap_err().to_string();
+        assert!(err.contains("pip falló"), "got: {err}");
+        assert!(!tmp.path().join("data/myblog").exists());
+    }
+
+    /// SD-9/SD-10: el contenedor web corre como `enola-wagtail`, sin capacidades,
+    /// con la imagen propia, sin servidor de desarrollo y sin secretos en el entorno.
+    #[tokio::test]
+    async fn create_runs_web_hardened_as_the_service_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<ContainerConfig>::new()));
+        let sink = seen.clone();
+        let mut mock = MockContainerPort::new();
+        mock.expect_image_exists().returning(|_| Ok(true));
+        mock.expect_create_network().returning(|_| Ok(()));
+        mock.expect_create_container().returning(move |c| {
+            sink.lock().unwrap().push(c.clone());
+            Ok(c.name)
+        });
+        mock.expect_start_container().returning(|_| Ok(()));
+
+        let adapter = adapter_with(mock, mock_user(), tmp.path());
+        adapter.create(create_req()).await.expect("create ok");
+
+        let seen = seen.lock().unwrap();
+        let web = seen
+            .iter()
+            .find(|c| c.name == "wagtail-myblog")
+            .expect("contenedor web");
+        assert_eq!(web.image, crate::domain::images::WAGTAIL.image);
+        assert_eq!(web.image_digest, None);
+        assert_eq!(web.user.as_deref(), Some("990:991"));
+        assert_eq!(web.cap_drop, vec!["ALL".to_string()]);
+        assert!(web.cap_add.is_empty());
+        assert!(web.no_new_privileges);
+        assert_eq!(web.command, None, "manda el ENTRYPOINT de la imagen");
+        assert_eq!(web.ports.get(&8085), Some(&8000));
+        assert!(web.volumes.values().any(|v| v == "/srv/app/media"));
+        assert!(
+            !web.volumes
+                .values()
+                .any(|v| v == "/app" || v == "/entrypoint.sh"),
+            "ya no se monta el /app de bakerydemo ni un entrypoint del host"
+        );
+        let mut keys: Vec<_> = web.secrets.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["admin_password", "db_password", "django_secret_key"]);
+        assert_eq!(
+            web.env.get("WAGTAIL_DB_HOST").map(String::as_str),
+            Some("db-myblog-wagtail")
+        );
+        for (k, v) in &web.env {
+            let k = k.to_lowercase();
+            assert!(
+                !(k.contains("pass") || k.contains("secret") || k.contains("key")),
+                "variable sospechosa: {k}={v}"
+            );
+        }
+    }
+
+    /// El contenedor sin root solo puede leer secretos y escribir `media/` si
+    /// pertenecen a su usuario.
+    #[tokio::test]
+    async fn create_hands_secrets_and_media_to_the_service_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut mock = MockContainerPort::new();
+        mock.expect_image_exists().returning(|_| Ok(true));
+        mock.expect_create_network().returning(|_| Ok(()));
+        mock.expect_create_container().returning(|c| Ok(c.name));
+        mock.expect_start_container().returning(|_| Ok(()));
+        let mut user = crate::ports::service_user::MockServiceUserPort::new();
+        user.expect_ensure().returning(|_| Ok((990, 991)));
+        let inst = tmp.path().join("data/myblog");
+        let (media, secrets) = (inst.join("media"), inst.join("secrets"));
+        user.expect_chown_tree()
+            .withf(move |p, u, g| (p == media || p == secrets) && *u == 990 && *g == 991)
+            .times(2)
+            .returning(|_, _, _| Ok(()));
+
+        let adapter = adapter_with(mock, user, tmp.path());
+        adapter.create(create_req()).await.expect("create ok");
+        assert!(inst.join("media").is_dir());
     }
 
     #[tokio::test]
@@ -679,7 +876,7 @@ mod tests {
                 ContainerInfo {
                     id: "1".into(),
                     name: "wagtail-blog".into(),
-                    image: "wagtail/bakerydemo:latest".into(),
+                    image: "enola/wagtail:7.4.4-py313".into(),
                     status: "Up 2 minutes".into(),
                     ports: vec!["127.0.0.1:8085->8000/tcp".into()],
                 },
@@ -707,7 +904,7 @@ mod tests {
                 ContainerInfo {
                     id: "1".into(),
                     name: "wagtail-blog".into(),
-                    image: "wagtail/bakerydemo:latest".into(),
+                    image: "enola/wagtail:7.4.4-py313".into(),
                     status: "Up 2 minutes".into(),
                     ports: vec!["127.0.0.1:8085->8000/tcp".into()],
                 },
@@ -732,7 +929,7 @@ mod tests {
             Ok(vec![ContainerInfo {
                 id: "1".into(),
                 name: "wagtail-blog".into(),
-                image: "wagtail/bakerydemo:latest".into(),
+                image: "enola/wagtail:7.4.4-py313".into(),
                 status: "Up 1 minute".into(),
                 ports: vec!["127.0.0.1:8085->8000/tcp".into()],
             }])

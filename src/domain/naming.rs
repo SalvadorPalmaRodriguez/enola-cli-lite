@@ -124,6 +124,9 @@ pub fn validate_tor_service_name(name: &str) -> Result<(), EnolaError> {
 pub const GIT_SERVICE_USER: &str = "enola-git";
 /// SEC-M10 (D6): usuario de sistema del proceso Ghost (`--user`).
 pub const GHOST_SERVICE_USER: &str = "enola-ghost";
+/// A25-N3: usuario de sistema del proceso Wagtail (`--user`), dueño de `media/` y
+/// de los secretos que lee el contenedor.
+pub const WAGTAIL_SERVICE_USER: &str = "enola-wagtail";
 /// SEC-M10: directorio root-only con el hash admin de cada servidor Forgejo.
 /// Fuera de `/srv/enola-git/<name>`, que el contenedor monta en `/data`.
 pub const GIT_ADMIN_CREDS_DIR: &str = "/etc/enola/git";

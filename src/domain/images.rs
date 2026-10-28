@@ -204,19 +204,19 @@ pub const MAGNOLIA: ImageSpec = ImageSpec {
     cap_add: DB_CAPS,
 };
 
-/// Wagtail: la demo oficial `wagtail/bakerydemo` no se publica desde
-/// 2021-05-10 (Python 3.7, EOL 2023-06-27). Residual documentado (A25-N3).
+/// Wagtail: imagen construida en local desde `Dockerfile.wagtail` (proyecto
+/// vacío `wagtail start`, rama 7.4 LTS, Django 5.2 LTS, Python 3.13 sobre
+/// Debian 13 con la base pineada por digest en el propio Dockerfile). El tag
+/// cambia con Wagtail/Python para forzar la reconstrucción. A25-N3.
 pub const WAGTAIL: ImageSpec = ImageSpec {
     key: "wagtail",
-    image: "wagtail/bakerydemo:release-4469a5a",
-    digest: Some("sha256:489538bf1f695dcf731b6f0930245c2f5177fa1440983c01aa8fb867714e49f2"),
-    eol: Some("2021-05-10"),
-    eol_source: "Docker Hub: last push 2021-05-10; image runs Python 3.7 (EOL 2023-06-27)",
-    unmaintained: Some(
-        "upstream demo image unmaintained since 2021 (Python 3.7) — pending operator \
-         decision (A25-N3)",
-    ),
-    cap_add: DB_CAPS,
+    image: "enola/wagtail:7.4.4-py313",
+    digest: None,
+    eol: Some("2027-11-02"),
+    eol_source: "Wagtail 7.4 LTS (endoflife.date/wagtail, el componente que antes caduca); \
+                 Django 5.2 LTS 2028-04-30, Python 3.13 2029-10-31, Debian 13 2030-06-30",
+    unmaintained: None,
+    cap_add: &[],
 };
 
 /// Strapi: imagen construida en local desde `Dockerfile.strapi` (base
@@ -278,6 +278,7 @@ pub const LEGACY_EOL: &[(&str, &str, &str)] = &[
     ("ghost", "5", "CVE-2026-53949"),
     ("enola/strapi", "5.49.0", "2026-04-30"),
     ("wagtail/bakerydemo", "latest", "2021-05-10"),
+    ("wagtail/bakerydemo", "release-4469a5a", "2021-05-10"),
     (
         "ghcr.io/magnolia-sre/magnolia-docker/magnolia-docker",
         "latest",
@@ -397,7 +398,7 @@ mod tests {
 
     #[test]
     fn unmaintained_warning_only_for_residual_images() {
-        assert!(unmaintained_warning(&WAGTAIL).is_some());
+        assert!(unmaintained_warning(&WAGTAIL).is_none());
         assert!(unmaintained_warning(&MAGNOLIA).is_some());
         assert!(unmaintained_warning(&GHOST).is_none());
         assert!(unmaintained_warning(&FORGEJO).is_none());
@@ -420,6 +421,21 @@ mod tests {
                 assert!(ALLOWED.contains(c), "{}: cap {c} no aprobada", s.key);
             }
         }
+    }
+
+    /// A25-N3: Wagtail se construye en local (rama LTS), sin digest ni aviso.
+    #[test]
+    fn wagtail_is_built_locally_on_the_lts_branch() {
+        assert_eq!(WAGTAIL.image, "enola/wagtail:7.4.4-py313");
+        assert!(WAGTAIL.digest.is_none());
+        assert!(WAGTAIL.unmaintained.is_none());
+        assert!(WAGTAIL.cap_add.is_empty());
+        // EOL = el del componente que antes caduca (Wagtail 7.4 LTS).
+        assert_eq!(WAGTAIL.eol, Some("2027-11-02"));
+        assert!(WAGTAIL.eol_source.contains("Wagtail"));
+        assert!(!WAGTAIL.is_eol("2026-10-28"));
+        // La demo abandonada sigue marcada como EOL para `doctor --security`.
+        assert!(eol_reason("wagtail/bakerydemo:release-4469a5a", "2026-10-28").is_some());
     }
 
     #[test]
@@ -445,13 +461,13 @@ mod tests {
         assert!(eol_reason("ghost:5-alpine", t).is_some());
         assert!(eol_reason("enola/strapi:5.49.0", t).is_some());
         assert!(eol_reason("wagtail/bakerydemo:latest", t).is_some());
-        assert!(eol_reason(&WAGTAIL.reference(), t).is_some());
         assert!(eol_reason(&MAGNOLIA.reference(), t).is_some());
         // Soportadas hoy.
         assert!(eol_reason(&FORGEJO.reference(), t).is_none());
         assert!(eol_reason(&MARIADB_WORDPRESS.reference(), t).is_none());
         assert!(eol_reason(&GHOST.reference(), t).is_none());
         assert!(eol_reason("enola/strapi:5.49.0-node22", t).is_none());
+        assert!(eol_reason(&WAGTAIL.reference(), t).is_none());
         // "9" no debe casar con "90".
         assert!(eol_reason("codeberg.org/forgejo/forgejo:90.0", t).is_none());
     }
