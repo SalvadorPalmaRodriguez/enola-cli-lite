@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/guia/quickstart.md`
-> **Versión:** 2.0 | **Actualizado:** 2026-07-31
+> **Versión:** 2.1 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Guía de inicio rápido**
 > **Referencias:** commands.md, concepts.md, examples.md, faq.md
 > **English:** [`docs/en/quickstart.md`](../../en/quickstart.md)
@@ -35,8 +35,8 @@ sudo enola-cli files create --name mi-web
 
 Verás algo como:
 ```
-✅ Servicio creado: mi-web
-🧅 Dirección .onion: abc123...xyz.onion
+✅ File share 'mi-web' created!
+🧅 Hostname: abc123...xyz.onion
 ```
 
 Copia el contenido de tu web en `/srv/enola-files/mi-web/`.

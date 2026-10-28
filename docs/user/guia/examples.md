@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/guia/examples.md`
-> **Versión:** 3.0 | **Actualizado:** 2026-08-08
+> **Versión:** 3.1 | **Actualizado:** 2026-10-28
 > **Estado:** ✅ **VIGENTE — Ejemplos de uso**
 
 # 🛠 Ejemplos de Uso — Enola CLI

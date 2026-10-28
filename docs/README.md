@@ -1,5 +1,5 @@
 > **Documento:** `docs/README.md`
-> **Versión:** 3.2 | **Actualizado:** 2026-08-08
+> **Versión:** 3.3 | **Actualizado:** 2026-10-28
 > **Estado:** VIGENTE — Índice de documentación de usuario
 
 # Documentación — Enola CLI

@@ -1,5 +1,5 @@
 > **User document:** `docs/en/quickstart.md`
-> **Version:** 2.0 | **Updated:** 2026-07-31
+> **Version:** 2.1 | **Updated:** 2026-10-28
 > **Status:** ✅ **CURRENT — Quick Start Guide**
 > **References:** commands.md, concepts.md, examples.md, faq.md
 > **Spanish original:** [`docs/user/guia/quickstart.md`](../user/guia/quickstart.md)
@@ -35,8 +35,8 @@ sudo enola-cli files create --name my-web
 
 You will see something like:
 ```
-✅ Service created: my-web
-🧅 .onion address: abc123...xyz.onion
+✅ File share 'my-web' created!
+🧅 Hostname: abc123...xyz.onion
 ```
 
 Copy your web content into `/srv/enola-files/my-web/`.
