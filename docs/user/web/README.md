@@ -705,7 +705,7 @@ Response: `{"output": "...", "pqc_tls_ticket": "<32 hex>"}` — open
 ### `GET /api/status`
 ```json
 {
-  "version": "0.10.0-alpha",
+  "version": "0.11.0-alpha",
   "status": "ok"
 }
 ```

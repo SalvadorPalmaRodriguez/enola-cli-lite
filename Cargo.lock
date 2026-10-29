@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "enola-cli"
-version = "0.10.0-alpha"
+version = "0.11.0-alpha"
 dependencies = [
  "anyhow",
  "async-recursion",
