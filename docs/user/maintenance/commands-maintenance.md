@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/maintenance/commands-maintenance.md`
-> **Versión:** 2.2 | **Actualizado:** 2026-10-14
+> **Versión:** 2.3 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -102,9 +102,32 @@ sudo enola-cli maintenance ssh-harden-pqc [--force] [--dry-run]
 
 ## `maintenance backup`
 
-Crea un backup del sistema (`/var/lib/tor`, `/etc/nginx/sites-available`,
-`/opt/enola`) como `tar.gz` en `/var/backups/enola-server/`, preservando las
-rutas absolutas para que la restauración recoloque cada elemento en su sitio.
+Crea un backup de la **identidad** de la máquina como `tar.gz` en
+`/var/backups/enola-server/`, preservando las rutas absolutas para que la
+restauración recoloque cada elemento en su sitio. Incluye lo necesario para
+reconstruir tus servicios `.onion`:
+
+| Ruta | Qué es |
+|------|--------|
+| `/var/lib/tor` | Claves de los servicios `.onion` (perderlas = perder la dirección) |
+| `/etc/tor/enola.d` | Fragmentos de Tor que declaran cada servicio |
+| `/etc/nginx/sites-available`, `sites-enabled` | Sitios de Nginx |
+| `/etc/nginx/ssl` | Certificados y claves TLS |
+| `/etc/enola` | Configuración de Enola (incluye el manifiesto del backup) |
+| `/opt/enola`, `/usr/local/share/enola/manifest` | Contextos de build y manifiesto de recursos |
+| `/etc/apparmor.d/enola-*` | Perfiles AppArmor de Enola |
+
+**No incluye** los datos de tus servicios (`/srv/enola-*`: WordPress, Git,
+ficheros…): cópialos aparte (ver la guía de ejemplos). Tampoco `~/.enola` ni las
+claves de confianza de actualizaciones.
+
+El archivo lleva un manifiesto (`etc/enola/backup-manifest.json`) con la versión
+del formato y la de `enola-cli`.
+
+**Espacio en disco:** antes de empezar, el comando mide las carpetas y exige
+espacio libre suficiente (tamaño de las carpetas + 100 MiB de reserva). Si no
+hay, **no crea nada** y lo dice; si `tar` falla a mitad, borra el archivo
+parcial.
 
 Los backups contienen credenciales y configuración sensible: el directorio
 queda en `0700` y cada artefacto (`*.tar.gz`, `*.bak`) en `0600`.
