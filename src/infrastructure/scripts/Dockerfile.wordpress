@@ -25,10 +25,11 @@ RUN set -eux; \
         /etc/apache2/apache2.conf /etc/apache2/sites-available/*.conf /etc/apache2/conf-available/*.conf; \
     rm -f /var/log/apache2/*.log; \
     mkdir -p /var/run/apache2 /var/lock/apache2; \
-    chown -R 10001:10001 /var/run/apache2 /var/lock/apache2 /var/log/apache2; \
-    chmod 0755 /var/run/apache2 /var/lock/apache2 /var/log/apache2
+    # El uid real lo fija `enola-cli` (`--user`, el de `enola-wordpress`): no se puede
+    # hornear en la imagen. Solo corre Apache en el contenedor, así que 1777 basta.
+    chmod 1777 /var/run/apache2 /var/lock/apache2 /var/log/apache2
 
 # Sin root. `enola-cli` lo sustituye por el usuario de sistema `enola-wordpress`
-# (`--user uid:gid`); /var/www/html es el volumen y lo escribe ese uid.
+# (`--user uid:gid`, uid cualquiera); /var/www/html es el volumen y lo escribe ese uid.
 USER 10001:10001
 EXPOSE 8080

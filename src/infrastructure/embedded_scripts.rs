@@ -199,6 +199,14 @@ mod tests {
             "el proceso no debe ser root"
         );
         assert!(
+            code.contains("chmod 1777 /var/run/apache2"),
+            "run/lock/log escribibles por cualquier uid (el real lo fija --user)"
+        );
+        assert!(
+            !code.contains("chown -R 10001"),
+            "no hornear un uid concreto: el de enola-wordpress es variable"
+        );
+        assert!(
             code.contains("Listen 8080"),
             "puerto >1024 sin NET_BIND_SERVICE"
         );
