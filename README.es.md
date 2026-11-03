@@ -910,6 +910,9 @@ sudo enola-cli update download --yes
 
 # Aplicar una actualización ya descargada
 sudo enola-cli update apply [--binary <ruta>] [--json] [--allow-unsigned]
+
+# Volver al binario anterior (verifica su firma minisign guardada; solo CLI)
+sudo enola-cli update rollback [--json]
 ```
 
 ---

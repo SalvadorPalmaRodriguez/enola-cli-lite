@@ -905,6 +905,9 @@ sudo enola-cli update download --yes
 
 # Apply an already-downloaded update
 sudo enola-cli update apply [--binary <path>] [--json] [--allow-unsigned]
+
+# Go back to the previous binary (verifies its saved minisign signature; CLI only)
+sudo enola-cli update rollback [--json]
 ```
 
 ---

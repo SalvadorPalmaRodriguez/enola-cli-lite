@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/update/commands-update.md`
-> **Versión:** 3.6 | **Actualizado:** 2026-10-25
+> **Versión:** 3.7 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -159,6 +159,13 @@ También sincroniza la firma post-cuántica instalada
 > binario en disco y lo compara con el registrado en `update download`: si ha
 > cambiado entre la descarga y el apply, se **aborta** (anti-TOCTOU).
 
+**Firmas que se guardan para el rollback.** Además de `cli.pqsig`, `apply`
+conserva la firma minisign del binario que instala (`cli.minisig`) y, al crear
+`enola-cli.bak`, copia a su lado las firmas del binario anterior
+(`enola-cli.bak.minisig`, `enola-cli.bak.pqsig`). Si aplicas algo sin verificar
+(`--allow-unsigned`), no se guarda ninguna firma: ese binario no podrá usarse
+después como destino de un rollback.
+
 ```bash
 sudo enola-cli update apply [--binary <PATH>] [--json] [--allow-unsigned]
 ```
@@ -168,6 +175,35 @@ sudo enola-cli update apply [--binary <PATH>] [--json] [--allow-unsigned]
 | `--binary` | String | Path al binario descargado (si se omite, usa la última descarga de `update download`). Exige `--allow-unsigned` (ruta manual = no verificada) |
 | `--json` | Bool | Salida en formato JSON |
 | `--allow-unsigned` | Bool | Permite aplicar sin verificación minisign (**peligroso**, solo testing) |
+
+---
+
+## `update rollback`
+
+Vuelve al binario anterior (`/usr/local/share/enola/enola-cli.bak`) si una
+actualización sale mal.
+
+```bash
+sudo enola-cli update rollback [--json]
+```
+
+- **Comprueba la firma minisign** guardada junto al binario anterior
+  (`enola-cli.bak.minisig`) con las claves de confianza (la activa, las de
+  rotaciones anteriores y la embebida). Si la firma falta o no verifica, **se
+  niega y no toca nada**. No existe `--allow-unsigned` para el rollback.
+- El binario se lee una sola vez; lo que se verifica y lo que se instala son los
+  mismos bytes, instalados como fichero nuevo de root (igual que `apply`).
+- Requiere root. Los ficheros `.bak` y `.minisig` deben ser de root y no
+  escribibles por grupo/otros.
+- Al terminar restaura también `cli.sha256`, `cli.minisig` y `cli.pqsig` del
+  binario anterior.
+- **Solo desde la terminal:** no está disponible en el panel web ni por MCP.
+
+> **Limitación:** el primer `.bak` que existe cuando actualizas a una versión que
+> incluye esta función no tiene firma guardada (lo creó una versión anterior), así
+> que el rollback se negará con un mensaje claro. A partir de la siguiente
+> actualización hecha con esta versión, el rollback funciona. Si no puedes usarlo,
+> reinstala una versión firmada con `sudo enola-cli update download`.
 
 ---
 

@@ -120,6 +120,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 - `update check [--json] [--force]` — exit codes: 0 OK, 11 critical advisory, 12 below min_supported, 20 invalid feed, 21 invalid signature
 - `update schema [--json]` / `update verify-feed <source> [--signature] [--json]`
 - `update download [--yes] [--dry-run] [--json] [--force] [--allow-unsigned]`
+- `update rollback [--json]` — go back to the previous binary (enola-cli.bak) after verifying its saved minisign signature; refuses without a valid signature; root; CLI only (vetoed for web/MCP)
 - `update apply [--binary <path>] [--json] [--allow-unsigned]`
 
 ### verify — post-quantum release verification
