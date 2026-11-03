@@ -1173,20 +1173,130 @@ fn sync_firewall_port_change(old_port: u16, new_port: u16) {
 fn sync_firewall_cleanup(ports: &[u16]) {
     use crate::adapters::infra::ufw::UfwAdapter;
     use crate::ports::firewall::FirewallPort;
-    use crate::ports::manifest::ManifestPort;
     let ufw = UfwAdapter::new();
     if !ufw.is_active().unwrap_or(false) {
         return;
     }
     let manifest = crate::adapters::infra::manifest::FileManifestAdapter::new();
+    cleanup_loopback_rules(&ufw, &manifest, ports);
+}
+
+/// Elimina la regla loopback y la entrada `ufw_rule` del manifiesto por puerto.
+/// Ignora el puerto 0. Separada de `sync_firewall_cleanup` para poder probarla con mocks.
+fn cleanup_loopback_rules(
+    fw: &dyn crate::ports::firewall::FirewallPort,
+    manifest: &dyn ManifestPort,
+    ports: &[u16],
+) {
     for &port in ports {
         if port == 0 {
             continue;
         }
-        let _ = ufw.remove_loopback_rule(port);
+        let _ = fw.remove_loopback_rule(port);
         let _ = manifest.remove("ufw_rule", &port.to_string());
         eprintln!("🛡 Firewall: regla para puerto {}/tcp eliminada", port);
     }
+}
+
+/// Puerto HTTP de una instancia CMS (vacío si no existe o el estado no se puede leer).
+async fn cms_http_ports(adapter: &dyn crate::ports::cms::CmsLifecycle, name: &str) -> Vec<u16> {
+    match adapter.status(name).await {
+        Ok(inst) => loopback_ports(&[inst.http_port]),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Servicio Tor de un CMS (`<tipo>_<name>`): quita servicio, site Nginx y certificado.
+/// Compartida por CLI y web (paridad). `cms_type` desconocido -> `InvalidInput`.
+pub(crate) async fn cms_hide(cms_type: &str, name: &str) -> CliResult<()> {
+    match cms_type {
+        "drupal" => commands::drupal::hide(name).await,
+        "ghost" => commands::ghost::hide(name).await,
+        "magnolia" => commands::magnolia::hide(name).await,
+        "strapi" => commands::strapi::hide(name).await,
+        "wagtail" => commands::wagtail::hide(name).await,
+        other => Err(CliError::InvalidInput(format!(
+            "Unknown CMS type: {}",
+            other
+        ))),
+    }
+}
+
+/// Borrado completo de una instancia CMS, idéntico para CLI y web: contenedores,
+/// servicio Tor + site + cert, regla UFW, red Docker (salvo drupal) y datos en
+/// `/srv/enola-<tipo>/<name>`. Los fallos de limpieza no abortan el borrado.
+pub(crate) async fn delete_cms_instance(
+    adapter: &dyn crate::ports::cms::CmsLifecycle,
+    cms_type: &str,
+    name: &str,
+    force: bool,
+) -> CliResult<()> {
+    use crate::adapters::infra::docker::BollardDockerAdapter;
+    use crate::ports::container::ContainerPort as _;
+    // FW-003: puerto HTTP ANTES de borrar (para limpiar UFW).
+    let fw_ports = cms_http_ports(adapter, name).await;
+    adapter.delete(name, force).await.map_err(CliError::from)?;
+    sync_firewall_cleanup(&fw_ports);
+    if let Err(e) = cms_hide(cms_type, name).await {
+        eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
+    }
+    if cms_type != "drupal" {
+        // Evita agotar el pool de redes Docker.
+        let docker = BollardDockerAdapter::new()
+            .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
+        let _ = docker
+            .remove_network(&format!("enola_net_{}_{}", cms_type, name))
+            .await;
+    }
+    // Datos persistentes (una BD vieja rompe la recreación por contraseña distinta).
+    let data_dir = format!("/srv/enola-{}/{}", cms_type, name);
+    if std::path::Path::new(&data_dir).exists() {
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+    Ok(())
+}
+
+/// Borrado completo de un sitio WordPress, idéntico para CLI y web: contenedores,
+/// servicio Tor, UFW, perfil AppArmor y directorios `_secrets`, `_db` y `_wp`.
+pub(crate) async fn delete_wordpress_site(name: &str) -> CliResult<()> {
+    // FW-003: puertos desde Nginx ANTES de borrar (WP usa `wp-{name}`).
+    let mut ports = extract_service_ports(name);
+    ports.extend(extract_service_ports(&format!("wp-{}", name)));
+    commands::wordpress::delete(name).await?;
+    if let Err(e) = commands::wordpress::hide(name).await {
+        eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
+    }
+    if !ports.is_empty() {
+        sync_firewall_cleanup(&ports);
+    }
+    // AA-013
+    apparmor_remove_profile(
+        &crate::domain::apparmor::AppArmorServiceType::WordPress,
+        name,
+    );
+    for suffix in wordpress_cleanup_suffixes() {
+        let dir = format!("/srv/enola-wordpress/{}{}", name, suffix);
+        if std::path::Path::new(&dir).exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    Ok(())
+}
+
+/// Sufijos de los directorios que `wp delete` debe retirar (SEC-005 y bind mounts).
+fn wordpress_cleanup_suffixes() -> [&'static str; 3] {
+    ["_secrets", "_db", "_wp"]
+}
+
+/// Puertos válidos (sin `None`, sin 0, sin duplicados) de una instancia, para limpiar UFW.
+fn loopback_ports(candidates: &[Option<u16>]) -> Vec<u16> {
+    let mut out = Vec::new();
+    for p in candidates.iter().flatten() {
+        if *p != 0 && !out.contains(p) {
+            out.push(*p);
+        }
+    }
+    out
 }
 
 /// VPN-001: Permite tráfico UDP en un puerto VPN (regla pública, no solo loopback).
@@ -1674,40 +1784,7 @@ async fn execute_wordpress(cmd: WordPressCommands, format: &str) -> CliResult<St
                     "Confirmation required. Use --force to skip.".to_string(),
                 ));
             }
-            // FW-003: Extraer puertos ANTES de eliminar para poder limpiar UFW
-            // WP usa naming wp-{name} para la config Nginx
-            let mut ports = extract_service_ports(&name);
-            ports.extend(extract_service_ports(&format!("wp-{}", name)));
-            commands::wordpress::delete(&name).await?;
-            // Remove the Tor hidden service (name without prefix, consistent
-            // with wp create/publish/hide/edit). Without this, deleted sites
-            // left orphaned .onion configs in /etc/tor/enola.d/.
-            if let Err(e) = commands::wordpress::hide(&name).await {
-                eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
-            }
-            if !ports.is_empty() {
-                sync_firewall_cleanup(&ports);
-            }
-            // AA-013: Eliminar perfil AppArmor del sitio eliminado
-            apparmor_remove_profile(
-                &crate::domain::apparmor::AppArmorServiceType::WordPress,
-                &name,
-            );
-            // SEC-005: Cleanup secrets directory
-            let secrets_dir = format!("/srv/enola-wordpress/{}_secrets", name);
-            if std::path::Path::new(&secrets_dir).exists() {
-                let _ = std::fs::remove_dir_all(&secrets_dir);
-            }
-            // Cleanup data volumes (bind mounts) — stale MariaDB data causes
-            // "Access denied" on recreate because old password doesn't match
-            let db_dir = format!("/srv/enola-wordpress/{}_db", name);
-            if std::path::Path::new(&db_dir).exists() {
-                let _ = std::fs::remove_dir_all(&db_dir);
-            }
-            let wp_dir = format!("/srv/enola-wordpress/{}_wp", name);
-            if std::path::Path::new(&wp_dir).exists() {
-                let _ = std::fs::remove_dir_all(&wp_dir);
-            }
+            delete_wordpress_site(&name).await?;
             Ok(format!("✅ WordPress site '{}' deleted", name))
         }
         WordPressCommands::Update { name } => {
@@ -1879,18 +1956,7 @@ async fn execute_drupal(cmd: DrupalCommands, format: &str) -> CliResult<String> 
         }
         D::Delete { name, force } => {
             let adapter = build_drupal_adapter()?;
-            adapter.delete(&name, force).await.map_err(CliError::from)?;
-            // Remove the Tor hidden service (drupal-{name}). Without this,
-            // deleted sites left orphaned .onion configs in /etc/tor/enola.d/.
-            if let Err(e) = commands::drupal::hide(&name).await {
-                eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
-            }
-            // Cleanup data volumes (bind mounts) — stale MariaDB data causes
-            // "Access denied" on recreate because old password doesn't match
-            let drupal_dir = format!("/srv/enola-drupal/{}", name);
-            if std::path::Path::new(&drupal_dir).exists() {
-                let _ = std::fs::remove_dir_all(&drupal_dir);
-            }
+            delete_cms_instance(&adapter, "drupal", &name, force).await?;
             Ok(format!("✅ Drupal '{}' deleted", name))
         }
         D::Status { name } => {
@@ -2061,25 +2127,8 @@ async fn execute_ghost(cmd: GhostCommands, format: &str) -> CliResult<String> {
             Ok(format!("✅ Ghost '{}' stopped", name))
         }
         G::Delete { name, force } => {
-            use crate::adapters::infra::docker::BollardDockerAdapter;
-            use crate::ports::container::ContainerPort as _;
             let adapter = build_ghost_adapter()?;
-            adapter.delete(&name, force).await.map_err(CliError::from)?;
-            // Remove Tor hidden service (ghost-{name}).
-            if let Err(e) = commands::ghost::hide(&name).await {
-                eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
-            }
-            // Remove Docker network to prevent pool exhaustion.
-            let docker = BollardDockerAdapter::new()
-                .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
-            let _ = docker
-                .remove_network(&format!("enola_net_ghost_{}", name))
-                .await;
-            // Cleanup data volumes.
-            let ghost_dir = format!("/srv/enola-ghost/{}", name);
-            if std::path::Path::new(&ghost_dir).exists() {
-                let _ = std::fs::remove_dir_all(&ghost_dir);
-            }
+            delete_cms_instance(&adapter, "ghost", &name, force).await?;
             Ok(format!("✅ Ghost '{}' deleted", name))
         }
         G::Status { name } => {
@@ -2320,27 +2369,8 @@ async fn execute_magnolia(cmd: MagnoliaCommands, format: &str) -> CliResult<Stri
             Ok(format!("✅ Magnolia '{}' stopped", name))
         }
         M::Delete { name, force } => {
-            use crate::adapters::infra::docker::BollardDockerAdapter;
-            use crate::ports::container::ContainerPort as _;
-            build_magnolia_adapter()?
-                .delete(&name, force)
-                .await
-                .map_err(CliError::from)?;
-            // Remove Tor hidden service (magnolia-{name}).
-            if let Err(e) = commands::magnolia::hide(&name).await {
-                eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
-            }
-            // Remove Docker network to prevent pool exhaustion.
-            let docker = BollardDockerAdapter::new()
-                .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
-            let _ = docker
-                .remove_network(&format!("enola_net_magnolia_{}", name))
-                .await;
-            // Cleanup data volumes.
-            let data_dir = format!("/srv/enola-magnolia/{}", name);
-            if std::path::Path::new(&data_dir).exists() {
-                let _ = std::fs::remove_dir_all(&data_dir);
-            }
+            let adapter = build_magnolia_adapter()?;
+            delete_cms_instance(&adapter, "magnolia", &name, force).await?;
             Ok(format!("✅ Magnolia '{}' deleted", name))
         }
         M::Status { name } => {
@@ -2430,27 +2460,8 @@ async fn execute_strapi(cmd: StrapiCommands, format: &str) -> CliResult<String> 
             Ok(format!("✅ Strapi '{}' stopped", name))
         }
         S::Delete { name, force } => {
-            use crate::adapters::infra::docker::BollardDockerAdapter;
-            use crate::ports::container::ContainerPort as _;
-            build_strapi_adapter()?
-                .delete(&name, force)
-                .await
-                .map_err(CliError::from)?;
-            // Remove Tor hidden service (strapi-{name}).
-            if let Err(e) = commands::strapi::hide(&name).await {
-                eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
-            }
-            // Remove Docker network to prevent pool exhaustion.
-            let docker = BollardDockerAdapter::new()
-                .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
-            let _ = docker
-                .remove_network(&format!("enola_net_strapi_{}", name))
-                .await;
-            // Cleanup data volumes.
-            let data_dir = format!("/srv/enola-strapi/{}", name);
-            if std::path::Path::new(&data_dir).exists() {
-                let _ = std::fs::remove_dir_all(&data_dir);
-            }
+            let adapter = build_strapi_adapter()?;
+            delete_cms_instance(&adapter, "strapi", &name, force).await?;
             Ok(format!("✅ Strapi '{}' deleted", name))
         }
         S::Status { name } => {
@@ -2566,27 +2577,8 @@ async fn execute_wagtail(cmd: WagtailCommands, format: &str) -> CliResult<String
             Ok(format!("✅ Wagtail '{}' stopped", name))
         }
         W::Delete { name, force } => {
-            use crate::adapters::infra::docker::BollardDockerAdapter;
-            use crate::ports::container::ContainerPort as _;
-            build_wagtail_adapter()?
-                .delete(&name, force)
-                .await
-                .map_err(CliError::from)?;
-            // Remove Tor hidden service (wagtail-{name}).
-            if let Err(e) = commands::wagtail::hide(&name).await {
-                eprintln!("⚠️ Could not remove Tor service for '{}': {}", name, e);
-            }
-            // Remove Docker network to prevent pool exhaustion.
-            let docker = BollardDockerAdapter::new()
-                .map_err(|e| CliError::Generic(format!("Docker unavailable: {}", e)))?;
-            let _ = docker
-                .remove_network(&format!("enola_net_wagtail_{}", name))
-                .await;
-            // Cleanup data volumes.
-            let data_dir = format!("/srv/enola-wagtail/{}", name);
-            if std::path::Path::new(&data_dir).exists() {
-                let _ = std::fs::remove_dir_all(&data_dir);
-            }
+            let adapter = build_wagtail_adapter()?;
+            delete_cms_instance(&adapter, "wagtail", &name, force).await?;
             Ok(format!("✅ Wagtail '{}' deleted", name))
         }
         W::Status { name } => {
@@ -2653,7 +2645,10 @@ async fn execute_files(cmd: FileCommands, format: &str) -> CliResult<String> {
                     "Confirmation required. Use --force to skip.".to_string(),
                 ));
             }
+            // FW-003: puertos desde la config Nginx ANTES de borrar (regla creada por `files edit --port`).
+            let fw_ports = extract_service_ports(&name);
             commands::files::delete(&name).await?;
+            sync_firewall_cleanup(&fw_ports);
             Ok(format!("✅ File share '{}' deleted", name))
         }
         FileCommands::FixPerms { name } => {
@@ -4457,10 +4452,16 @@ async fn execute_ai(cmd: crate::cli::AiCommands, format: &str) -> CliResult<Stri
         A::Delete { name, force } => {
             validate_ai_instance_name(&name).map_err(|e| CliError::InvalidInput(e.to_string()))?;
             let adapter = build_ai_adapter()?;
+            // FW-003: puertos API/WebUI ANTES de borrar (para limpiar UFW).
+            let fw_ports = match adapter.get_instance(&name).await {
+                Ok(i) => loopback_ports(&[i.api_port, i.webui_port]),
+                Err(_) => Vec::new(),
+            };
             adapter
                 .delete_instance(&name, force)
                 .await
                 .map_err(CliError::from)?;
+            sync_firewall_cleanup(&fw_ports);
 
             let hide_uc = HideAiInstance::new(
                 Arc::new(TorConfigAdapter::new()),
@@ -5476,9 +5477,49 @@ async fn execute_ai_model(cmd: crate::cli::AiModelCommands, format: &str) -> Cli
 
 #[cfg(test)]
 mod tests {
-    use super::{license_text, parse_embedding_fallback, uninstall_script_candidates};
+    use super::{
+        cleanup_loopback_rules, license_text, loopback_ports, parse_embedding_fallback,
+        uninstall_script_candidates,
+    };
     use crate::cli::{Cli, Commands};
     use clap::Parser;
+
+    #[test]
+    fn wordpress_cleanup_covers_secrets_db_and_wp_dirs() {
+        assert_eq!(
+            super::wordpress_cleanup_suffixes(),
+            ["_secrets", "_db", "_wp"]
+        );
+    }
+
+    #[tokio::test]
+    async fn cms_hide_rejects_unknown_type() {
+        assert!(super::cms_hide("joomla", "x").await.is_err());
+    }
+
+    #[test]
+    fn loopback_ports_filters_none_zero_and_duplicates() {
+        let got = loopback_ports(&[Some(8080), None, Some(0), Some(8080), Some(9090)]);
+        assert_eq!(got, vec![8080, 9090]);
+        assert!(loopback_ports(&[None, Some(0)]).is_empty());
+    }
+
+    #[test]
+    fn cleanup_loopback_rules_removes_rule_and_manifest_entry_per_port() {
+        use crate::ports::firewall::MockFirewallPort;
+        use crate::ports::manifest::MockManifestPort;
+        let mut fw = MockFirewallPort::new();
+        fw.expect_remove_loopback_rule()
+            .withf(|p| *p == 8080 || *p == 9090)
+            .times(2)
+            .returning(|_| Ok(()));
+        let mut mf = MockManifestPort::new();
+        mf.expect_remove()
+            .withf(|k, v| k == "ufw_rule" && (v == "8080" || v == "9090"))
+            .times(2)
+            .returning(|_, _| Ok(()));
+        cleanup_loopback_rules(&fw, &mf, &[8080, 0, 9090]);
+    }
 
     #[test]
     fn embedding_fallback_flag_accepts_only_hash() {

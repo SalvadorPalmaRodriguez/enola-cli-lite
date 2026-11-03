@@ -1,4 +1,4 @@
-use crate::domain::error::Result;
+use crate::domain::error::{EnolaError, Result};
 use crate::ports::tor::TorManagerPort;
 use crate::ports::web::NginxManagerPort;
 use std::sync::Arc;
@@ -36,7 +36,8 @@ impl RemoveTorService {
     /// El site es el canónico del tipo (`proxy_wp_<n>` para `wp_<n>`,
     /// `fileserver_<n>` para `fileserver_<n>`; ninguno para `raw_`/`ai_`…);
     /// un nombre sin prefijo de tipo (`tor create raw|static <n>`) usa el site
-    /// `<n>`. El certificado solo se borra si el servicio Tor se ha quitado.
+    /// `<n>`. El certificado se borra también si el servicio Tor ya no existía
+    /// (`NotFound`, que se devuelve igualmente); ante otros errores de Tor no se toca.
     pub async fn execute(&self, service_name: &str) -> Result<()> {
         let site = match crate::domain::naming::ServiceName::from_tor_config(service_name) {
             Some(sn) => sn.nginx_config_name(),
@@ -49,7 +50,19 @@ impl RemoveTorService {
             let _ = nginx.reload().await;
         }
 
-        self.tor_manager.remove_hidden_service(service_name).await?;
+        let removed = self.tor_manager.remove_hidden_service(service_name).await;
+        match removed {
+            Ok(()) => {}
+            Err(EnolaError::NotFound(msg)) => {
+                // El servicio Tor ya no existe pero el certificado propio puede
+                // haber quedado: se borra igualmente y se devuelve el NotFound.
+                if let Some(nginx) = &self.nginx_manager {
+                    nginx.delete_ssl_cert(service_name).await?;
+                }
+                return Err(EnolaError::NotFound(msg));
+            }
+            Err(e) => return Err(e),
+        }
 
         if let Some(nginx) = &self.nginx_manager {
             nginx.delete_ssl_cert(service_name).await?;
@@ -80,6 +93,8 @@ mod tests {
     struct MockTorManager {
         remove_called: AtomicBool,
         should_fail: bool,
+        /// Si falla, lo hace con `NotFound` en vez de error de infraestructura.
+        not_found: bool,
         listed: Vec<String>,
         /// Nombres que se intentaron borrar (en orden).
         removed: std::sync::Mutex<Vec<String>>,
@@ -90,14 +105,22 @@ mod tests {
             Self {
                 remove_called: AtomicBool::new(false),
                 should_fail: false,
+                not_found: false,
                 listed: Vec::new(),
                 removed: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn not_found() -> Self {
+            Self {
+                not_found: true,
+                ..Self::failing()
             }
         }
         fn failing() -> Self {
             Self {
                 remove_called: AtomicBool::new(false),
                 should_fail: true,
+                not_found: false,
                 listed: Vec::new(),
                 removed: std::sync::Mutex::new(Vec::new()),
             }
@@ -107,6 +130,7 @@ mod tests {
             Self {
                 remove_called: AtomicBool::new(false),
                 should_fail: true,
+                not_found: false,
                 listed: services.iter().map(|s| s.to_string()).collect(),
                 removed: std::sync::Mutex::new(Vec::new()),
             }
@@ -136,7 +160,9 @@ mod tests {
         async fn remove_hidden_service(&self, name: &str) -> Result<()> {
             self.remove_called.store(true, Ordering::SeqCst);
             self.removed.lock().unwrap().push(name.to_string());
-            if self.should_fail {
+            if self.should_fail && self.not_found {
+                Err(EnolaError::NotFound("no existe".into()))
+            } else if self.should_fail {
                 Err(EnolaError::InfrastructureError("Remove failed".into()))
             } else {
                 Ok(())
@@ -307,6 +333,28 @@ mod tests {
             *nginx.deleted_certs.lock().unwrap(),
             vec!["myservice".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn not_found_service_still_deletes_own_cert_and_returns_not_found() {
+        let tor = Arc::new(MockTorManager::not_found());
+        let nginx = Arc::new(MockNginxManager::new());
+        let use_case = RemoveTorService::new(tor, Some(nginx.clone()));
+        let result = use_case.execute("wp_blog").await;
+        assert!(matches!(result, Err(EnolaError::NotFound(_))));
+        assert_eq!(
+            *nginx.deleted_certs.lock().unwrap(),
+            vec!["wp_blog".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn infra_failure_keeps_cert() {
+        let tor = Arc::new(MockTorManager::failing());
+        let nginx = Arc::new(MockNginxManager::new());
+        let use_case = RemoveTorService::new(tor, Some(nginx.clone()));
+        assert!(use_case.execute("wp_blog").await.is_err());
+        assert!(nginx.deleted_certs.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

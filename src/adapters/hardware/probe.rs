@@ -159,7 +159,7 @@ impl HardwareProbePort for EnolaHardwareProbe {
         let nvidia_gpus = Self::check_nvidia_gpu();
         let gpus = nvidia_gpus;
 
-        // TODO: Implement AMD detection via rocm-smi if needed in future
+        // TODO[HW-AMD-001]: Detección de GPU AMD | Detectar GPUs AMD vía rocm-smi además de NVIDIA | Diferido | Mantenedor | 2026-11-03 | Hoy solo se detecta NVIDIA; sin demanda de AMD | Perfil de hardware (IA local) infravalora equipos AMD | Baja
 
         let gpu_brand = if !gpus.is_empty() {
             gpus[0].brand.clone()

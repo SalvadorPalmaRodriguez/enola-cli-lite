@@ -583,7 +583,8 @@ async fn api_wp_delete(
     req: Option<Json<ConfirmRequest>>,
 ) -> ApiResult<()> {
     require_confirm(confirm_of(&req), &name)?;
-    commands::wordpress::delete(&name)
+    // Mismo borrado completo que la CLI (Tor, UFW, AppArmor, secrets/db/wp).
+    crate::cli::executor::delete_wordpress_site(&name)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(()))
@@ -1237,48 +1238,23 @@ struct ConsoleHelpResponse {
     help: String,
 }
 
+/// Comandos de primer nivel que la consola web puede despachar: los
+/// subcomandos de clap (`Cli`) menos las familias vetadas por el gate único
+/// (`command_gate::check_family`, las mismas que MCP). Se deriva de clap para
+/// no desincronizarse al añadir comandos.
+fn console_commands() -> Vec<String> {
+    use clap::CommandFactory;
+    crate::cli::Cli::command()
+        .get_subcommands()
+        .map(|c| c.get_name())
+        .filter(|n| *n != "help")
+        .filter(|n| crate::application::command_gate::check_family(n, "web console").is_ok())
+        .map(String::from)
+        .collect()
+}
+
 async fn api_console_help() -> ApiResult<ConsoleHelpResponse> {
-    // TODO[WEB-HELP-001]: Derive the command list from clap | This hardcoded
-    // list duplicates `Commands` in src/cli/defs.rs and drifts out of sync on
-    // every new command (it missed `plan` and `web`); derive it from
-    // `Cli::command().get_subcommands()` in a dedicated task | Pendiente |
-    // sin asignar | 2026-09-20 | The duplication already caused a stale
-    // /api/console/help response | Keeps the help list accurate automatically |
-    // Media
-    let commands = vec![
-        "tor",
-        "git",
-        "wp",
-        "drupal",
-        "ghost",
-        "magnolia",
-        "strapi",
-        "wagtail",
-        "files",
-        "plan",
-        "vpn",
-        "firewall",
-        "apparmor",
-        "ports",
-        "setup",
-        "doctor",
-        "logs",
-        "maintenance",
-        "diag",
-        "test",
-        "quickref",
-        "license",
-        "uninstall",
-        "web",
-        "config-show",
-        "config-validate",
-        "docs",
-        "update",
-        "verify",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect();
+    let commands = console_commands();
     let help = "Use /api/console/run with JSON: { args: [...], timeout_secs: 300 }.".to_string();
     Ok(Json(ConsoleHelpResponse { commands, help }))
 }
@@ -1923,10 +1899,15 @@ async fn api_cms_delete(
 ) -> ApiResult<()> {
     require_confirm(req.confirm.as_deref(), &name)?;
     let adapter = build_cms_adapter(&cms_type)?;
-    adapter
-        .delete(&name, req.force.unwrap_or(false))
-        .await
-        .map_err(ApiError::from)?;
+    // Mismo borrado completo que la CLI (Tor+site+cert, UFW, red, datos).
+    crate::cli::executor::delete_cms_instance(
+        &*adapter,
+        &cms_type,
+        &name,
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(ApiError::from)?;
     Ok(Json(()))
 }
 
@@ -3320,6 +3301,25 @@ async fn api_doctor_security() -> ApiResult<String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// WEB-HELP-001: la lista de `/api/console/help` sale de clap menos los
+    /// vetos del gate común; incluye `ai` y excluye `ssh`/`mcp`/`ask`.
+    #[test]
+    fn console_help_matches_clap_minus_gate_vetoes() {
+        use clap::CommandFactory;
+        let listed = console_commands();
+        let expected: Vec<String> = crate::cli::Cli::command()
+            .get_subcommands()
+            .map(|c| c.get_name().to_string())
+            .filter(|n| n != "help")
+            .filter(|n| !crate::domain::tool::FORBIDDEN_FAMILIES.contains(&n.as_str()))
+            .collect();
+        assert_eq!(listed, expected);
+        assert!(listed.iter().any(|c| c == "ai"));
+        for vetoed in ["ssh", "mcp", "ask"] {
+            assert!(!listed.iter().any(|c| c == vetoed), "{vetoed} vetado");
+        }
+    }
 
     /// SEC-M3: todo segmento de nombre de la URL se valida antes del handler
     /// (400), sin ejecutar nada. Si se añade una ruta con `{param}`, va aquí.

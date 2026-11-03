@@ -5194,11 +5194,58 @@ pub mod files {
         })
     }
 
+    /// Raíz bajo la que viven las carpetas de los file shares.
+    const SHARES_ROOT: &str = "/srv/enola-files";
+
+    /// Resuelve la carpeta a borrar de un share o explica por qué no es seguro.
+    ///
+    /// La ruta sale del `root` de un fichero de Nginx (no confiable): se
+    /// canonicaliza (resuelve `..` y symlinks) y debe quedar estrictamente
+    /// dentro de `shares_root` (también canonicalizada), nunca ser la raíz.
+    pub(crate) fn resolve_removable_share_dir(
+        path: &str,
+        shares_root: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
+        let root = std::fs::canonicalize(shares_root)
+            .map_err(|e| format!("raíz '{}' no resoluble: {e}", shares_root.display()))?;
+        let canon =
+            std::fs::canonicalize(path).map_err(|e| format!("ruta '{path}' no resoluble: {e}"))?;
+        if canon == root || !canon.starts_with(&root) {
+            return Err(format!(
+                "'{}' no está estrictamente dentro de '{}'",
+                canon.display(),
+                root.display()
+            ));
+        }
+        Ok(canon)
+    }
+
+    /// Borra la carpeta del share solo si está bajo `/srv/enola-files/`; si no,
+    /// avisa y la conserva (el borrado del servicio ya se completó).
     fn cleanup_share_dir(share_path: &Option<String>, name: &str) {
         let path = share_path
             .clone()
-            .unwrap_or_else(|| format!("/srv/enola-files/{}", name));
-        let _ = std::fs::remove_dir_all(&path);
+            .unwrap_or_else(|| format!("{SHARES_ROOT}/{name}"));
+        if !std::path::Path::new(&path).exists() {
+            return;
+        }
+        match resolve_removable_share_dir(&path, std::path::Path::new(SHARES_ROOT)) {
+            Ok(canon) => {
+                if let Err(e) = std::fs::remove_dir_all(&canon) {
+                    tracing::warn!("No se pudo borrar la carpeta del share '{name}': {e}");
+                    eprintln!(
+                        "⚠️  No se pudo borrar la carpeta '{}': {e}",
+                        canon.display()
+                    );
+                }
+            }
+            Err(motivo) => {
+                tracing::warn!("Carpeta del share '{name}' NO borrada: {motivo}");
+                eprintln!(
+                    "⚠️  Carpeta del share NO borrada ({motivo}). Solo se borran carpetas bajo {SHARES_ROOT}/; revísala y elimínala a mano si procede."
+                );
+            }
+        }
     }
 
     /// Edit file share settings (port)
@@ -5289,6 +5336,61 @@ pub mod files {
         Command::new("chmod").args(["-R", "750", &path]).status()?;
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::resolve_removable_share_dir as resolve;
+        use std::os::unix::fs::symlink;
+
+        fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
+            let t = tempfile::tempdir().expect("tempdir");
+            let root = t.path().join("enola-files");
+            std::fs::create_dir_all(root.join("docs")).expect("mkdir");
+            (t, root)
+        }
+
+        #[test]
+        fn share_dir_valid_is_accepted() {
+            let (_t, root) = setup();
+            let r = resolve(root.join("docs").to_str().unwrap_or_default(), &root);
+            assert_eq!(r.ok(), std::fs::canonicalize(root.join("docs")).ok());
+        }
+
+        #[test]
+        fn share_dir_with_dotdot_escaping_is_rejected() {
+            let (t, root) = setup();
+            std::fs::create_dir_all(t.path().join("otro")).expect("mkdir");
+            let p = format!("{}/docs/../../otro", root.display());
+            assert!(resolve(&p, &root).is_err());
+        }
+
+        #[test]
+        fn share_dir_foreign_absolute_is_rejected() {
+            let (_t, root) = setup();
+            assert!(resolve("/etc", &root).is_err());
+        }
+
+        #[test]
+        fn share_dir_symlink_outside_is_rejected() {
+            let (t, root) = setup();
+            let fuera = t.path().join("fuera");
+            std::fs::create_dir_all(&fuera).expect("mkdir");
+            symlink(&fuera, root.join("enlace")).expect("symlink");
+            assert!(resolve(root.join("enlace").to_str().unwrap_or_default(), &root).is_err());
+        }
+
+        #[test]
+        fn share_dir_exact_root_is_rejected() {
+            let (_t, root) = setup();
+            assert!(resolve(root.to_str().unwrap_or_default(), &root).is_err());
+        }
+
+        #[test]
+        fn share_dir_nonexistent_is_rejected() {
+            let (_t, root) = setup();
+            assert!(resolve(root.join("nada").to_str().unwrap_or_default(), &root).is_err());
+        }
     }
 }
 
