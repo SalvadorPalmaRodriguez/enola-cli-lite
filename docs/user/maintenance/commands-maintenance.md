@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/maintenance/commands-maintenance.md`
-> **Versión:** 2.3 | **Actualizado:** 2026-11-03
+> **Versión:** 2.4 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -142,6 +142,43 @@ sudo enola-cli maintenance backup [--keep <N>]
 
 Tras crear el backup se rotan los antiguos del mismo identificador según la
 política de retención (ver `maintenance backup-config`).
+
+---
+
+## `maintenance restore`
+
+Restaura la identidad de la máquina (claves `.onion`, Tor, Nginx, certificados,
+configuración de Enola) desde un backup hecho con `maintenance backup`.
+
+```bash
+# 1. Simulación (por defecto): valida el archivo y dice qué se sobrescribiría
+sudo enola-cli maintenance restore /var/backups/enola-server/2026-11-03_21-00-00_system_full.tar.gz
+
+# 2. Restaurar de verdad
+sudo enola-cli maintenance restore /var/backups/enola-server/<archivo>.tar.gz --force
+```
+
+| Argumento / flag | Descripción |
+|------------------|-------------|
+| `<archivo>` | Backup `.tar.gz` creado por `maintenance backup` |
+| `--force` | Aplica el restore. Sin él solo se muestra lo que haría |
+
+Qué hace y qué **no** hace:
+
+- **Solo restaura ficheros.** No para ni arranca nada: al terminar te dice qué
+  reiniciar (`sudo systemctl restart tor`, Nginx, tus contenedores…) y lo haces tú
+  cuando quieras.
+- **Valida todo antes de escribir.** Si una sola entrada del archivo es sospechosa
+  (ruta fuera de las carpetas de identidad, `..`, enlace duro, fichero especial,
+  enlace simbólico que apunta fuera, escritura a través de un enlace), **rechaza el
+  archivo entero** y no toca nada.
+- **Guarda lo que hay antes de sobrescribir:** crea una copia `pre-restore` en
+  `/var/backups/enola-server/` (con la misma comprobación de espacio en disco).
+- Exige que el archivo lleve manifiesto y de la misma versión de formato; un backup
+  hecho por una versión anterior no se puede restaurar.
+- Repone los propietarios `root` y `debian-tor` (Tor debe estar instalado); cualquier
+  otro propietario se restaura como `root`, y se descartan los bits setuid/setgid.
+- **Solo desde la terminal:** no está disponible en el panel web ni por MCP.
 
 ---
 
