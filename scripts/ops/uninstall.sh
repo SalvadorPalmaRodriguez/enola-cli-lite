@@ -405,7 +405,7 @@ if has_section docker; then
             done
         fi
         # Remove enola-related images: `enola-*` (p. ej. enola-finetune) y las que
-        # construye Enola para los CMS (`enola/strapi`, `enola/wagtail`, `enola/magnolia`;
+        # construye Enola para los CMS (`enola/strapi`, `enola/wagtail`, `enola/magnolia`, `enola/wordpress`;
         # el repositorio lleva `/`, así que `enola-*` no las casa).
         images=$( {
             docker images --filter "reference=enola-*" --format '{{.Repository}}:{{.Tag}}'
@@ -502,7 +502,7 @@ if has_section data; then
         # Forgejo admin hashes (root-only, outside the data volume).
         [ -d /etc/enola/git ] && run_rm /etc/enola/git
         # System users that owned the removed Forgejo/Ghost/Wagtail/Magnolia data.
-        for u in enola-git enola-ghost enola-wagtail enola-magnolia; do
+        for u in enola-git enola-ghost enola-wagtail enola-magnolia enola-wordpress; do
             if getent passwd "$u" >/dev/null 2>&1; then
                 run userdel "$u"
             fi

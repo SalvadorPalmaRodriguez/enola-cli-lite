@@ -1,8 +1,8 @@
 > **User document:** `docs/en/security-model.md`
-> **Version:** 3.5 (2026-10-28)
+> **Version:** 3.6 (2026-11-03)
 > **Audience:** end users, security researchers, journalists.
 > **Spanish original:** [`docs/user/general/SECURITY.md`](../user/general/SECURITY.md)
-> **Updated:** 2026-10-25
+> **Updated:** 2026-11-03
 > **Status:** ✅ **CURRENT**
 > **References:** commands.md
 
@@ -148,7 +148,7 @@ Every publishable service (WordPress, Git, CMS) is created from a fixed-version
 Docker image pinned by digest (`image@sha256:…`) with a known end-of-support date.
 Containers start with no capabilities (`cap_drop: ALL`) except the minimum each image
 needs, and the Git server runs on its own Docker network. New instances use
-WordPress 6.9 (PHP 8.3) + MariaDB 11.4 LTS, Forgejo 15 LTS, Drupal 11.4 + MariaDB
+WordPress 7.1 (PHP 8.4, image built by Enola, no root) + MariaDB 11.4 LTS, Forgejo 15 LTS, Drupal 11.4 + MariaDB
 10.11 LTS, Ghost 6 (SQLite), Strapi on Node 22 LTS + PostgreSQL 16. Wagtail
 and Magnolia run from images Enola builds locally: Wagtail as an empty project on the 7.4
 LTS branch (Django 5.2 LTS), Magnolia Community 6.4 (official WAR verified by SHA-256) on

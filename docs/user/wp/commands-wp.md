@@ -1,11 +1,11 @@
 > **Documento usuario:** `docs/user/wp/commands-wp.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-10-24
+> **Versión:** 2.2 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
 # 📝 WordPress — Comandos `enola-cli wp`
 
-> **Stack:** `wordpress:latest` + `mariadb:10.11`. Datos en `/srv/enola-wordpress/{name}_wp/`.
+> **Stack:** `enola/wordpress:7.1.4-php8.4` (imagen que Enola construye en tu equipo la primera vez, ~1-3 min, necesita Internet; Apache corre **sin root** como el usuario `enola-wordpress`, puerto interno 8080) + `mariadb:11.4`. Datos en `/srv/enola-wordpress/{name}_wp/`.
 
 WordPress es el CMS principal del catálogo Enola. Ideal para blogs, sitios institucionales
 y proyectos que necesitan plugins y temas extensos. Stack: 2 contenedores (web + BD), ~512 MB RAM.

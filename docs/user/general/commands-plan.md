@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands-plan.md`
-> **Versión:** 1.3 | **Actualizado:** 2026-10-25
+> **Versión:** 1.4 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Referencia del comando `plan`**
 > **English:** [`docs/en/commands-plan.md`](../../en/commands-plan.md)
 > **Referencias:** [commands.md](commands.md), [wp/commands-wp.md](../wp/commands-wp.md), [git/commands-git.md](../git/commands-git.md), [tor/commands-tor.md](../tor/commands-tor.md)
@@ -65,7 +65,7 @@ sudo enola-cli plan wp create --name foo --http-port 8090
   • http-port → 127.0.0.1:8090 (manual)
 
 📦 Containers:
-  • wp-foo — image: wordpress:6.9.4-php8.3-apache@sha256:…
+  • wp-foo — image: enola/wordpress:7.1.4-php8.4
     internal port: 80 (host: 8090)
     network: enola_net_foo
     volume: /srv/enola-wordpress/foo_wp → /var/www/html

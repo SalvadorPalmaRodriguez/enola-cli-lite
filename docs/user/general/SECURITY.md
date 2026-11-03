@@ -1,4 +1,4 @@
-> **Versión:** 1.6 | **Actualizado:** 2026-10-28
+> **Versión:** 1.7 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE**
 # 🛡️ Política de Seguridad — Enola CLI
 
@@ -156,7 +156,7 @@ Versiones para instancias **nuevas** (2026-10-25):
 
 | Servicio | Imagen | Soporte hasta |
 |---|---|---|
-| WordPress | `wordpress:6.9.4-php8.3-apache` + `mariadb:11.4.13` | PHP 8.3: 2027-12-31 · MariaDB 11.4 LTS: 2029-05-29 |
+| WordPress | `enola/wordpress:7.1.4-php8.4` (la construye Enola sobre la oficial, sin root) + `mariadb:11.4.13` | PHP 8.3: 2027-12-31 · MariaDB 11.4 LTS: 2029-05-29 |
 | Git (Forgejo) | `forgejo:15.0.10` (LTS) | 2027-07-15 |
 | Drupal | `drupal:11.4.11-apache` + `mariadb:10.11.19` | junio 2027 · MariaDB 10.11 LTS: 2028-02-16 |
 | Ghost | `ghost:6.72.0-alpine` (SQLite) | rama 6.x (Ghost solo soporta la mayor actual) |

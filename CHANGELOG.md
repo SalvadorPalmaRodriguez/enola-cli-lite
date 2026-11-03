@@ -5,6 +5,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Breaking
+- **WordPress 7.1 on PHP 8.4, own image, no root** — `wp create` now builds `enola/wordpress:7.1.4-php8.4` on your machine the first time (~1-3 min, needs Internet), a thin layer over the official `wordpress:7.1.4-php8.4-apache` (pinned by digest). Apache runs as the system user `enola-wordpress` (no root inside the container) on internal port 8080, and its secrets are mode 0600 owned by the user that reads them. The old pin (6.9.4, PHP 8.3, root) was 7 security releases behind; 7.1.4 fixes, among others, an RCE in the update process. Existing 6.9.x instances are not migrated: `doctor --security` reports them as `image-eol`. Plugins and themes written for 6.x may not work on 7.1 — check them before recreating a site. Updating the core from wp-admin still works, but it does not change the image tag.
+
 ### Security
 - **`files delete` only removes folders under `/srv/enola-files/`** — the folder to delete was read from the `root` line of the share's Nginx site and removed (as root) without checking it. It is now canonicalized (`..` and symlinks resolved) and must be strictly inside `/srv/enola-files/` (never the root itself); otherwise it is kept and a warning explains why, while the service, site and certificate are still removed.
 
