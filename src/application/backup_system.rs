@@ -1,5 +1,7 @@
 use crate::domain::app_config::BackupSettings;
+use crate::domain::backup::{required_free_bytes, BackupManifest};
 use crate::domain::error::{EnolaError, Result};
+use crate::ports::disk_space::DiskSpacePort;
 use crate::ports::file::FileManagerPort;
 use chrono::Local;
 use std::path::{Path, PathBuf};
@@ -9,6 +11,30 @@ pub struct BackupSystem {
     file_manager: Arc<dyn FileManagerPort + Send + Sync>,
     backup_root: PathBuf,
     max_backups: usize,
+    /// Comprobación de espacio previa a crear el archivo (`None` = sin comprobar:
+    /// solo tests; el CLI la inyecta siempre).
+    disk: Option<Arc<dyn DiskSpacePort>>,
+}
+
+/// Rutas de identidad a archivar: las fijas de `domain::backup` más los perfiles
+/// AppArmor `enola-*` de `apparmor_dir` (uno a uno, no todo `/etc/apparmor.d`).
+/// Las que no existen las filtra `create_system_backup`.
+pub fn system_identity_paths(apparmor_dir: &Path) -> Vec<PathBuf> {
+    use crate::domain::backup::{APPARMOR_PREFIX, SYSTEM_IDENTITY_PATHS};
+    let mut paths: Vec<PathBuf> = SYSTEM_IDENTITY_PATHS.iter().map(PathBuf::from).collect();
+    if let Ok(entries) = std::fs::read_dir(apparmor_dir) {
+        let mut profiles: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with(APPARMOR_PREFIX)
+                    && e.file_type().map(|t| t.is_file()).unwrap_or(false)
+            })
+            .map(|e| e.path())
+            .collect();
+        profiles.sort();
+        paths.extend(profiles);
+    }
+    paths
 }
 
 impl BackupSystem {
@@ -17,6 +43,7 @@ impl BackupSystem {
             file_manager,
             backup_root: PathBuf::from("/var/backups/enola-server"),
             max_backups: BackupSettings::load().max_backups,
+            disk: None,
         }
     }
 
@@ -29,7 +56,14 @@ impl BackupSystem {
             file_manager,
             backup_root,
             max_backups: BackupSettings::load().max_backups,
+            disk: None,
         }
+    }
+
+    /// Activa la comprobación de espacio libre antes de crear un backup de sistema.
+    pub fn with_disk_space(mut self, disk: Arc<dyn DiskSpacePort>) -> Self {
+        self.disk = Some(disk);
+        self
     }
 
     /// Override the retention policy (max backups kept per identifier).
@@ -189,14 +223,80 @@ impl BackupSystem {
         // Archive all paths preserving their absolute layout (members relative
         // to /), so restore_full_backup() extracting into / lands every entry
         // back at its original location. Works for files and directories alike.
-        self.file_manager
+        // Un archivo a medias (disco lleno, tar fallido) NO se deja: parecería un
+        // backup válido y la rotación podría borrar uno bueno por él.
+        if let Err(e) = self
+            .file_manager
             .create_archive_multi(&existing, &backup_path)
-            .await?;
+            .await
+        {
+            let _ = self.file_manager.delete_file(&backup_path).await;
+            return Err(e);
+        }
         self.harden_backup_file(&backup_path).await?;
 
         self.rotate_backups(identifier, "").await?;
 
         Ok(backup_path)
+    }
+
+    /// Backup de la **identidad** del sistema (PLAN-BACKUP-RESTORE, Fase 1).
+    ///
+    /// 1. Filtra `paths` a los que existen. 2. Si hay `DiskSpacePort`, exige espacio
+    ///    libre ≥ tamaño de las fuentes + reserva y **aborta antes de escribir nada**.
+    /// 3. Escribe el manifiesto (0600) en `manifest_path`, que viaja dentro del
+    ///    archivo. 4. Archiva. Devuelve la ruta del `.tar.gz`.
+    pub async fn create_system_backup(
+        &self,
+        identifier: &str,
+        paths: &[PathBuf],
+        manifest_path: &Path,
+        enola_version: &str,
+    ) -> Result<PathBuf> {
+        let existing: Vec<PathBuf> = paths.iter().filter(|p| p.exists()).cloned().collect();
+        if existing.is_empty() {
+            return Err(EnolaError::ValidationError(
+                "No backup paths found".to_string(),
+            ));
+        }
+
+        if let Some(disk) = &self.disk {
+            let needed = required_free_bytes(disk.tree_size(&existing)?);
+            let free = disk.available_bytes(&self.backup_root)?;
+            if free < needed {
+                return Err(EnolaError::InfrastructureError(format!(
+                    "Not enough disk space for the backup in {}: {} MiB free, {} MiB needed. \
+                     Nothing was written.",
+                    self.backup_root.display(),
+                    free / (1024 * 1024),
+                    needed.div_ceil(1024 * 1024)
+                )));
+            }
+        }
+
+        let mut archived = existing;
+        let manifest = BackupManifest::new(
+            enola_version,
+            &Local::now().format("%Y-%m-%d_%H-%M-%S").to_string(),
+            archived
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect(),
+        );
+        if let Some(dir) = manifest_path.parent() {
+            self.file_manager.ensure_dir(dir).await?;
+        }
+        self.file_manager
+            .write_file(manifest_path, &manifest.to_json()?)
+            .await?;
+        self.file_manager
+            .set_permissions(manifest_path, 0o600)
+            .await?;
+        if !archived.iter().any(|p| manifest_path.starts_with(p)) {
+            archived.push(manifest_path.to_path_buf());
+        }
+
+        self.create_backup_of_paths(identifier, &archived).await
     }
 
     pub async fn restore_full_backup(&self, backup_path: &Path) -> Result<()> {
@@ -672,5 +772,132 @@ mod tests {
             "2026-09-19_17-00-00_system_full.tar.gz",
             ""
         ));
+    }
+
+    // ── PLAN-BACKUP-RESTORE Fase 1: backup de sistema ─────────────────────
+    fn disk_with(free: u64, size: u64) -> Arc<dyn DiskSpacePort> {
+        let mut d = crate::ports::disk_space::MockDiskSpacePort::new();
+        d.expect_tree_size().returning(move |_| Ok(size));
+        d.expect_available_bytes().returning(move |_| Ok(free));
+        Arc::new(d)
+    }
+
+    /// Sin espacio: error claro y NADA escrito (ni manifiesto ni archivo).
+    #[tokio::test]
+    async fn system_backup_aborts_before_writing_when_disk_is_too_small() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        let mut mock = mock_file_manager();
+        mock.expect_write_file().times(0);
+        mock.expect_create_archive_multi().times(0);
+        mock.expect_ensure_dir().times(0);
+        let system = BackupSystem::with_backup_root(Arc::new(mock), tmp.path().join("bk"))
+            .with_disk_space(disk_with(10 * 1024 * 1024, 5 * 1024 * 1024));
+
+        let err = system
+            .create_system_backup("system", &[src], &tmp.path().join("m.json"), "0.0.0")
+            .await
+            .expect_err("debe abortar");
+        let msg = err.to_string();
+        assert!(msg.contains("Not enough disk space"), "{msg}");
+        assert!(msg.contains("Nothing was written"), "{msg}");
+    }
+
+    /// Con espacio justo (fuentes + reserva) sigue adelante, escribe el manifiesto
+    /// 0600 y lo incluye en el archivo.
+    #[tokio::test]
+    async fn system_backup_writes_manifest_0600_and_archives_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        let manifest = tmp.path().join("etc/backup-manifest.json");
+        let size = 5 * 1024 * 1024;
+        let need = required_free_bytes(size);
+
+        let mut mock = mock_file_manager();
+        mock.expect_ensure_dir().returning(|_| Ok(()));
+        mock.expect_write_file()
+            .withf(|_, content| {
+                content.contains("\"format_version\": 1") && content.contains("enola_version")
+            })
+            .times(1)
+            .returning(|path, content| {
+                // Como el adaptador real: el fichero existe tras escribirlo.
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, content).unwrap();
+                Ok(())
+            });
+        let mode_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u32>::new()));
+        let m2 = mode_seen.clone();
+        mock.expect_set_permissions().returning(move |_, mode| {
+            m2.lock().unwrap().push(mode);
+            Ok(())
+        });
+        let manifest_c = manifest.clone();
+        mock.expect_create_archive_multi()
+            .withf(move |paths, _| paths.contains(&manifest_c))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let system = BackupSystem::with_backup_root(Arc::new(mock), tmp.path().join("bk"))
+            .with_disk_space(disk_with(need, size));
+
+        let out = system
+            .create_system_backup("system", &[src], &manifest, "0.12.0")
+            .await;
+        assert!(out.is_ok(), "{:?}", out.err());
+        assert!(mode_seen.lock().unwrap().contains(&0o600));
+    }
+
+    /// Un `tar` que falla a mitad no deja un archivo parcial.
+    #[tokio::test]
+    async fn failed_archive_leaves_no_partial_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        let mut mock = mock_file_manager();
+        mock.expect_ensure_dir().returning(|_| Ok(()));
+        mock.expect_set_permissions().returning(|_, _| Ok(()));
+        mock.expect_create_archive_multi()
+            .returning(|_, _| Err(EnolaError::InfrastructureError("disk full".into())));
+        mock.expect_delete_file().times(1).returning(|_| Ok(()));
+        let system = BackupSystem::with_backup_root(Arc::new(mock), tmp.path().join("bk"));
+
+        let r = system
+            .create_backup_of_paths("system", std::slice::from_ref(&src))
+            .await;
+        assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn system_backup_with_no_existing_paths_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let system =
+            BackupSystem::with_backup_root(Arc::new(mock_file_manager()), tmp.path().into());
+        let r = system
+            .create_system_backup(
+                "system",
+                &[PathBuf::from("/no/existe/jamas")],
+                &tmp.path().join("m.json"),
+                "0.0.0",
+            )
+            .await;
+        assert!(matches!(r, Err(EnolaError::ValidationError(_))));
+    }
+
+    #[test]
+    fn identity_paths_include_only_enola_apparmor_profiles() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("enola-nginx"), "x").unwrap();
+        std::fs::write(tmp.path().join("enola-tor"), "x").unwrap();
+        std::fs::write(tmp.path().join("usr.bin.firefox"), "x").unwrap();
+        std::fs::create_dir(tmp.path().join("enola-dir")).unwrap();
+        let paths = system_identity_paths(tmp.path());
+        assert!(paths.contains(&tmp.path().join("enola-nginx")));
+        assert!(paths.contains(&tmp.path().join("enola-tor")));
+        assert!(!paths.contains(&tmp.path().join("usr.bin.firefox")));
+        assert!(!paths.contains(&tmp.path().join("enola-dir")));
+        assert!(paths.contains(&PathBuf::from("/etc/tor/enola.d")));
+        assert!(!paths.iter().any(|p| p.starts_with("/srv")));
     }
 }

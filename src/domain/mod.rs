@@ -8,6 +8,7 @@ pub mod ai_model; // Fase 11 — Biblioteca de modelos GGUF (ai model)
 pub mod ai_providers; // Fase 13 — providers IA externos BYOK (`ai provider`)
 pub mod app_config; // CONFIG-001 + CONFIG-002 — distribution & web URLs
 pub mod apparmor; // AA-001 (201) — AppArmor sandboxing domain types
+pub mod backup; // PLAN-BACKUP-RESTORE — identidad, manifiesto y regla de espacio del backup de sistema
 pub mod cms;
 pub mod connector;
 pub mod dependencies; // DEP-001..003 — System dependency management

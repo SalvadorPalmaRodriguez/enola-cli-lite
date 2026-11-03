@@ -2,6 +2,7 @@ pub mod apparmor;
 pub mod docker;
 pub mod manifest; // UNINSTALL-MANIFEST-001 — file-backed ManifestPort // AA-003 (203) — AppArmor adapter (apparmor_parser, aa-status)
 
+pub mod disk_space; // PLAN-BACKUP-RESTORE — DiskSpacePort con sysinfo
 pub mod filesystem;
 pub mod logging;
 pub mod nginx;

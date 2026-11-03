@@ -251,6 +251,25 @@ impl FileManagerPort for EnolaFileAdapter {
             args.push(member.to_string_lossy().to_string());
         }
 
+        // El archivo nace 0600 (los backups llevan claves): tar -czf trunca el
+        // fichero existente conservando su modo, así no hay ventana con umask 022.
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(dest_file)
+                .map_err(|e| {
+                    EnolaError::InfrastructureError(format!(
+                        "Cannot create archive {}: {}",
+                        dest_file.display(),
+                        e
+                    ))
+                })?;
+        }
+
         let output = tokio::process::Command::new("tar")
             .args(&args)
             .output()
@@ -710,6 +729,22 @@ mod tests {
         let rel_file = file.strip_prefix("/").unwrap();
         assert!(extract_dir.join(rel_sub).join("inner.txt").exists());
         assert!(extract_dir.join(rel_file).exists());
+    }
+
+    /// Los archivos de backup llevan claves: nacen 0600 aunque la umask sea 022.
+    #[tokio::test]
+    async fn test_create_archive_multi_creates_archive_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("secret.txt");
+        std::fs::write(&file, "k").unwrap();
+        let archive = dir.path().join("b.tar.gz");
+        EnolaFileAdapter::new()
+            .create_archive_multi(&[file], &archive)
+            .await
+            .unwrap();
+        let mode = std::fs::metadata(&archive).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "got {:o}", mode);
     }
 
     #[tokio::test]

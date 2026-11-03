@@ -5768,23 +5768,22 @@ pub mod maintenance {
             backup_system = backup_system.with_max_backups(n);
         }
 
-        // Backup key directories
-        let paths_to_backup = vec![
-            PathBuf::from("/var/lib/tor"),
-            PathBuf::from("/etc/nginx/sites-available"),
-            PathBuf::from("/opt/enola"),
-        ];
-
-        // Filter to existing paths
-        let existing_paths: Vec<PathBuf> =
-            paths_to_backup.into_iter().filter(|p| p.exists()).collect();
-
-        if existing_paths.is_empty() {
-            return Err(CliError::InvalidInput("No backup paths found".to_string()));
-        }
+        // Identidad del sistema (claves .onion, torrc, Nginx, certificados, config de
+        // Enola y perfiles AppArmor). Los datos de servicio (/srv/enola-*) no entran.
+        let paths = crate::application::backup_system::system_identity_paths(std::path::Path::new(
+            crate::domain::backup::APPARMOR_DIR,
+        ));
+        let backup_system = backup_system.with_disk_space(Arc::new(
+            crate::adapters::infra::disk_space::SystemDiskSpace::new(),
+        ));
 
         let backup_path = backup_system
-            .create_backup_of_paths("system", &existing_paths)
+            .create_system_backup(
+                "system",
+                &paths,
+                PathBuf::from(crate::domain::backup::BACKUP_MANIFEST_PATH).as_path(),
+                env!("CARGO_PKG_VERSION"),
+            )
             .await
             .map_err(CliError::from)?;
 
