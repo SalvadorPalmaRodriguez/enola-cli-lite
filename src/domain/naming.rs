@@ -124,6 +124,9 @@ pub fn validate_tor_service_name(name: &str) -> Result<(), EnolaError> {
 pub const GIT_SERVICE_USER: &str = "enola-git";
 /// SEC-M10 (D6): usuario de sistema del proceso Ghost (`--user`).
 pub const GHOST_SERVICE_USER: &str = "enola-ghost";
+/// PLAN-WORDPRESS-7-1: usuario de sistema del proceso WordPress/Apache (`--user`),
+/// dueño del volumen `_wp` (`/var/www/html`) y de los secretos que lee el contenedor.
+pub const WORDPRESS_SERVICE_USER: &str = "enola-wordpress";
 /// A25-N3: usuario de sistema del proceso Wagtail (`--user`), dueño de `media/` y
 /// de los secretos que lee el contenedor.
 pub const WAGTAIL_SERVICE_USER: &str = "enola-wagtail";

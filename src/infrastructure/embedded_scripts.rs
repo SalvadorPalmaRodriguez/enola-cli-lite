@@ -55,6 +55,29 @@ pub fn ensure_wagtail_context() -> Result<PathBuf, String> {
     ensure_wagtail_context_in(Path::new(WAGTAIL_DOCKER_DIR))
 }
 
+// ── WordPress production image (PLAN-WORDPRESS-7-1) ────────────────────────
+/// Directorio canónico donde se extrae el contexto de build de WordPress.
+pub const WORDPRESS_DOCKER_DIR: &str = "/opt/enola/docker/wordpress";
+/// Dockerfile de la imagen WordPress sin root (capa sobre la oficial) embebido.
+pub(crate) const DOCKERFILE_WORDPRESS: &str = include_str!("scripts/Dockerfile.wordpress");
+/// Nombre canónico del Dockerfile de WordPress extraído al disco.
+pub const WORDPRESS_DOCKERFILE_NAME: &str = "Dockerfile.wordpress";
+/// Tag de la imagen WordPress construida localmente (ligado a la versión: cambiarla
+/// obliga a reconstruir; ver `domain::images::WORDPRESS`).
+pub const WORDPRESS_IMAGE_TAG: &str = crate::domain::images::WORDPRESS.image;
+
+/// Extrae a `dir` el contexto de build de WordPress y lo devuelve.
+/// Siempre sobrescribe (ver `ensure_wagtail_context_in`).
+pub fn ensure_wordpress_context_in(dir: &Path) -> Result<PathBuf, String> {
+    extract_script(DOCKERFILE_WORDPRESS, dir, WORDPRESS_DOCKERFILE_NAME)?;
+    Ok(dir.to_path_buf())
+}
+
+/// Contexto de build de WordPress en el directorio canónico (`/opt/enola/docker/wordpress`).
+pub fn ensure_wordpress_context() -> Result<PathBuf, String> {
+    ensure_wordpress_context_in(Path::new(WORDPRESS_DOCKER_DIR))
+}
+
 // ── Magnolia production image (A25-N3) ─────────────────────────────────────
 /// Directorio canónico donde se extrae el contexto de build de Magnolia.
 pub const MAGNOLIA_DOCKER_DIR: &str = "/opt/enola/docker/magnolia";
@@ -140,6 +163,47 @@ fn extract_script(content: &str, dir: &Path, filename: &str) -> Result<PathBuf, 
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    // ── WordPress (PLAN-WORDPRESS-7-1): contexto de build embebido ──────────
+    #[test]
+    fn wordpress_context_writes_dockerfile_and_overwrites_stale_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(WORDPRESS_DOCKERFILE_NAME), "viejo").unwrap();
+        let ctx = ensure_wordpress_context_in(tmp.path()).expect("contexto");
+        let df = std::fs::read_to_string(ctx.join(WORDPRESS_DOCKERFILE_NAME)).unwrap();
+        assert_ne!(df, "viejo");
+        assert_eq!(df, DOCKERFILE_WORDPRESS);
+    }
+
+    #[test]
+    fn wordpress_image_tag_matches_domain_spec() {
+        assert_eq!(WORDPRESS_IMAGE_TAG, crate::domain::images::WORDPRESS.image);
+    }
+
+    /// Invariantes de seguridad del Dockerfile (SD-9/SD-10).
+    #[test]
+    fn wordpress_dockerfile_is_pinned_non_root_and_off_port_80() {
+        let code: String = DOCKERFILE_WORDPRESS
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            code.lines()
+                .any(|l| l.starts_with("ARG WORDPRESS_IMAGE=") && l.contains("@sha256:")),
+            "la base debe ir pineada por digest"
+        );
+        assert!(code.contains("-php8.4-apache@"), "PHP 8.4 (D3)");
+        assert!(
+            code.contains("USER 10001:10001"),
+            "el proceso no debe ser root"
+        );
+        assert!(
+            code.contains("Listen 8080"),
+            "puerto >1024 sin NET_BIND_SERVICE"
+        );
+        assert!(!code.contains(":latest"));
+    }
 
     // ── Wagtail (A25-N3): contexto de build embebido ────────────────────────
     #[test]

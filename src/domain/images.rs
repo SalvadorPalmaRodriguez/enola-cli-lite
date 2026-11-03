@@ -108,16 +108,19 @@ pub const MARIADB_WORDPRESS: ImageSpec = ImageSpec {
     cap_add: DB_CAPS,
 };
 
-/// WordPress 6.x + PHP 8.3 (decisión del operador: rama 6.x pineada).
+/// WordPress 7.1.x + PHP 8.4 en imagen propia sin root: capa fina sobre la
+/// oficial `wordpress:7.1.4-php8.4-apache` (pineada por digest en el propio
+/// Dockerfile) con Apache en 8080 y uid de servicio. El tag cambia con
+/// WordPress/PHP para forzar la reconstrucción. PLAN-WORDPRESS-7-1.
 pub const WORDPRESS: ImageSpec = ImageSpec {
     key: "wordpress",
-    image: "wordpress:6.9.4-php8.3-apache",
-    digest: Some("sha256:5d2c212561c4b5442ebc4d98933a9cbadcf3dee8888ed3fd9ed44667c27cc905"),
-    eol: Some("2027-12-31"),
-    eol_source:
-        "php.net supported versions (PHP 8.3 security support); WordPress core has no fixed EOL",
+    image: "enola/wordpress:7.1.4-php8.4",
+    digest: None,
+    eol: Some("2028-12-31"),
+    eol_source: "php.net supported versions (PHP 8.4 security support); \
+                 WordPress core has no fixed EOL",
     unmaintained: None,
-    cap_add: APACHE_CAPS,
+    cap_add: &[],
 };
 
 /// Forgejo 15 LTS (decisión del operador 2026-10-25; 11 LTS EOL 2026-07-16).
@@ -273,6 +276,9 @@ pub const LEGACY_EOL: &[(&str, &str, &str)] = &[
     ("codeberg.org/forgejo/forgejo", "9", "2025-01-16"),
     ("codeberg.org/forgejo/forgejo", "11", "2026-07-16"),
     ("mariadb", "10.6", "2026-07-06"),
+    // WordPress 6.9.4 (root, PHP 8.3): 7 parches de seguridad por detrás de
+    // 6.9.11; 7.1.4 (2026-10-28) cierra un RCE del proceso de actualización.
+    ("wordpress", "6.9.4", "2026-10-28"),
     ("drupal", "10", "2026-12-09"),
     ("ghost", "5", "CVE-2026-53949"),
     ("enola/strapi", "5.49.0", "2026-04-30"),
@@ -435,6 +441,28 @@ mod tests {
         assert!(!WAGTAIL.is_eol("2026-10-28"));
         // La demo abandonada sigue marcada como EOL para `doctor --security`.
         assert!(eol_reason("wagtail/bakerydemo:release-4469a5a", "2026-10-28").is_some());
+    }
+
+    /// PLAN-WORDPRESS-7-1: WordPress 7.1.x se construye en local sobre PHP 8.4,
+    /// sin digest propio (el de la base va en el Dockerfile) y sin caps extra
+    /// (Apache en 8080 como uid de servicio).
+    #[test]
+    fn wordpress_is_built_locally_on_7_1_and_php_8_4() {
+        assert!(WORDPRESS.image.starts_with("enola/wordpress:7.1."));
+        assert!(WORDPRESS.image.ends_with("-php8.4"));
+        assert!(WORDPRESS.digest.is_none());
+        assert!(WORDPRESS.unmaintained.is_none());
+        assert!(WORDPRESS.cap_add.is_empty());
+        assert!(WORDPRESS.eol_source.contains("PHP 8.4"));
+        assert!(!WORDPRESS.is_eol("2026-11-03"));
+        assert_eq!(WORDPRESS.repository(), "enola/wordpress");
+    }
+
+    /// La imagen oficial 6.9.4 (root, PHP 8.3) queda marcada EOL para `doctor`.
+    #[test]
+    fn legacy_wordpress_6_9_4_is_flagged_eol() {
+        assert!(eol_reason("wordpress:6.9.4-php8.3-apache", "2026-11-03").is_some());
+        assert!(eol_reason(&WORDPRESS.reference(), "2026-11-03").is_none());
     }
 
     /// A25-N3: Magnolia CE se construye en local (Tomcat 10.1 + Java 21), sin
