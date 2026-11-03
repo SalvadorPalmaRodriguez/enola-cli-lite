@@ -366,7 +366,7 @@ impl ServiceBlueprint {
         match self.kind {
             PlanKind::WordPress => {
                 // KEEP-IN-SYNC: deploy_wordpress.rs
-                //   wp container:  images::WORDPRESS, internal 80, host http_port
+                //   wp container:  images::WORDPRESS, internal 8080, host http_port
                 //   db container:  images::MARIADB_WORDPRESS, no host port
                 //   network: enola_net_{name}
                 let http_port = resolved
@@ -379,7 +379,7 @@ impl ServiceBlueprint {
                     PlannedContainer {
                         name: format!("wp-{}", name),
                         image: crate::domain::images::WORDPRESS.reference(),
-                        internal_port: 80,
+                        internal_port: 8080, // KEEP-IN-SYNC deploy_wordpress.rs WORDPRESS_INTERNAL_PORT
                         host_port: Some(http_port),
                         volumes: vec![(
                             format!("/srv/enola-wordpress/{}_wp", name),
@@ -675,7 +675,7 @@ mod tests {
         let wp = &plan.containers[0];
         assert_eq!(wp.name, "wp-myblog");
         assert_eq!(wp.image, crate::domain::images::WORDPRESS.reference()); // KEEP-IN-SYNC deploy_wordpress.rs
-        assert_eq!(wp.internal_port, 80); // KEEP-IN-SYNC deploy_wordpress.rs:160
+        assert_eq!(wp.internal_port, 8080); // KEEP-IN-SYNC deploy_wordpress.rs
         assert_eq!(wp.host_port, Some(8090));
         assert_eq!(wp.network, Some("enola_net_myblog".to_string())); // KEEP-IN-SYNC deploy_wordpress.rs
         assert_eq!(

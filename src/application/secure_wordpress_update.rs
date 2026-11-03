@@ -58,14 +58,12 @@ impl SecureWordPressUpdate {
             None
         };
 
-        // 2. Pull de las imágenes de la tabla (A25-07: nunca `:latest`).
+        // 2. Pull de MariaDB (A25-07: nunca `:latest`). La imagen de WordPress es
+        // propia (`enola/wordpress`, se construye en local): no hay nada que bajar.
         // Nota: `restart` no recrea el contenedor, así que la instancia sigue en
         // su imagen actual; el core de WordPress se actualiza desde wp-admin.
         self.container_manager
             .pull_image(&crate::domain::images::MARIADB_WORDPRESS.reference())
-            .await?;
-        self.container_manager
-            .pull_image(&crate::domain::images::WORDPRESS.reference())
             .await?;
 
         // 3. Restart Containers
