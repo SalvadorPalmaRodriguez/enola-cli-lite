@@ -2701,6 +2701,10 @@ async fn execute_maintenance(cmd: MaintenanceCommands, format: &str) -> CliResul
             let result = commands::maintenance::backup(keep).await?;
             Ok(result)
         }
+        MaintenanceCommands::Restore { archive, force } => {
+            let result = commands::maintenance::restore(&archive, force).await?;
+            Ok(result)
+        }
         MaintenanceCommands::BackupConfig { max_backups } => {
             let result = commands::maintenance::backup_config(max_backups).await?;
             Ok(result)

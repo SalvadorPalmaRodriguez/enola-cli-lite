@@ -1,4 +1,5 @@
 pub mod apparmor;
+pub mod archive; // PLAN-BACKUP-RESTORE — TarGzArchive (tar+flate2 en proceso)
 pub mod docker;
 pub mod manifest; // UNINSTALL-MANIFEST-001 — file-backed ManifestPort // AA-003 (203) — AppArmor adapter (apparmor_parser, aa-status)
 

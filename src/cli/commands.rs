@@ -5790,6 +5790,70 @@ pub mod maintenance {
         Ok(format!("✅ System backup created: {:?}", backup_path))
     }
 
+    /// Restore the system identity from a backup (PLAN-BACKUP-RESTORE, Fase 2).
+    /// Without `force` it only reports what would change; it never restarts services.
+    pub async fn restore(archive: &std::path::Path, force: bool) -> CliResult<String> {
+        use crate::application::backup_system::BackupSystem;
+        use crate::application::restore_system::RestoreSystem;
+        use crate::domain::backup::EntryKind;
+
+        // SAFETY: geteuid no tiene precondiciones.
+        let is_root = unsafe { libc::geteuid() } == 0;
+        if force && !is_root {
+            return Err(CliError::Generic(
+                "restore --force needs root. Run: sudo enola-cli maintenance restore <archive> --force"
+                    .to_string(),
+            ));
+        }
+        let backup = BackupSystem::new(Arc::new(EnolaFileAdapter::new())).with_disk_space(
+            Arc::new(crate::adapters::infra::disk_space::SystemDiskSpace::new()),
+        );
+        let use_case = RestoreSystem::new(
+            Arc::new(crate::adapters::infra::archive::TarGzArchive::new(is_root)),
+            backup,
+            std::path::PathBuf::from("/"),
+        );
+        let r = use_case.run(archive, force).await.map_err(CliError::from)?;
+
+        let count = |k: EntryKind| r.items.iter().filter(|i| i.kind == k).count();
+        let mut out = String::new();
+        out.push_str(&format!(
+            "📦 Backup {} (enola-cli {}, format {}): {} files, {} folders, {} symlinks\n",
+            r.manifest.created_at,
+            r.manifest.enola_version,
+            r.manifest.format_version,
+            count(EntryKind::File),
+            count(EntryKind::Dir),
+            count(EntryKind::Symlink),
+        ));
+        if r.overwrites.is_empty() {
+            out.push_str("   Nothing that exists today would be overwritten.\n");
+        } else {
+            out.push_str(&format!(
+                "   {} existing file(s) would be overwritten, e.g.:\n",
+                r.overwrites.len()
+            ));
+            for p in r.overwrites.iter().take(5) {
+                out.push_str(&format!("     - {}\n", p.display()));
+            }
+        }
+        if r.applied {
+            if let Some(p) = &r.pre_restore {
+                out.push_str(&format!("💾 Previous state saved: {}\n", p.display()));
+            }
+            out.push_str("✅ Files restored. Services were NOT touched. Restart what you use:\n");
+            for h in &r.hints {
+                out.push_str(&format!("   {h}\n"));
+            }
+        } else {
+            out.push_str(
+                "ℹ️  Dry run: nothing was written. Add --force to restore \
+                 (a copy of the current state is saved first).\n",
+            );
+        }
+        Ok(out)
+    }
+
     /// Show or persist the backup retention policy (`[backup].max_backups`).
     ///
     /// Resolution order: `maintenance backup --keep N` (runtime) >

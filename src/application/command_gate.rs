@@ -743,6 +743,34 @@ mod tests {
         }
     }
 
+    /// PLAN-BACKUP-RESTORE D5: `maintenance restore` solo existe en el CLI directo;
+    /// la consola web y MCP lo vetan con cualquier política.
+    #[test]
+    fn maintenance_restore_is_vetoed_for_web_and_mcp() {
+        let web = evaluate_argv(&[
+            "maintenance".to_string(),
+            "restore".to_string(),
+            "/var/backups/enola-server/x.tar.gz".to_string(),
+            "--force".to_string(),
+        ]);
+        assert!(is_security(&web), "web: {web:?}");
+        let mcp =
+            crate::application::mcp::run_command::resolve_kind_for_parity(&serde_json::json!({
+                "family": "maintenance",
+                "subcommand": "restore",
+                "args": {"archive": "/var/backups/enola-server/x.tar.gz", "force": true}
+            }));
+        assert!(
+            matches!(mcp, Err(EnolaError::SecurityError(_))),
+            "mcp: {mcp:?}"
+        );
+        // Y `maintenance backup` sigue siendo Destructive (gate de 2 pasos), no vetado.
+        assert!(!is_security(&evaluate_argv(&[
+            "maintenance".to_string(),
+            "backup".to_string()
+        ])));
+    }
+
     #[test]
     fn forbidden_for_ui_lists_families_and_paths() {
         let v = forbidden_for_ui();

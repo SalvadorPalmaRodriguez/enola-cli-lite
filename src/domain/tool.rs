@@ -220,6 +220,7 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     ("git", &["user", "create"]),
     ("maintenance", &["ssh-harden-pqc"]),
     ("maintenance", &["backup"]),
+    ("maintenance", &["restore"]),
     ("maintenance", &["disable-checks"]),
     // Publicación/exposición de red en un paso.
     ("wp", &["publish"]),
@@ -297,6 +298,9 @@ pub(crate) const FORBIDDEN_PATHS: &[(&str, &[&str])] = &[
     ("tor", &["auth", "generate"]),
     ("vpn", &["peer", "add"]),
     ("git", &["user", "create"]),
+    // PLAN-BACKUP-RESTORE D5 — el restore sobrescribe claves `.onion`, Nginx y TLS
+    // como root: solo CLI directo, nunca MCP ni consola web (mismo gate).
+    ("maintenance", &["restore"]),
 ];
 
 /// `true` si la familia está prohibida para `enola_run_command`.

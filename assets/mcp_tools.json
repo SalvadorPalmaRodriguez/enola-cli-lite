@@ -2318,6 +2318,34 @@
           "subcommands": []
         },
         {
+          "description": "Restore the system identity (Tor keys, Nginx, certificates, Enola config) from a backup made by `maintenance backup`. Without --force it only shows what would change. It restores FILES only: it never restarts services (CLI only; not available through the web dashboard or MCP)",
+          "flags": [
+            {
+              "boolean": false,
+              "name": "archive",
+              "positional": true,
+              "possible_values": [],
+              "required": true,
+              "short": null,
+              "value_name": "ARCHIVE"
+            },
+            {
+              "boolean": true,
+              "name": "force",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "short": "f",
+              "value_name": "FORCE"
+            }
+          ],
+          "name": "restore",
+          "subcommands": []
+        },
+        {
           "description": "Show or set the backup retention policy (persisted in config.toml [backup])",
           "flags": [
             {

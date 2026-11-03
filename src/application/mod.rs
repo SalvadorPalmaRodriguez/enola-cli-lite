@@ -40,6 +40,7 @@ pub mod publish_wordpress; // MCP-007 — publicar WordPress en Tor (onion estru
 pub mod release_verify; // RELEASE-VERIFY (PQC-030): verificación de releases (ML-DSA-65 + SHA-256) desde enola-cli
 pub mod remove_tor_service;
 pub mod resource_alerts; // Task 15.6: Resource Alerts
+pub mod restore_system; // PLAN-BACKUP-RESTORE Fase 2 — maintenance restore
 pub mod rotate_tor_identity;
 pub mod secure_wordpress_update; // Added SecureWordPressUpdate
 pub mod ssh_status_check;

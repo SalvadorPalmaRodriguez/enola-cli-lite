@@ -163,6 +163,9 @@
       "--force",
       "--keep-days"
     ],
+    "maintenance.restore": [
+      "--force"
+    ],
     "maintenance.ssh-harden-pqc": [
       "--force",
       "--dry-run"
@@ -476,6 +479,7 @@
       "ssh-config",
       "ssh-harden-pqc",
       "backup",
+      "restore",
       "backup-config",
       "cleanup"
     ],

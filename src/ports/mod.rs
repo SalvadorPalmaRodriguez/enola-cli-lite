@@ -3,6 +3,7 @@
 
 pub mod ai; // Fase 10 — Puerto de ciclo de vida de instancias IA (Ollama + Open WebUI)
 pub mod apparmor; // AA-002 (202) — AppArmor sandboxing port
+pub mod archive; // PLAN-BACKUP-RESTORE — lectura y extracción segura de backups
 pub mod cert;
 pub mod cms;
 pub mod connector;

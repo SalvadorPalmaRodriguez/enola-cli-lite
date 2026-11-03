@@ -1954,6 +1954,19 @@ pub enum MaintenanceCommands {
         keep: Option<usize>,
     },
 
+    /// Restore the system identity (Tor keys, Nginx, certificates, Enola config) from a
+    /// backup made by `maintenance backup`. Without --force it only shows what would
+    /// change. It restores FILES only: it never restarts services (CLI only; not
+    /// available through the web dashboard or MCP).
+    Restore {
+        /// Backup archive (`/var/backups/enola-server/<date>_system_full.tar.gz`)
+        archive: std::path::PathBuf,
+
+        /// Apply the restore (a `pre-restore` copy of what exists is saved first)
+        #[arg(short, long)]
+        force: bool,
+    },
+
     /// Show or set the backup retention policy (persisted in config.toml [backup])
     BackupConfig {
         /// Maximum number of backups kept per service (min 1). Omit to show the
