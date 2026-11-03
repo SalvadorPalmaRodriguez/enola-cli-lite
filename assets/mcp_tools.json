@@ -3782,6 +3782,25 @@
           ],
           "name": "apply",
           "subcommands": []
+        },
+        {
+          "description": "Go back to the previous binary (`enola-cli.bak`) after a bad update.",
+          "flags": [
+            {
+              "boolean": true,
+              "name": "json",
+              "positional": false,
+              "possible_values": [
+                "true",
+                "false"
+              ],
+              "required": false,
+              "short": null,
+              "value_name": "JSON"
+            }
+          ],
+          "name": "rollback",
+          "subcommands": []
         }
       ]
     },

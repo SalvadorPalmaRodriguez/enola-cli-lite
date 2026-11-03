@@ -746,6 +746,19 @@ mod tests {
     /// PLAN-BACKUP-RESTORE D5: `maintenance restore` solo existe en el CLI directo;
     /// la consola web y MCP lo vetan con cualquier política.
     #[test]
+    fn update_rollback_is_vetoed_for_web_and_mcp() {
+        let web = evaluate_argv(&["update".to_string(), "rollback".to_string()]);
+        assert!(is_security(&web), "web: {web:?}");
+        let mcp = crate::application::mcp::run_command::resolve_kind_for_parity(
+            &serde_json::json!({"family": "update", "subcommand": "rollback"}),
+        );
+        assert!(
+            matches!(mcp, Err(EnolaError::SecurityError(_))),
+            "mcp: {mcp:?}"
+        );
+    }
+
+    #[test]
     fn maintenance_restore_is_vetoed_for_web_and_mcp() {
         let web = evaluate_argv(&[
             "maintenance".to_string(),

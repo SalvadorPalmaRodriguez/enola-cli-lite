@@ -693,6 +693,16 @@ pub enum UpdateCommands {
         #[arg(long)]
         allow_unsigned: bool,
     },
+    /// Go back to the previous binary (`enola-cli.bak`) after a bad update.
+    ///
+    /// Re-verifies the minisign signature saved with the previous binary and refuses
+    /// if it is missing or invalid (there is no override). Requires root. CLI only:
+    /// not available through the web dashboard or MCP.
+    Rollback {
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -238,6 +238,7 @@ pub(crate) const DESTRUCTIVE_COMMANDS: &[(&str, &[&str])] = &[
     // para que ninguna vía la ejecute sin confirmación.
     ("update", &["download"]),
     ("update", &["apply"]),
+    ("update", &["rollback"]),
     // Fase 10.5 — subcomandos destructivos de `ai` (criterio R-2/R13: borrado o exposición en red)
     ("ai", &["delete"]),
     ("ai", &["publish"]),
@@ -301,6 +302,8 @@ pub(crate) const FORBIDDEN_PATHS: &[(&str, &[&str])] = &[
     // PLAN-BACKUP-RESTORE D5 — el restore sobrescribe claves `.onion`, Nginx y TLS
     // como root: solo CLI directo, nunca MCP ni consola web (mismo gate).
     ("maintenance", &["restore"]),
+    // Fase 3 — `update rollback` reinstala un binario como root: igual que `update apply`.
+    ("update", &["rollback"]),
 ];
 
 /// `true` si la familia está prohibida para `enola_run_command`.

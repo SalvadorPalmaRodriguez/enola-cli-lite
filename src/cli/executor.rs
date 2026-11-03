@@ -4256,6 +4256,20 @@ async fn execute_update(cmd: crate::cli::UpdateCommands) -> CliResult<String> {
                 Err(e) => Err(CliError::Generic(format!("update apply: {}", e))),
             }
         }
+        UpdateCommands::Rollback { json } => match update_checker::rollback_update() {
+            Ok(r) => {
+                if json {
+                    serde_json::to_string_pretty(&r)
+                        .map_err(|e| CliError::Generic(format!("rollback JSON: {}", e)))
+                } else {
+                    Ok(format!(
+                        "✅ Rolled back to the previous binary (signature verified).\n  Binary: {}\n  SHA256: {}",
+                        r.binary_path, r.sha256
+                    ))
+                }
+            }
+            Err(e) => Err(CliError::Generic(format!("update rollback: {}", e))),
+        },
     }
 }
 

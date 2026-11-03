@@ -1411,6 +1411,168 @@ fn sync_installed_pqsig(bin_path: &str, share_dir: &Path) {
     }
 }
 
+// ── Rollback de update (PLAN-BACKUP-RESTORE, Fase 3; D4/D6) ───────────────────
+
+/// Nombre del `.bak` y de sus firmas en `share/enola/`.
+const BAK_NAME: &str = "enola-cli.bak";
+const BAK_MINISIG_NAME: &str = "enola-cli.bak.minisig";
+const BAK_PQSIG_NAME: &str = "enola-cli.bak.pqsig";
+/// Firma minisign del binario instalado (para heredarla al `.bak` en el siguiente update).
+const INSTALLED_MINISIG_NAME: &str = "cli.minisig";
+const MAX_SIG_BYTES: u64 = 64 * 1024;
+
+/// Contenido de un fichero regular pequeño (lstat, sin seguir symlinks).
+fn read_small_regular(path: &Path) -> Option<Vec<u8>> {
+    let ok = std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_file() && m.len() <= MAX_SIG_BYTES)
+        .unwrap_or(false);
+    ok.then(|| std::fs::read(path).ok()).flatten()
+}
+
+/// Copia `src` a `dst` de forma atómica (0644) o, si `src` no es válido, BORRA `dst`
+/// obsoleto. Best-effort: nunca aborta un update.
+fn persist_or_remove(src: &Path, dst: &Path) {
+    match read_small_regular(src) {
+        Some(bytes) => {
+            let _ = crate::infrastructure::atomic_secret_file::write_atomic(dst, &bytes, 0o644);
+        }
+        None => {
+            let _ = std::fs::remove_file(dst);
+        }
+    }
+}
+
+/// D6: las firmas del binario instalado pasan a ser las de su copia `.bak`.
+fn preserve_backup_signatures(share_dir: &Path) {
+    persist_or_remove(
+        &share_dir.join(INSTALLED_MINISIG_NAME),
+        &share_dir.join(BAK_MINISIG_NAME),
+    );
+    persist_or_remove(
+        &share_dir.join("cli.pqsig"),
+        &share_dir.join(BAK_PQSIG_NAME),
+    );
+}
+
+/// D6: conserva la firma minisign del binario recién instalado en `cli.minisig`.
+fn sync_installed_minisig(sig_file: &Path, share_dir: &Path, verified: bool) {
+    let dst = share_dir.join(INSTALLED_MINISIG_NAME);
+    if verified {
+        persist_or_remove(sig_file, &dst);
+    } else {
+        let _ = std::fs::remove_file(&dst);
+    }
+}
+
+/// Todas las claves públicas minisign que pueden haber firmado un binario anterior
+/// (la activa, las persistidas por rotación y la embebida), sin duplicados.
+fn all_minisign_pubkeys() -> Vec<String> {
+    let mut keys = vec![update_minisign_pubkey()];
+    keys.extend(
+        load_trusted_minisign_keys()
+            .into_iter()
+            .map(|k| k.trim().to_string()),
+    );
+    if let Some(k) = EMBEDDED_MINISIGN_PUBKEY_FILE
+        .lines()
+        .find(|l| l.starts_with("RW"))
+    {
+        keys.push(k.trim().to_string());
+    }
+    keys.retain(|k| !k.is_empty());
+    keys.dedup();
+    let mut seen = std::collections::HashSet::new();
+    keys.retain(|k| seen.insert(k.clone()));
+    keys
+}
+
+/// Resultado de `update rollback`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackResult {
+    /// Binario reinstalado.
+    pub binary_path: String,
+    /// SHA-256 del binario restaurado.
+    pub sha256: String,
+}
+
+/// Vuelve al binario anterior (`enola-cli.bak`) **solo si** su firma minisign se
+/// verifica (D4). No hay `--allow-unsigned`: sin firma conservada o con firma
+/// inválida se niega. Requiere root.
+pub fn rollback_update() -> std::result::Result<RollbackResult, String> {
+    if unsafe { libc::geteuid() } != 0 {
+        return Err("update rollback requires root. Run with sudo.".to_string());
+    }
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("Cannot determine current binary path: {}", e))?;
+    let share_dir = current_exe
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("share").join("enola"))
+        .unwrap_or_else(|| PathBuf::from("/usr/local/share/enola"));
+    let keys = all_minisign_pubkeys();
+    rollback_in(&current_exe, &share_dir, true, &|bytes, sig| {
+        keys.iter().any(|k| verify_bytes_minisign(bytes, sig, k))
+    })
+}
+
+/// Núcleo testeable del rollback: `verify(bytes, ruta_firma)` decide si la firma vale.
+fn rollback_in(
+    install_path: &Path,
+    share_dir: &Path,
+    require_root_owned: bool,
+    verify: &dyn Fn(&[u8], &Path) -> bool,
+) -> std::result::Result<RollbackResult, String> {
+    let bak = share_dir.join(BAK_NAME);
+    let sig = share_dir.join(BAK_MINISIG_NAME);
+    if std::fs::symlink_metadata(&bak).is_err() {
+        return Err(format!(
+            "No previous binary to go back to ({} not found). Rollback is only possible after an `update apply`.",
+            bak.display()
+        ));
+    }
+    if std::fs::symlink_metadata(&sig).is_err() {
+        return Err(
+            "Rollback refused: the previous binary has no stored minisign signature (it was \
+             saved by an older enola-cli or applied with --allow-unsigned), so it cannot be \
+             verified. Reinstall a signed release instead: `enola-cli update download`."
+                .to_string(),
+        );
+    }
+    if require_root_owned {
+        staged_artifacts_root_owned(&[bak.clone(), sig.clone()])?;
+    }
+    // SEC-A5: se lee UNA vez; verificación e instalación usan esos mismos bytes.
+    let data = std::fs::read(&bak).map_err(|e| format!("Read {}: {}", bak.display(), e))?;
+    if !verify(&data, &sig) {
+        return Err(
+            "Rollback refused: the minisign signature of the previous binary does NOT verify. \
+             Nothing was changed."
+                .to_string(),
+        );
+    }
+    let verified = VerifiedBinary {
+        sha256: sha256_hex(&data),
+        bytes: data,
+    };
+    install_verified(&verified, install_path)?;
+
+    // Metadatos del binario restaurado (best-effort, como en apply).
+    let _ = std::fs::write(
+        share_dir.join("cli.sha256"),
+        format!("{}  enola-cli", verified.sha256),
+    );
+    persist_or_remove(&sig, &share_dir.join(INSTALLED_MINISIG_NAME));
+    persist_or_remove(
+        &share_dir.join(BAK_PQSIG_NAME),
+        &share_dir.join("cli.pqsig"),
+    );
+
+    Ok(RollbackResult {
+        binary_path: install_path.to_string_lossy().to_string(),
+        sha256: verified.sha256,
+    })
+}
+
 /// Save metadata about the last download so `update apply` can find it.
 ///
 /// `sig_path` (R-7) apunta al `.minisig` persistido junto al binario staged;
@@ -1782,7 +1944,7 @@ pub fn apply_update(
 ) -> std::result::Result<DownloadResult, String> {
     // Determine which binary to apply. SEC-A5: the file is read ONCE; every
     // check (SHA-256, minisign) and the install use those same bytes.
-    let (bin_path, verified, sig_verified) = match binary_path {
+    let (bin_path, verified, sig_verified, sig_file) = match binary_path {
         Some(p) => {
             // T2: reject an unverified explicit path unless the escape hatch is set.
             if !known_verified && !allow_unsigned {
@@ -1809,6 +1971,7 @@ pub fn apply_update(
                     ));
                 }
             }
+            let sig_file = PathBuf::from(format!("{}.minisig", p));
             (
                 p.to_string(),
                 VerifiedBinary {
@@ -1816,6 +1979,7 @@ pub fn apply_update(
                     sha256: sha,
                 },
                 known_verified,
+                sig_file,
             )
         }
         None => {
@@ -1876,6 +2040,7 @@ pub fn apply_update(
                     sha256: actual_sha,
                 },
                 sig,
+                sig_path,
             )
         }
     };
@@ -1898,6 +2063,10 @@ pub fn apply_update(
     if std::path::Path::new(&install_path).exists() {
         std::fs::copy(&install_path, &backup_path)
             .map_err(|e| format!("Backup current binary: {}", e))?;
+        // D6: las firmas del binario que pasa a ser `.bak` viajan con él, para que
+        // `update rollback` pueda verificarlo sin red. ANTES de instalar el nuevo
+        // (que reescribe cli.pqsig / cli.minisig).
+        preserve_backup_signatures(&share_dir);
     }
 
     // SEC-A5: install the verified bytes as a NEW root-owned file in the
@@ -1918,6 +2087,9 @@ pub fn apply_update(
     // obsoleto — ANTES de prune_download_residuals, que borra el hermano
     // persistido por U1b.
     sync_installed_pqsig(&bin_path, &share_dir);
+    // D6: guarda la firma minisign del binario recién instalado (o borra la obsoleta
+    // si se aplicó sin verificar: así el siguiente `.bak` no hereda una firma ajena).
+    sync_installed_minisig(&sig_file, &share_dir, sig_verified);
 
     // UPD-RESIDUE-001: clean up staged downloads now that the new binary is live.
     // The rollback backup (enola-cli.bak) is kept on purpose.
@@ -3540,5 +3712,193 @@ mod tests {
         if unsafe { libc::geteuid() } != 0 {
             assert!(load_last_published_at(&p, 0).is_none());
         }
+    }
+
+    // ── Rollback de update (PLAN-BACKUP-RESTORE Fase 3) ───────────────────
+    fn rb_setup() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin_dir = tmp.path().join("bin");
+        let share = tmp.path().join("share/enola");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&share).unwrap();
+        // `install_verified` exige un directorio no escribible por grupo/otros.
+        std::fs::set_permissions(
+            &bin_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
+        let install = bin_dir.join("enola-cli");
+        std::fs::write(&install, b"NEW-BROKEN").unwrap();
+        (tmp, install, share)
+    }
+
+    #[test]
+    fn rollback_reinstalls_the_bak_when_its_signature_verifies() {
+        let (_t, install, share) = rb_setup();
+        std::fs::write(share.join(BAK_NAME), b"OLD-GOOD").unwrap();
+        std::fs::write(share.join(BAK_MINISIG_NAME), b"SIG-OLD").unwrap();
+        std::fs::write(share.join(BAK_PQSIG_NAME), b"PQ-OLD").unwrap();
+        let seen = std::cell::RefCell::new(Vec::new());
+        let r = rollback_in(&install, &share, false, &|bytes, sig| {
+            seen.borrow_mut().push((bytes.to_vec(), sig.to_path_buf()));
+            true
+        })
+        .unwrap();
+        assert_eq!(std::fs::read(&install).unwrap(), b"OLD-GOOD");
+        assert_eq!(r.sha256, sha256_hex(b"OLD-GOOD"));
+        // Se verificaron EXACTAMENTE los bytes del .bak con su firma.
+        assert_eq!(seen.borrow()[0].0, b"OLD-GOOD");
+        assert_eq!(seen.borrow()[0].1, share.join(BAK_MINISIG_NAME));
+        // Metadatos del binario restaurado.
+        assert_eq!(
+            std::fs::read(share.join(INSTALLED_MINISIG_NAME)).unwrap(),
+            b"SIG-OLD"
+        );
+        assert_eq!(std::fs::read(share.join("cli.pqsig")).unwrap(), b"PQ-OLD");
+        assert!(std::fs::read_to_string(share.join("cli.sha256"))
+            .unwrap()
+            .starts_with(&r.sha256));
+    }
+
+    #[test]
+    fn rollback_refuses_without_bak_or_without_signature_or_with_bad_signature() {
+        let (_t, install, share) = rb_setup();
+        // Sin .bak
+        let e = rollback_in(&install, &share, false, &|_, _| true).unwrap_err();
+        assert!(e.contains("No previous binary"), "{e}");
+        // .bak sin firma conservada (versión anterior / --allow-unsigned)
+        std::fs::write(share.join(BAK_NAME), b"OLD").unwrap();
+        let e = rollback_in(&install, &share, false, &|_, _| true).unwrap_err();
+        assert!(e.contains("no stored minisign signature"), "{e}");
+        assert_eq!(
+            std::fs::read(&install).unwrap(),
+            b"NEW-BROKEN",
+            "no tocó el binario"
+        );
+        // Firma que NO verifica
+        std::fs::write(share.join(BAK_MINISIG_NAME), b"FORGED").unwrap();
+        let e = rollback_in(&install, &share, false, &|_, _| false).unwrap_err();
+        assert!(e.contains("does NOT verify"), "{e}");
+        assert_eq!(
+            std::fs::read(&install).unwrap(),
+            b"NEW-BROKEN",
+            "no tocó el binario"
+        );
+    }
+
+    #[test]
+    fn rollback_requires_root_owned_artifacts_when_asked() {
+        if unsafe { libc::geteuid() } == 0 {
+            return; // como root el tmp sí sería uid 0
+        }
+        let (_t, install, share) = rb_setup();
+        std::fs::write(share.join(BAK_NAME), b"OLD").unwrap();
+        std::fs::write(share.join(BAK_MINISIG_NAME), b"SIG").unwrap();
+        let e = rollback_in(&install, &share, true, &|_, _| true).unwrap_err();
+        assert!(e.contains("root-owned"), "{e}");
+        assert_eq!(std::fs::read(&install).unwrap(), b"NEW-BROKEN");
+    }
+
+    /// D6: al hacer `.bak`, las firmas del binario instalado viajan con él; si no hay
+    /// firma, se borra la obsoleta (el `.bak` no hereda la firma de otro binario).
+    #[test]
+    fn backup_signatures_follow_the_binary_and_stale_ones_are_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let share = tmp.path();
+        std::fs::write(share.join(INSTALLED_MINISIG_NAME), b"SIG-V1").unwrap();
+        std::fs::write(share.join("cli.pqsig"), b"PQ-V1").unwrap();
+        preserve_backup_signatures(share);
+        assert_eq!(
+            std::fs::read(share.join(BAK_MINISIG_NAME)).unwrap(),
+            b"SIG-V1"
+        );
+        assert_eq!(std::fs::read(share.join(BAK_PQSIG_NAME)).unwrap(), b"PQ-V1");
+
+        // El binario instalado no tenía firmas: el .bak no debe conservar las viejas.
+        std::fs::remove_file(share.join(INSTALLED_MINISIG_NAME)).unwrap();
+        std::fs::remove_file(share.join("cli.pqsig")).unwrap();
+        preserve_backup_signatures(share);
+        assert!(!share.join(BAK_MINISIG_NAME).exists());
+        assert!(!share.join(BAK_PQSIG_NAME).exists());
+    }
+
+    #[test]
+    fn installed_minisig_is_kept_only_when_verified() {
+        let tmp = tempfile::tempdir().unwrap();
+        let share = tmp.path().join("share");
+        std::fs::create_dir_all(&share).unwrap();
+        let sig = tmp.path().join("enola-cli-new.minisig");
+        std::fs::write(&sig, b"SIG-NEW").unwrap();
+        sync_installed_minisig(&sig, &share, true);
+        assert_eq!(
+            std::fs::read(share.join(INSTALLED_MINISIG_NAME)).unwrap(),
+            b"SIG-NEW"
+        );
+        // Aplicado sin verificar (--allow-unsigned): se borra la firma instalada.
+        sync_installed_minisig(&sig, &share, false);
+        assert!(!share.join(INSTALLED_MINISIG_NAME).exists());
+    }
+
+    #[test]
+    fn minisign_candidate_keys_are_unique_and_non_empty() {
+        let keys = all_minisign_pubkeys();
+        assert!(!keys.is_empty());
+        let set: std::collections::HashSet<_> = keys.iter().collect();
+        assert_eq!(set.len(), keys.len());
+        assert!(keys.iter().all(|k| !k.is_empty()));
+    }
+
+    /// Con minisign REAL: firma válida → rollback; binario alterado → se niega.
+    /// Se salta si `minisign` no está instalado.
+    #[test]
+    fn rollback_with_real_minisign_accepts_valid_and_rejects_tampered() {
+        if Command::new("minisign").arg("-v").output().is_err() {
+            return;
+        }
+        let keys = tempfile::tempdir().unwrap();
+        let (pk, sk) = (keys.path().join("k.pub"), keys.path().join("k.key"));
+        let gen = Command::new("minisign")
+            .args(["-G", "-W", "-p"])
+            .arg(&pk)
+            .arg("-s")
+            .arg(&sk)
+            .output()
+            .unwrap();
+        assert!(gen.status.success());
+        let pubkey = std::fs::read_to_string(&pk)
+            .unwrap()
+            .lines()
+            .find(|l| l.starts_with("RW"))
+            .unwrap()
+            .to_string();
+
+        let (_t, install, share) = rb_setup();
+        let bak = share.join(BAK_NAME);
+        std::fs::write(&bak, b"OLD-GOOD-BINARY").unwrap();
+        let sign = Command::new("minisign")
+            .args(["-S", "-s"])
+            .arg(&sk)
+            .arg("-m")
+            .arg(&bak)
+            .arg("-x")
+            .arg(share.join(BAK_MINISIG_NAME))
+            .output()
+            .unwrap();
+        assert!(
+            sign.status.success(),
+            "{}",
+            String::from_utf8_lossy(&sign.stderr)
+        );
+
+        let verify = |b: &[u8], sig: &Path| verify_bytes_minisign(b, sig, &pubkey);
+        rollback_in(&install, &share, false, &verify).expect("firma válida");
+        assert_eq!(std::fs::read(&install).unwrap(), b"OLD-GOOD-BINARY");
+
+        // Alterar el .bak tras firmarlo: debe rechazarse y no tocar el instalado.
+        std::fs::write(&install, b"NEW-BROKEN").unwrap();
+        std::fs::write(&bak, b"OLD-GOOD-BINARY-TAMPERED").unwrap();
+        let e = rollback_in(&install, &share, false, &verify).unwrap_err();
+        assert!(e.contains("does NOT verify"), "{e}");
+        assert_eq!(std::fs::read(&install).unwrap(), b"NEW-BROKEN");
     }
 }

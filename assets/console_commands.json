@@ -270,6 +270,9 @@
       "--force",
       "--allow-unsigned"
     ],
+    "update.rollback": [
+      "--json"
+    ],
     "update.schema": [
       "--json"
     ],
@@ -529,7 +532,8 @@
       "schema",
       "verify-feed",
       "download",
-      "apply"
+      "apply",
+      "rollback"
     ],
     "vpn": [
       "create",
