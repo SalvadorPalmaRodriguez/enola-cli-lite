@@ -5,6 +5,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- **`files delete` only removes folders under `/srv/enola-files/`** — the folder to delete was read from the `root` line of the share's Nginx site and removed (as root) without checking it. It is now canonicalized (`..` and symlinks resolved) and must be strictly inside `/srv/enola-files/` (never the root itself); otherwise it is kept and a warning explains why, while the service, site and certificate are still removed.
+
+### Fixed
+- **Web `delete` now cleans up like the CLI** — deleting a CMS (Drupal, Ghost, Magnolia, Strapi, Wagtail) from the web panel only removed the containers; it now also removes the Tor service, Nginx site and certificate, the UFW rule, the Docker network and the data folder, using the same code as the CLI. Deleting a WordPress site from the web now also removes its `_secrets`, `_db` and `_wp` folders, UFW rule and AppArmor profile.
+- **Removing a Tor service that no longer exists still deletes its certificate** — when the hidden service was already gone (`not found`), its own `.crt`/`.key` were left behind; they are now deleted and the `not found` result is kept.
+- **Deleting Drupal, Ghost, Magnolia, Strapi, Wagtail, file shares and AI instances now removes their UFW rule** — `create` allows the instance's loopback port in UFW, but only `tor`, `git` and `wp` removed it on `delete`, leaving stale rules (and `ufw_rule` manifest entries) behind. The port is now read before deleting and cleaned afterwards. None of these types creates an AppArmor profile (only `git` and `wp` do), so nothing changes there.
+- **Web console: `/api/console/help` lists every available command** — the list was hardcoded and had drifted (it missed `ai`, among others). It is now derived from the CLI definition, minus the families the web console never runs (`mcp`, `ask`, `ssh`, `uninstall`, `web`, `setup`: same veto as MCP), so it no longer advertises commands that would answer `403`.
+
 ## [0.11.0-alpha] — 2026-10-29
 
 ### Breaking

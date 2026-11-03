@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/files/commands-files.md`
-> **Versión:** 2.4 | **Actualizado:** 2026-10-28
+> **Versión:** 2.5 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -113,7 +113,7 @@ sudo enola-cli files delete <NOMBRE> --force
 |------|------|-------------|-------------|
 | `--force` / `-f` | Bool | Sí | Confirmación obligatoria — previene borrado accidental |
 
-> El directorio `/srv/enola-files/<name>/` **no se borra** automáticamente. Elimínalo manualmente si no lo necesitas.
+> También se borra la carpeta del share, pero solo si, una vez resueltos `..` y enlaces simbólicos, queda estrictamente dentro de `/srv/enola-files/`. Si apunta fuera (o es la propia raíz) se conserva, se muestra un aviso y el resto del borrado continúa: elimínala a mano si procede.
 
 ---
 

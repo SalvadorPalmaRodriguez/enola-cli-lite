@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/firewall/commands-firewall.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-10-28
+> **Versión:** 2.2 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -10,6 +10,9 @@ DOCKER-USER para evitar que Docker bypasee las reglas.
 
 > Los servicios de Enola bindean a `127.0.0.1` — las reglas UFW no les afectan.
 > UFW controla los puertos externos del host.
+>
+> Al crear un servicio (CMS, `ai`, Git, WordPress…) Enola registra su puerto interno como regla
+> loopback en UFW (si UFW está activo); al borrarlo con `delete`, esa regla se elimina también.
 
 ---
 

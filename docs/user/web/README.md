@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/web/README.md`
-> **Versión:** 2.5 | **Actualizado:** 2026-10-28
+> **Versión:** 2.7 | **Actualizado:** 2026-11-03
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 
 # Enola Web Dashboard
@@ -179,7 +179,7 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/console/help` | List all CLI commands |
+| GET | `/api/console/help` | List the CLI commands the console can run (excludes `mcp`, `ask`, `ssh`, `uninstall`, `web`, `setup`) |
 | GET | `/api/console/help/{command}` | Help for specific command |
 | POST | `/api/console/run` | Run CLI command (same command policy as MCP — see below) |
 
@@ -212,7 +212,7 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 | POST | `/api/wp/{name}/start` | Start WordPress site |
 | POST | `/api/wp/{name}/stop` | Stop WordPress site |
 | POST | `/api/wp/{name}/restart` | Restart WordPress site |
-| POST | `/api/wp/{name}/delete` | Delete WordPress site |
+| POST | `/api/wp/{name}/delete` | Delete WordPress site (same full cleanup as the CLI: Tor, UFW, AppArmor, secrets/db/wp folders) |
 | POST | `/api/wp/{name}/publish` | Publish WordPress on Tor |
 | POST | `/api/wp/{name}/hide` | Hide WordPress from Tor |
 | POST | `/api/wp/{name}/update` | Update WordPress |
@@ -228,7 +228,7 @@ All endpoints under `/api/` require the `Authorization: <token>` header.
 | POST | `/api/cms/{cms_type}/create` | Create CMS instance |
 | POST | `/api/cms/{cms_type}/{name}/start` | Start CMS instance |
 | POST | `/api/cms/{cms_type}/{name}/stop` | Stop CMS instance |
-| POST | `/api/cms/{cms_type}/{name}/delete` | Delete CMS instance |
+| POST | `/api/cms/{cms_type}/{name}/delete` | Delete CMS instance (same full cleanup as the CLI: Tor service+site+cert, UFW, network, data) |
 | GET | `/api/cms/{cms_type}/{name}/status` | CMS instance status |
 | POST | `/api/cms/{cms_type}/{name}/edit` | Edit CMS instance |
 | POST | `/api/cms/{cms_type}/{name}/publish` | Publish CMS on Tor |
