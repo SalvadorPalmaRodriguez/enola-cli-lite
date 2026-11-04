@@ -492,6 +492,12 @@ pub mod tor {
                 let _ = std::io::Write::flush(&mut std::io::stderr());
 
                 use crate::application::deploy_static_site::DeployStaticSite;
+                use crate::ports::web::NginxManagerPort;
+
+                // El nombre forma parte de `/var/www/<nombre>`: se valida aquí
+                // también (la vía web no pasa por el executor de la CLI).
+                crate::domain::naming::validate_service_name(name)
+                    .map_err(|e| CliError::InvalidInput(e.to_string()))?;
 
                 let (nginx_port, _nginx_port_lock) = nginx_adapter
                     .find_available_port_with_lock(20000, 30000)
@@ -500,13 +506,21 @@ pub mod tor {
                         CliError::Generic(format!("Failed to find available port: {:?}", e))
                     })?;
                 let root_dir = format!("/var/www/{}", name);
+                let nginx_cleanup = nginx_adapter.clone();
 
                 let static_use_case =
                     DeployStaticSite::new(nginx_adapter, Arc::new(FileManifestAdapter::new()));
+                // Crea /var/www/<nombre> (vacío, root:www-data 750); si ya existe se
+                // niega sin tocar nada y pide otro nombre.
                 static_use_case
                     .execute(name, &root_dir, nginx_port)
                     .await
-                    .map_err(CliError::from)?;
+                    .map_err(|e| match e {
+                        crate::domain::error::EnolaError::ValidationError(m) => {
+                            CliError::InvalidInput(m)
+                        }
+                        other => CliError::from(other),
+                    })?;
 
                 // Create Tor hidden service pointing to Nginx
                 let use_case = DeployTorService::new(
@@ -518,7 +532,15 @@ pub mod tor {
                     service_name: name.to_string(),
                     ports: vec![(80, nginx_port)],
                 };
-                let onion = use_case.execute(request).await.map_err(CliError::from)?;
+                let onion = match use_case.execute(request).await {
+                    Ok(onion) => onion,
+                    Err(e) => {
+                        // Si Tor falla, el directorio vacío que acabamos de crear
+                        // no debe bloquear un reintento con el mismo nombre.
+                        let _ = nginx_cleanup.remove_empty_site_docroot(&root_dir).await;
+                        return Err(CliError::from(e));
+                    }
+                };
 
                 eprintln!("\n📋 Static Site Configuration:");
                 eprintln!("   Document root: {}", root_dir);
@@ -5206,18 +5228,7 @@ pub mod files {
         path: &str,
         shares_root: &std::path::Path,
     ) -> Result<std::path::PathBuf, String> {
-        let root = std::fs::canonicalize(shares_root)
-            .map_err(|e| format!("raíz '{}' no resoluble: {e}", shares_root.display()))?;
-        let canon =
-            std::fs::canonicalize(path).map_err(|e| format!("ruta '{path}' no resoluble: {e}"))?;
-        if canon == root || !canon.starts_with(&root) {
-            return Err(format!(
-                "'{}' no está estrictamente dentro de '{}'",
-                canon.display(),
-                root.display()
-            ));
-        }
-        Ok(canon)
+        crate::infrastructure::path_within::resolve_strictly_within(path, shares_root)
     }
 
     /// Borra la carpeta del share solo si está bajo `/srv/enola-files/`; si no,

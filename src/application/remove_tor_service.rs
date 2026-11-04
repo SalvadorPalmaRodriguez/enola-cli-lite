@@ -1,6 +1,6 @@
 use crate::domain::error::{EnolaError, Result};
 use crate::ports::tor::TorManagerPort;
-use crate::ports::web::NginxManagerPort;
+use crate::ports::web::{DocRootCleanup, NginxManagerPort};
 use std::sync::Arc;
 
 /// Resultado de [`RemoveTorService::remove_published`].
@@ -38,10 +38,21 @@ impl RemoveTorService {
     /// un nombre sin prefijo de tipo (`tor create raw|static <n>`) usa el site
     /// `<n>`. El certificado se borra también si el servicio Tor ya no existía
     /// (`NotFound`, que se devuelve igualmente); ante otros errores de Tor no se toca.
+    ///
+    /// Un nombre sin prefijo de tipo (`tor create static <n>`) puede tener un
+    /// directorio raíz propio (`/var/www/<n>`): se elimina **solo si está
+    /// vacío**; con ficheros del usuario se conserva y se avisa de dónde queda.
     pub async fn execute(&self, service_name: &str) -> Result<()> {
-        let site = match crate::domain::naming::ServiceName::from_tor_config(service_name) {
+        let typed = crate::domain::naming::ServiceName::from_tor_config(service_name);
+        let site = match &typed {
             Some(sn) => sn.nginx_config_name(),
             None => Some(service_name.to_string()),
+        };
+
+        // El `root` se lee ANTES de borrar el site (es de donde sale).
+        let docroot = match (&self.nginx_manager, &site, &typed) {
+            (Some(nginx), Some(site), None) => nginx.site_root_dir(site).await.unwrap_or(None),
+            _ => None,
         };
 
         if let (Some(nginx), Some(site)) = (&self.nginx_manager, &site) {
@@ -59,6 +70,7 @@ impl RemoveTorService {
                 if let Some(nginx) = &self.nginx_manager {
                     nginx.delete_ssl_cert(service_name).await?;
                 }
+                self.cleanup_docroot(docroot.as_deref()).await;
                 return Err(EnolaError::NotFound(msg));
             }
             Err(e) => return Err(e),
@@ -67,7 +79,38 @@ impl RemoveTorService {
         if let Some(nginx) = &self.nginx_manager {
             nginx.delete_ssl_cert(service_name).await?;
         }
+        self.cleanup_docroot(docroot.as_deref()).await;
         Ok(())
+    }
+
+    /// Retira el directorio raíz del site si está vacío y avisa del resultado.
+    /// Nunca falla la retirada del servicio por esto (ya está hecha).
+    async fn cleanup_docroot(&self, docroot: Option<&str>) {
+        let (Some(nginx), Some(root)) = (&self.nginx_manager, docroot) else {
+            return;
+        };
+        match nginx.remove_empty_site_docroot(root).await {
+            Ok(DocRootCleanup::Removed(path)) => {
+                eprintln!("🗑️  Directorio vacío eliminado: {path}");
+            }
+            Ok(DocRootCleanup::KeptNotEmpty(path)) => {
+                tracing::warn!("Directorio del sitio NO borrado (tiene ficheros): {path}");
+                eprintln!(
+                    "⚠️  El directorio {path} contiene ficheros y se conserva. Revísalo y elimínalo a mano si procede."
+                );
+            }
+            Ok(DocRootCleanup::Skipped { path, reason }) => {
+                tracing::warn!("Directorio del sitio NO borrado: {path}: {reason}");
+                eprintln!(
+                    "⚠️  Directorio del sitio NO borrado ({path}): {reason}. Solo se borran directorios vacíos bajo /var/www/."
+                );
+            }
+            Ok(DocRootCleanup::NotApplicable) => {}
+            Err(e) => {
+                tracing::warn!("No se pudo retirar el directorio del sitio {root}: {e}");
+                eprintln!("⚠️  No se pudo retirar el directorio {root}: {e}");
+            }
+        }
     }
 
     /// Borra **solo** el servicio canónico `canonical` (`wp_<n>`, ...) para la
@@ -207,6 +250,10 @@ mod tests {
         delete_called: AtomicBool,
         deleted_sites: std::sync::Mutex<Vec<String>>,
         deleted_certs: std::sync::Mutex<Vec<String>>,
+        /// `root` que declara el site (lo que devuelve `site_root_dir`).
+        site_root: Option<String>,
+        /// Directorios raíz que se pidió retirar (en orden).
+        docroot_cleanups: std::sync::Mutex<Vec<String>>,
     }
 
     impl MockNginxManager {
@@ -215,6 +262,14 @@ mod tests {
                 delete_called: AtomicBool::new(false),
                 deleted_sites: std::sync::Mutex::new(Vec::new()),
                 deleted_certs: std::sync::Mutex::new(Vec::new()),
+                site_root: None,
+                docroot_cleanups: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn with_root(root: &str) -> Self {
+            Self {
+                site_root: Some(root.to_string()),
+                ..Self::new()
             }
         }
     }
@@ -247,6 +302,13 @@ mod tests {
         }
         async fn validate_config(&self) -> Result<bool> {
             Ok(true)
+        }
+        async fn site_root_dir(&self, _: &str) -> Result<Option<String>> {
+            Ok(self.site_root.clone())
+        }
+        async fn remove_empty_site_docroot(&self, root: &str) -> Result<DocRootCleanup> {
+            self.docroot_cleanups.lock().unwrap().push(root.to_string());
+            Ok(DocRootCleanup::Removed(root.to_string()))
         }
         async fn reload(&self) -> Result<()> {
             Ok(())
@@ -333,6 +395,47 @@ mod tests {
             *nginx.deleted_certs.lock().unwrap(),
             vec!["myservice".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn bare_static_service_cleans_its_docroot() {
+        let tor = Arc::new(MockTorManager::new());
+        let nginx = Arc::new(MockNginxManager::with_root("/var/www/myservice"));
+        let use_case = RemoveTorService::new(tor, Some(nginx.clone()));
+        use_case.execute("myservice").await.expect("ok");
+        assert_eq!(
+            *nginx.docroot_cleanups.lock().unwrap(),
+            vec!["/var/www/myservice".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn typed_services_never_touch_a_docroot() {
+        // wp_/fileserver_/git_… tienen site propio con prefijo: nunca se
+        // intenta retirar un directorio raíz.
+        for name in ["wp_blog", "fileserver_docs", "git_dev"] {
+            let tor = Arc::new(MockTorManager::new());
+            let nginx = Arc::new(MockNginxManager::with_root("/var/www/x"));
+            let use_case = RemoveTorService::new(tor, Some(nginx.clone()));
+            use_case.execute(name).await.expect("ok");
+            assert!(nginx.docroot_cleanups.lock().unwrap().is_empty(), "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn without_nginx_no_docroot_is_touched() {
+        let tor = Arc::new(MockTorManager::new());
+        let use_case = RemoveTorService::new(tor, None);
+        assert!(use_case.execute("myservice").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn infra_failure_keeps_docroot() {
+        let tor = Arc::new(MockTorManager::failing());
+        let nginx = Arc::new(MockNginxManager::with_root("/var/www/myservice"));
+        let use_case = RemoveTorService::new(tor, Some(nginx.clone()));
+        assert!(use_case.execute("myservice").await.is_err());
+        assert!(nginx.docroot_cleanups.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

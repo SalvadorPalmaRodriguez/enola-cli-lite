@@ -1237,6 +1237,7 @@ mod tests {
             .times(0..);
         n.expect_reload().returning(|| Ok(())).times(0..);
         n.expect_delete_ssl_cert().returning(|_| Ok(())).times(0..);
+        n.expect_site_root_dir().returning(|_| Ok(None)).times(0..);
         Arc::new(n)
     }
 
@@ -1266,6 +1267,18 @@ mod tests {
             .withf(|s| s == "web1")
             .times(1)
             .returning(|_| Ok(()));
+        // Paridad con la CLI: la vía MCP también retira el directorio raíz
+        // (solo si está vacío; lo decide el adapter).
+        nginx
+            .expect_site_root_dir()
+            .withf(|s| s == "web1")
+            .times(1)
+            .returning(|_| Ok(Some("/var/www/web1".to_string())));
+        nginx
+            .expect_remove_empty_site_docroot()
+            .withf(|p| p == "/var/www/web1")
+            .times(1)
+            .returning(|p| Ok(crate::ports::web::DocRootCleanup::Removed(p.to_string())));
         let h = TorRemoveHandler {
             tor: Arc::new(tor),
             nginx: Arc::new(nginx),

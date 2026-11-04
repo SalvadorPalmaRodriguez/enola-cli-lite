@@ -13,6 +13,7 @@ pub mod embedded_scripts; // Dockerfiles embebidos en el binario (Strapi, etc.)
 pub mod file_lock; // SEC-EXT-RACE-011  generic flock-based exclusive file lock (RAII)
 pub mod finetune_scripts; // Fase 14 — scripts de entrenamiento LoRA embebidos
 pub mod http; // CONFIG-009 — centralized reqwest builder with Tor SOCKS5 auto-detection
+pub mod path_within; // SEC-B11 — ruta no confiable estrictamente dentro de una raíz (borrado seguro)
 #[cfg(unix)]
 pub mod port_lock; // SEC-EXT-RACE-011  per-port flock to close TOCTOU between is_port_free and docker run
 pub mod pqc_tls;

@@ -51,6 +51,19 @@ pub struct NginxProxyConfigWithSsl {
     pub rate_limit: Option<String>,
 }
 
+/// Resultado de intentar retirar el directorio raíz de un site estático.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DocRootCleanup {
+    /// Este site no tiene un directorio raíz que gestionar.
+    NotApplicable,
+    /// El directorio estaba vacío y se eliminó.
+    Removed(String),
+    /// El directorio contiene ficheros del usuario: se conserva.
+    KeptNotEmpty(String),
+    /// No se tocó por seguridad o por un error (motivo legible).
+    Skipped { path: String, reason: String },
+}
+
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
 pub trait NginxManagerPort {
@@ -125,6 +138,26 @@ pub trait NginxManagerPort {
 
     /// Check if a specific port is available
     async fn is_port_available(&self, port: u16) -> bool;
+
+    /// Crea el directorio raíz de un site estático (`root_dir`) con
+    /// `root:www-data` 750. **Falla si ya existe**: nunca reutiliza ni cambia
+    /// dueño/permisos de un directorio ajeno. Por defecto no hace nada.
+    async fn create_site_docroot(&self, _root_dir: &str) -> Result<()> {
+        Ok(())
+    }
+
+    /// Devuelve el `root` declarado en el site `domain` (`None` si el site no
+    /// existe o no tiene `root`). Por defecto `None`.
+    async fn site_root_dir(&self, _domain: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// Elimina `root_dir` solo si es un directorio **vacío** estrictamente
+    /// dentro de la raíz de sites estáticos (`/var/www`). Nunca borra ficheros.
+    /// Por defecto no hace nada.
+    async fn remove_empty_site_docroot(&self, _root_dir: &str) -> Result<DocRootCleanup> {
+        Ok(DocRootCleanup::NotApplicable)
+    }
 }
 
 #[cfg(test)]

@@ -4,8 +4,8 @@
 use crate::domain::error::{EnolaError, Result};
 use crate::infrastructure::file_lock::FileLock;
 use crate::ports::web::{
-    NginxFileServerConfig, NginxFileServerConfigWithSsl, NginxManagerPort, NginxProxyConfig,
-    NginxProxyConfigWithSsl, NginxSiteConfig,
+    DocRootCleanup, NginxFileServerConfig, NginxFileServerConfigWithSsl, NginxManagerPort,
+    NginxProxyConfig, NginxProxyConfigWithSsl, NginxSiteConfig,
 };
 use std::path::PathBuf;
 use tokio::fs;
@@ -15,6 +15,9 @@ pub struct NginxAdapter {
     sites_available: PathBuf,
     sites_enabled: PathBuf,
     ssl_dir: PathBuf,
+    /// Raíz de los sites estáticos (`/var/www`): solo bajo ella se crean y
+    /// se retiran directorios raíz (`tor create static`).
+    www_root: PathBuf,
 }
 
 impl Default for NginxAdapter {
@@ -29,6 +32,7 @@ impl NginxAdapter {
             sites_available: PathBuf::from("/etc/nginx/sites-available"),
             sites_enabled: PathBuf::from("/etc/nginx/sites-enabled"),
             ssl_dir: PathBuf::from("/etc/nginx/ssl"),
+            www_root: PathBuf::from("/var/www"),
         }
     }
 
@@ -134,6 +138,113 @@ mod sec_regression_tests {
         assert!(ssl.join("docs.crt").exists());
     }
 
+    // tor create/remove static: directorio raíz propio.
+    #[tokio::test]
+    async fn create_site_docroot_makes_dir_and_refuses_existing() {
+        let (adapter, tmp) = test_adapter();
+        let dir = tmp.path().join("www").join("sitio");
+        let dir_s = dir.to_str().unwrap_or_default();
+        adapter.create_site_docroot(dir_s).await.expect("create");
+        assert!(dir.is_dir());
+        assert_eq!(
+            std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(1),
+            0,
+            "nace vacío"
+        );
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(&dir).expect("meta").permissions(),
+        );
+        assert_eq!(mode & 0o777, 0o750);
+        // Segunda vez: se niega y no toca nada.
+        let err = adapter.create_site_docroot(dir_s).await.unwrap_err();
+        assert!(matches!(err, EnolaError::ValidationError(_)));
+    }
+
+    #[tokio::test]
+    async fn create_site_docroot_refuses_outside_root_and_root_itself() {
+        let (adapter, tmp) = test_adapter();
+        let www = tmp.path().join("www");
+        let fuera = tmp.path().join("fuera");
+        for bad in [
+            fuera.to_str().unwrap_or_default().to_string(),
+            www.to_str().unwrap_or_default().to_string(),
+            format!("{}/../fuera", www.display()),
+        ] {
+            assert!(
+                matches!(
+                    adapter.create_site_docroot(&bad).await,
+                    Err(EnolaError::SecurityError(_))
+                ),
+                "{bad}"
+            );
+        }
+        assert!(!fuera.exists());
+    }
+
+    #[tokio::test]
+    async fn remove_empty_site_docroot_removes_only_empty_dirs() {
+        let (adapter, tmp) = test_adapter();
+        let vacio = tmp.path().join("www").join("vacio");
+        let lleno = tmp.path().join("www").join("lleno");
+        std::fs::create_dir_all(&vacio).expect("mkdir");
+        std::fs::create_dir_all(&lleno).expect("mkdir");
+        std::fs::write(lleno.join("index.html"), "x").expect("write");
+        let r = adapter
+            .remove_empty_site_docroot(vacio.to_str().unwrap_or_default())
+            .await
+            .expect("ok");
+        assert!(matches!(r, DocRootCleanup::Removed(_)));
+        assert!(!vacio.exists());
+        let r = adapter
+            .remove_empty_site_docroot(lleno.to_str().unwrap_or_default())
+            .await
+            .expect("ok");
+        assert!(matches!(r, DocRootCleanup::KeptNotEmpty(_)));
+        assert!(lleno.join("index.html").exists(), "ficheros intactos");
+        // Inexistente: nada que hacer.
+        let r = adapter
+            .remove_empty_site_docroot(tmp.path().join("www/nada").to_str().unwrap_or_default())
+            .await
+            .expect("ok");
+        assert_eq!(r, DocRootCleanup::NotApplicable);
+    }
+
+    #[tokio::test]
+    async fn remove_empty_site_docroot_skips_outside_root_root_itself_and_symlink() {
+        let (adapter, tmp) = test_adapter();
+        let www = tmp.path().join("www");
+        std::fs::create_dir_all(&www).expect("mkdir");
+        let fuera = tmp.path().join("fuera");
+        std::fs::create_dir_all(&fuera).expect("mkdir");
+        std::os::unix::fs::symlink(&fuera, www.join("enlace")).expect("symlink");
+        for bad in [
+            fuera.to_str().unwrap_or_default().to_string(),
+            www.to_str().unwrap_or_default().to_string(),
+            www.join("enlace").to_str().unwrap_or_default().to_string(),
+            format!("{}/../fuera", www.display()),
+        ] {
+            let r = adapter.remove_empty_site_docroot(&bad).await.expect("ok");
+            assert!(matches!(r, DocRootCleanup::Skipped { .. }), "{bad}: {r:?}");
+        }
+        assert!(fuera.exists() && www.exists(), "nada borrado");
+    }
+
+    #[tokio::test]
+    async fn site_root_dir_reads_root_of_site() {
+        let (adapter, _tmp) = test_adapter();
+        std::fs::write(
+            adapter.sites_available.join("sitio"),
+            "server {\n    root /var/www/sitio;\n}\n",
+        )
+        .expect("write");
+        assert_eq!(
+            adapter.site_root_dir("sitio").await.expect("ok"),
+            Some("/var/www/sitio".to_string())
+        );
+        assert_eq!(adapter.site_root_dir("nada").await.expect("ok"), None);
+        assert_eq!(adapter.site_root_dir("../x").await.expect("ok"), None);
+    }
+
     fn test_adapter() -> (NginxAdapter, tempfile::TempDir) {
         let tmp = tempfile::tempdir().expect("tempdir");
         let available = tmp.path().join("sites-available");
@@ -145,6 +256,7 @@ mod sec_regression_tests {
                 sites_available: available,
                 sites_enabled: enabled,
                 ssl_dir: tmp.path().join("ssl"),
+                www_root: tmp.path().join("www"),
             },
             tmp,
         )
@@ -1283,6 +1395,109 @@ server {{
         TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
     }
 
+    async fn create_site_docroot(&self, root_dir: &str) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::path::Path::new(root_dir);
+        // Solo hijos directos o anidados de `www_root`, sin `..` ni la propia raíz.
+        let lexically_ok = path.starts_with(&self.www_root)
+            && path != self.www_root
+            && !path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir));
+        if !lexically_ok {
+            return Err(EnolaError::SecurityError(format!(
+                "directorio raíz '{}' fuera de {}",
+                root_dir,
+                self.www_root.display()
+            )));
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await.map_err(|e| {
+                EnolaError::InfrastructureError(format!(
+                    "No se pudo crear '{}': {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+        // `create_dir` (no `create_dir_all`) falla si ya existe: nunca se
+        // reutiliza ni se cambia dueño/permisos de un directorio ajeno.
+        match fs::create_dir(path).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(EnolaError::ValidationError(format!(
+                    "'{root_dir}' ya existe: elige otro nombre para el sitio estático"
+                )));
+            }
+            Err(e) => {
+                return Err(EnolaError::InfrastructureError(format!(
+                    "No se pudo crear '{root_dir}': {e}"
+                )));
+            }
+        }
+        // Como `files create`: root:www-data 750; sin `www-data` (entornos de
+        // desarrollo) el fallo se ignora.
+        let _ = Command::new("chown")
+            .arg("root:www-data")
+            .arg(path)
+            .status()
+            .await;
+        let _ = fs::set_permissions(path, std::fs::Permissions::from_mode(0o750)).await;
+        Ok(())
+    }
+
+    async fn site_root_dir(&self, domain: &str) -> Result<Option<String>> {
+        if domain.is_empty() || domain.contains('/') || domain.starts_with('.') {
+            return Ok(None);
+        }
+        for candidate in [
+            self.sites_available.join(domain),
+            self.sites_available.join(format!("{domain}.conf")),
+        ] {
+            if let Ok(content) = fs::read_to_string(&candidate).await {
+                return Ok(content.lines().find_map(|line| {
+                    line.trim()
+                        .strip_prefix("root ")
+                        .map(|rest| rest.trim_end_matches(';').trim().to_string())
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn remove_empty_site_docroot(&self, root_dir: &str) -> Result<DocRootCleanup> {
+        if !std::path::Path::new(root_dir).exists() {
+            return Ok(DocRootCleanup::NotApplicable);
+        }
+        // La ruta sale de un fichero de Nginx (no confiable): canonicalizar y
+        // exigir que quede estrictamente dentro de `www_root`.
+        let canon = match crate::infrastructure::path_within::resolve_strictly_within(
+            root_dir,
+            &self.www_root,
+        ) {
+            Ok(c) => c,
+            Err(reason) => {
+                return Ok(DocRootCleanup::Skipped {
+                    path: root_dir.to_string(),
+                    reason,
+                })
+            }
+        };
+        // `remove_dir` falla si hay ficheros: nunca se borra contenido del usuario.
+        match fs::remove_dir(&canon).await {
+            Ok(()) => Ok(DocRootCleanup::Removed(canon.display().to_string())),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::DirectoryNotEmpty
+                    || e.raw_os_error() == Some(39) =>
+            {
+                Ok(DocRootCleanup::KeptNotEmpty(canon.display().to_string()))
+            }
+            Err(e) => Ok(DocRootCleanup::Skipped {
+                path: canon.display().to_string(),
+                reason: e.to_string(),
+            }),
+        }
+    }
+
     /// Detect if a configuration has SSL enabled, and extract ports and cert paths
     /// Returns (has_ssl, https_port, cert_path)
     async fn detect_ssl_config(&self, domain: &str) -> Result<(bool, Option<u16>, Option<String>)> {
@@ -1405,6 +1620,7 @@ mod tests {
             sites_available: PathBuf::from("/nonexistent/available"),
             sites_enabled: PathBuf::from("/nonexistent/enabled"),
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
         let sites = adapter.list_enabled_sites().await.unwrap();
         assert!(sites.is_empty());
@@ -1425,6 +1641,7 @@ mod tests {
             sites_available: available,
             sites_enabled: enabled,
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
         let sites = adapter.list_enabled_sites().await.unwrap();
         assert_eq!(sites.len(), 1);
@@ -1446,6 +1663,7 @@ mod tests {
             sites_available: available,
             sites_enabled: dir.path().join("enabled"),
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
         let (has_ssl, port, cert) = adapter.detect_ssl_config("mysite").await.unwrap();
         assert!(!has_ssl);
@@ -1472,6 +1690,7 @@ mod tests {
             sites_available: available,
             sites_enabled: enabled,
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
         let (has_ssl, _port, cert) = adapter.detect_ssl_config("secure-site").await.unwrap();
         assert!(has_ssl);
@@ -1489,6 +1708,7 @@ mod tests {
             sites_available: dir.path().to_path_buf(),
             sites_enabled: dir.path().join("enabled"),
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
         adapter
             .create_fileserver_config(crate::ports::web::NginxFileServerConfig {
@@ -1541,6 +1761,7 @@ mod tests {
             sites_available: available.clone(),
             sites_enabled: enabled,
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
 
         adapter
@@ -1585,6 +1806,7 @@ mod tests {
             sites_available: available.clone(),
             sites_enabled: enabled,
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
 
         adapter
@@ -1618,6 +1840,7 @@ mod tests {
             sites_available: dir.path().join("available"),
             sites_enabled: enabled,
             ssl_dir: PathBuf::from("/nonexistent/ssl"),
+            www_root: PathBuf::from("/nonexistent/www"),
         };
         let (has_ssl, _, _) = adapter.detect_ssl_config("nonexistent").await.unwrap();
         assert!(!has_ssl);
