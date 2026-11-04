@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/verify/verify-downloads.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-09-13
+> **Versión:** 2.2 | **Actualizado:** 2026-11-04
 > **Estado:** ✅ **VIGENTE — Guía de verificación de descargas**
 > **Referencias:** SIGNING_GUIDE.md, quantum-security.md, SECURITY.md
 > **English:** [`docs/en/verify-downloads.md`](../../en/verify-downloads.md)
@@ -388,6 +388,64 @@ El asset también puede descargarse manualmente desde cada release:
 ```bash
 wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/download/vX.Y.Z/enola-cli-vX.Y.Z-x86_64-linux.pqsig
 ```
+
+---
+
+## Reproducir el binario desde el código fuente (avanzado)
+
+Para comprobar que el binario publicado sale del código fuente de su tag, puedes
+compilarlo tú y comparar el SHA-256. **Solo para usuarios con experiencia**; para
+verificar una descarga normal usa las secciones anteriores (SHA-256 + minisign +
+PQC).
+
+> **Estado real (importante):** las releases publicadas **hasta `v0.11.0-alpha`
+> incluida NO se pueden reproducir byte a byte**: el OpenSSL que lleva dentro
+> incrusta la hora a la que se compiló (`built on: …`), y esas releases no fijaban
+> `SOURCE_DATE_EPOCH`. Lo comprobamos recompilando ese tag: todo lo demás
+> coincidía (rutas, commit y fecha incrustados) y solo diferían esa hora y los
+> bytes que de ella dependen. Desde que el script de release fija
+> `SOURCE_DATE_EPOCH`, **dos compilaciones desde cero con la receta de abajo dan
+> exactamente el mismo hash** (comprobado: mismo SHA-256 en dos builds
+> consecutivos). La primera release publicada con esa corrección será la primera
+> que puedas comparar con el hash publicado.
+
+**Entorno de referencia** (OpenSSL es código C: otro compilador de C puede dar otro
+binario). Probado con Ubuntu 24.04 / Linux Mint 22, `gcc 13.3.0`, `perl 5.38`,
+`make`, y Rust **1.96.0** (lo fija `rust-toolchain.toml`; `rustup` lo instala solo).
+
+```bash
+TAG=vX.Y.Z-alpha                       # la release que quieres comprobar
+git clone https://github.com/SalvadorPalmaRodriguez/enola-cli-lite.git
+cd enola-cli-lite
+
+# El binario se compila ANTES del commit "chore(release)", así que incrusta el
+# commit PADRE del tag. Se reproduce con el contenido del tag sobre ese padre:
+git checkout "$TAG^"
+git checkout "$TAG" -- .
+
+# Fecha fija = fecha del commit (OpenSSL y build.rs la respetan)
+export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+
+# La carpeta de compilación debe ser EXACTAMENTE esta (OpenSSL guarda su ruta
+# dentro del binario) y se borra antes para no reutilizar nada:
+rm -rf /tmp/enola-release-build
+RUSTFLAGS="--remap-path-prefix=$PWD=/build \
+--remap-path-prefix=$HOME/.cargo/registry=/cargo-registry \
+--remap-path-prefix=$HOME/.cargo/git=/cargo-git \
+--remap-path-prefix=$HOME/.rustup=/rustc" \
+CARGO_TARGET_DIR=/tmp/enola-release-build \
+  cargo build --release --locked
+
+sha256sum /tmp/enola-release-build/release/enola-cli
+# Compara con el .sha256 publicado del binario crudo
+# (enola-cli-$TAG-x86_64-linux.sha256)
+```
+
+Si los hashes no coinciden, **no significa por sí solo que haya manipulación**:
+revisa primero el entorno (versión de `gcc`, de Rust, ruta de compilación). Si
+quieres investigar la diferencia, compara los textos de ambos binarios
+(`strings` + `diff`): la hora de compilación o una ruta suelen delatar la causa.
+Para la autenticidad sigue siendo la firma (minisign + PQC) lo que cuenta.
 
 ---
 

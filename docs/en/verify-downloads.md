@@ -1,5 +1,5 @@
 > **User document:** `docs/en/verify-downloads.md`
-> **Version:** 2.1 | **Updated:** 2026-09-13
+> **Version:** 2.2 | **Updated:** 2026-11-04
 > **Status:** ✅ **CURRENT — Download Verification Guide**
 > **References:** security-model.md, commands.md
 > **Spanish original:** [`docs/user/verify/verify-downloads.md`](../user/verify/verify-downloads.md)
@@ -388,6 +388,63 @@ The asset can also be downloaded manually from each release:
 ```bash
 wget https://github.com/SalvadorPalmaRodriguez/enola-cli-lite/releases/download/vX.Y.Z/enola-cli-vX.Y.Z-x86_64-linux.pqsig
 ```
+
+---
+
+## Reproduce the binary from source (advanced)
+
+To check that the published binary comes from the source code of its tag, you can
+build it yourself and compare the SHA-256. **Experienced users only**; to verify a
+normal download use the previous sections (SHA-256 + minisign + PQC).
+
+> **Real status (important):** releases published **up to and including
+> `v0.11.0-alpha` can NOT be reproduced byte for byte**: the OpenSSL inside embeds
+> the time it was built (`built on: …`), and those releases did not set
+> `SOURCE_DATE_EPOCH`. We checked by rebuilding that tag: everything else matched
+> (paths, embedded commit and date) and only that time, and the bytes that depend
+> on it, differed. Since the release script sets `SOURCE_DATE_EPOCH`, **two clean
+> builds with the recipe below give exactly the same hash** (checked: same SHA-256
+> in two consecutive builds). The first release published with that fix will be the
+> first you can compare with the published hash.
+
+**Reference environment** (OpenSSL is C code: a different C compiler may produce a
+different binary). Tested on Ubuntu 24.04 / Linux Mint 22, `gcc 13.3.0`,
+`perl 5.38`, `make`, and Rust **1.96.0** (pinned by `rust-toolchain.toml`;
+`rustup` installs it automatically).
+
+```bash
+TAG=vX.Y.Z-alpha                       # the release you want to check
+git clone https://github.com/SalvadorPalmaRodriguez/enola-cli-lite.git
+cd enola-cli-lite
+
+# The binary is built BEFORE the "chore(release)" commit, so it embeds the PARENT
+# commit of the tag. Reproduce it with the tag's content on top of that parent:
+git checkout "$TAG^"
+git checkout "$TAG" -- .
+
+# Fixed date = commit date (OpenSSL and build.rs honour it)
+export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+
+# The build directory must be EXACTLY this one (OpenSSL stores its path inside the
+# binary) and is removed first so nothing is reused:
+rm -rf /tmp/enola-release-build
+RUSTFLAGS="--remap-path-prefix=$PWD=/build \
+--remap-path-prefix=$HOME/.cargo/registry=/cargo-registry \
+--remap-path-prefix=$HOME/.cargo/git=/cargo-git \
+--remap-path-prefix=$HOME/.rustup=/rustc" \
+CARGO_TARGET_DIR=/tmp/enola-release-build \
+  cargo build --release --locked
+
+sha256sum /tmp/enola-release-build/release/enola-cli
+# Compare with the published .sha256 of the raw binary
+# (enola-cli-$TAG-x86_64-linux.sha256)
+```
+
+If the hashes differ, **that alone does not mean tampering**: check the environment
+first (`gcc` version, Rust version, build path). To investigate the difference,
+compare the text of both binaries (`strings` + `diff`): the build time or a path
+usually gives the cause. Authenticity is still decided by the signature (minisign +
+PQC).
 
 ---
 
