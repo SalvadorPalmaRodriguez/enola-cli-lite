@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/guia/examples.md`
-> **Versión:** 3.1 | **Actualizado:** 2026-10-28
+> **Versión:** 3.2 | **Actualizado:** 2026-11-04
 > **Estado:** ✅ **VIGENTE — Ejemplos de uso**
 
 # 🛠 Ejemplos de Uso — Enola CLI
@@ -204,18 +204,24 @@ sudo enola-cli git user create mi-repo --username admin --email admin@example.on
 
 ## Backup
 
-Respaldo y restauración manual de servicios:
+Respaldo y restauración de la máquina y de los servicios:
 
 ```bash
-# 1. Crear backup del sistema (se conservan los últimos N por servicio;
-#    política configurable con `maintenance backup-config --max-backups N`)
+# 1. Backup de la IDENTIDAD de la máquina (claves .onion, Tor, Nginx, certificados,
+#    configuración de Enola). Comprueba antes que hay espacio en disco.
+#    Se conservan los últimos N; política con `maintenance backup-config --max-backups N`
 sudo enola-cli maintenance backup
 
-# 2. Los datos de cada servicio están en /srv/enola-{tipo}/{name}/
-#    Para respaldo manual:
+# 2. Restaurarla: primero una simulación (no escribe nada) y luego de verdad.
+#    Solo restaura ficheros: al terminar te dice qué reiniciar.
+sudo enola-cli maintenance restore /var/backups/enola-server/<fecha>_system_full.tar.gz
+sudo enola-cli maintenance restore /var/backups/enola-server/<fecha>_system_full.tar.gz --force
+
+# 3. Los DATOS de cada servicio (/srv/enola-{tipo}/{name}/) NO van en ese backup.
+#    Cópialos aparte:
 sudo tar czf /backup/enola-wordpress-mi-blog.tar.gz /srv/enola-wordpress/mi-blog/
 
-# 3. Para restaurar: detener, restaurar archivos, reiniciar
+# 4. Para restaurar los datos de un servicio: detener, restaurar archivos, reiniciar
 sudo enola-cli wp stop mi-blog
 sudo tar xzf /backup/enola-wordpress-mi-blog.tar.gz -C /
 sudo enola-cli wp start mi-blog
