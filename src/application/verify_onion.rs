@@ -17,6 +17,10 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 const DEFAULT_ATTEMPTS: u32 = 4;
 /// Backoff base entre reintentos (intento n espera n·BACKOFF).
 const RETRY_BACKOFF: Duration = Duration::from_secs(3);
+/// Tope total de la verificación (todos los intentos + esperas). Queda por
+/// debajo de `[mcp].request_timeout_secs` (60 s por defecto) para que el
+/// resultado `reachable: false` llegue siempre antes que el timeout del tool.
+const TOTAL_BUDGET: Duration = Duration::from_secs(50);
 
 /// Resultado estructurado de la verificación de una URL .onion.
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +47,7 @@ pub struct VerifyOnion {
     probe: Arc<dyn HttpProbePort + Send + Sync>,
     attempts: u32,
     backoff: Duration,
+    budget: Duration,
 }
 
 impl VerifyOnion {
@@ -52,6 +57,7 @@ impl VerifyOnion {
             probe,
             attempts: DEFAULT_ATTEMPTS,
             backoff: RETRY_BACKOFF,
+            budget: TOTAL_BUDGET,
         }
     }
 
@@ -64,15 +70,25 @@ impl VerifyOnion {
 
     /// Sondea `address` (admite `xxx…onion`, `http://xxx…onion`,
     /// `https://…`). La dirección se valida antes de cualquier acceso a red.
+    /// Fija el tope total de tiempo (intentos + esperas).
+    pub fn with_budget(mut self, budget: Duration) -> Self {
+        self.budget = budget;
+        self
+    }
+
     #[tracing::instrument(skip(self), fields(address = %address))]
     pub async fn execute(&self, address: &str) -> Result<OnionVerification> {
         let url = normalize_onion_url(address)?;
         let mut last_reason = "other".to_string();
         let mut attempts_done = 0u32;
 
+        let started = std::time::Instant::now();
         for i in 0..self.attempts {
             attempts_done = i + 1;
-            match self.probe.get(&url, PROBE_TIMEOUT).await {
+            // Cada intento no puede pasar del tiempo que queda del tope total.
+            let remaining = self.budget.saturating_sub(started.elapsed());
+            let attempt_timeout = PROBE_TIMEOUT.min(remaining.max(Duration::from_millis(1)));
+            match self.probe.get(&url, attempt_timeout).await {
                 Ok(outcome) => {
                     return Ok(OnionVerification {
                         url,
@@ -89,6 +105,10 @@ impl VerifyOnion {
                     // No reintentar si el proxy Tor está caído: no se arregla
                     // esperando y el diagnóstico es distinto al de sitio caído.
                     if matches!(e, ProbeError::ProxyUnavailable(_)) || i + 1 == self.attempts {
+                        break;
+                    }
+                    // Sin tiempo para esperar y reintentar dentro del tope total.
+                    if started.elapsed() + self.backoff >= self.budget {
                         break;
                     }
                     tokio::time::sleep(self.backoff).await;
@@ -253,6 +273,22 @@ mod tests {
         assert!(!r.reachable);
         assert_eq!(r.reason.as_deref(), Some("site_unreachable"));
         assert_eq!(r.attempts, 3);
+    }
+
+    #[tokio::test]
+    async fn total_budget_stops_retries_and_caps_attempt_timeout() {
+        let mut m = MockHttpProbePort::new();
+        m.expect_get()
+            .times(1) // el backoff ya no cabe en el tope → un solo intento
+            .withf(|_, t| *t <= Duration::from_secs(1))
+            .returning(|_, _| Err(ProbeError::SiteUnreachable("host unreachable".into())));
+        let v = VerifyOnion::new(Arc::new(m))
+            .with_retry(4, Duration::from_secs(3))
+            .with_budget(Duration::from_secs(1));
+        let r = v.execute(V3).await.unwrap();
+        assert!(!r.reachable);
+        assert_eq!(r.reason.as_deref(), Some("site_unreachable"));
+        assert_eq!(r.attempts, 1);
     }
 
     #[tokio::test]

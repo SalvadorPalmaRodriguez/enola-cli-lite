@@ -59,12 +59,29 @@ fn classify_reqwest(e: &reqwest::Error) -> ProbeError {
         .collect::<Vec<_>>()
         .join(" | ");
     let msg = format!("{e} | {chain}").to_lowercase();
-    if msg.contains("proxy") || msg.contains("socks") {
-        ProbeError::ProxyUnavailable(e.to_string())
-    } else if e.is_connect() || e.is_request() {
-        ProbeError::SiteUnreachable(e.to_string())
+    classify_failure(&msg, &e.to_string(), e.is_connect() || e.is_request())
+}
+
+/// Clasifica el texto (en minúsculas) de la cadena de errores de reqwest.
+///
+/// Distingue dos situaciones que ambas mencionan «socks proxy»:
+/// - **Proxy inalcanzable** (`failed to create underlying connection`): el
+///   daemon Tor no escucha. No se arregla esperando → `ProxyUnavailable`.
+/// - **Tor respondió con un error SOCKS** (`SOCKS error: host unreachable`,
+///   `ttl expired`, …): el proxy funciona pero el destino no se alcanza, p. ej.
+///   una `.onion` recién creada cuyo descriptor aún no se ha propagado. Tor
+///   contesta al instante y reintentar SÍ lo arregla → `SiteUnreachable`.
+fn classify_failure(msg_lower: &str, display: &str, connect_like: bool) -> ProbeError {
+    if msg_lower.contains("failed to create underlying connection") {
+        ProbeError::ProxyUnavailable(display.to_string())
+    } else if msg_lower.contains("socks error") {
+        ProbeError::SiteUnreachable(display.to_string())
+    } else if msg_lower.contains("proxy") || msg_lower.contains("socks") {
+        ProbeError::ProxyUnavailable(display.to_string())
+    } else if connect_like {
+        ProbeError::SiteUnreachable(display.to_string())
     } else {
-        ProbeError::Other(e.to_string())
+        ProbeError::Other(display.to_string())
     }
 }
 
@@ -93,5 +110,56 @@ mod tests {
         );
         assert_eq!(extract_title("<html>no title</html>"), None);
         assert_eq!(extract_title(""), None);
+    }
+
+    // Textos reales medidos contra Tor (reqwest 0.12 + socks).
+    const TOR_HOST_UNREACHABLE: &str = "error sending request for url (http://x.onion/) | client error (connect) | error connecting to socks proxy | socks error: host unreachable";
+    const TOR_PROXY_DOWN: &str = "error sending request for url (http://x.onion/) | client error (connect) | error connecting to socks proxy | socks error: failed to create underlying connection";
+
+    #[test]
+    fn tor_host_unreachable_is_retryable_site_error_not_proxy_down() {
+        let e = classify_failure(TOR_HOST_UNREACHABLE, "x", true);
+        assert!(matches!(e, ProbeError::SiteUnreachable(_)), "{e:?}");
+    }
+
+    #[test]
+    fn socks_replies_from_a_live_tor_are_site_errors() {
+        for reply in [
+            "ttl expired",
+            "connection refused",
+            "network unreachable",
+            "general failure",
+        ] {
+            let msg = format!(
+                "client error (connect) | error connecting to socks proxy | socks error: {reply}"
+            );
+            let e = classify_failure(&msg, "x", true);
+            assert!(
+                matches!(e, ProbeError::SiteUnreachable(_)),
+                "{reply}: {e:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unreachable_proxy_stays_proxy_unavailable() {
+        let e = classify_failure(TOR_PROXY_DOWN, "x", true);
+        assert!(matches!(e, ProbeError::ProxyUnavailable(_)), "{e:?}");
+    }
+
+    #[test]
+    fn other_proxy_mentions_stay_proxy_unavailable_and_plain_connect_is_site() {
+        assert!(matches!(
+            classify_failure("invalid proxy uri", "x", false),
+            ProbeError::ProxyUnavailable(_)
+        ));
+        assert!(matches!(
+            classify_failure("tcp connect error: connection refused", "x", true),
+            ProbeError::SiteUnreachable(_)
+        ));
+        assert!(matches!(
+            classify_failure("bad body", "x", false),
+            ProbeError::Other(_)
+        ));
     }
 }
