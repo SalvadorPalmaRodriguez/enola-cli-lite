@@ -5,6 +5,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.12.0-alpha] — 2026-11-04
+
 ### Added
 - **How to reproduce a release binary** — `docs/user/verify/verify-downloads.md` (and its English mirror) now has a step-by-step recipe to rebuild a release from source and compare the SHA-256. Checking `v0.11.0-alpha` showed that releases up to that one are **not** bit-for-bit reproducible (the vendored OpenSSL embeds its build time because `SOURCE_DATE_EPOCH` was not set); the release script now sets it, and two clean builds with the documented recipe produce the same hash. The guide says this plainly and lists the reference toolchain.
 - **`update rollback [--json]`** — goes back to the previous binary (`enola-cli.bak`) after a bad update. It re-verifies the minisign signature saved with that binary (all trusted keys: active, rotated and embedded) and refuses if it is missing or invalid; there is no `--allow-unsigned` for it. To make this possible `update apply` now keeps the minisign signature of the installed binary (`cli.minisig`) and copies the previous binary's signatures next to `enola-cli.bak`; an update applied with `--allow-unsigned` stores none. The first `.bak` created by an older version has no signature, so the first rollback is only available after the next update done with this version. Root only; CLI only (vetoed in the web console and MCP, like `update apply`).
