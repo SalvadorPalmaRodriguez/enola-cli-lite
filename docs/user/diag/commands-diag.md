@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/diag/commands-diag.md`
-> **Versión:** 2.1 | **Actualizado:** 2026-10-06
+> **Versión:** 2.2 | **Actualizado:** 2026-11-04
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -121,7 +121,10 @@ Argumento posicional: la dirección `.onion` (v3 = 56 caracteres) o una URL
 
 Con `--format json` devuelve `{url, reachable, status, latency_ms, title,
 reason, attempts}`. Cuando no hay respuesta, `reason` distingue `timeout`,
-`proxy_unavailable` (el proxy Tor local está caído) y `site_unreachable`.
+`proxy_unavailable` (el proxy Tor local está caído: no se reintenta) y
+`site_unreachable` (Tor funciona pero no alcanza la onion, p. ej. recién
+creada y aún sin propagar: se reintenta). La verificación entera (intentos y
+esperas) tiene un tope de 50 s, por debajo del timeout de 60 s de las tools MCP.
 
 ---
 

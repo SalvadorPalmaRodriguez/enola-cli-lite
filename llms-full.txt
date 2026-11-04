@@ -87,7 +87,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 
 ### diag — diagnostics
 - `diag summary|nginx|tor|ssh|wordpress|wp-sync|nginx-test|resources`
-- `diag onion <address.onion> [--format json]` — probes a .onion via Tor SOCKS5h; structured reachability (status, latency, title, failure reason: timeout|proxy_unavailable|site_unreachable)
+- `diag onion <address.onion> [--format json]` — probes a .onion via Tor SOCKS5h; structured reachability (status, latency, title, failure reason: timeout|proxy_unavailable|site_unreachable; retries when Tor is up but the onion is not yet propagated; 50 s total cap)
 
 ### ssh — SSH access
 - `ssh add-key [--user <name>] -p <pubkey> [--comment <c>]` — append to ~/.ssh/authorized_keys (atomic, deduplicated)
