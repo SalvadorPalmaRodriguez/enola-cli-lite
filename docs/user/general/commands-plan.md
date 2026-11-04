@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/general/commands-plan.md`
-> **Versión:** 1.4 | **Actualizado:** 2026-11-03
+> **Versión:** 1.5 | **Actualizado:** 2026-11-04
 > **Estado:** ✅ **VIGENTE — Referencia del comando `plan`**
 > **English:** [`docs/en/commands-plan.md`](../../en/commands-plan.md)
 > **Referencias:** [commands.md](commands.md), [wp/commands-wp.md](../wp/commands-wp.md), [git/commands-git.md](../git/commands-git.md), [tor/commands-tor.md](../tor/commands-tor.md)
@@ -152,7 +152,7 @@ Un `--service-type` desconocido es un error (mismo mensaje que `tor create`).
 |------|------------------|-------|
 | `raw`/`tcp` | `virtual-port` (el que pases) + `target-port` (`--target-port`, o el virtual si no se pasa) | `/var/lib/tor/enola_<name>` + `/etc/tor/enola.d/<name>.conf` |
 | `web`/`proxy`/`http` | `virtual-port` 80 + `nginx-port` auto (10000-20000) + `backend-port` (`--target-port`, default 8080). Con `--ssl`: `virtual-port` 80 + `virtual-port-https` 443 + `nginx-http-port` auto (10000-15000) + `nginx-https-port` auto (15001-20000) + `backend-port` | igual con prefijo `proxy_` (`/var/lib/tor/enola_proxy_<name>`, `/etc/tor/enola.d/proxy_<name>.conf`) + `/etc/nginx/sites-available/proxy_<name>`; con `--ssl` además `/etc/nginx/ssl/<name>.crt` + `.key` |
-| `static` | `virtual-port` 80 + `nginx-port` auto (20000-30000) | `/var/lib/tor/enola_<name>`, `/etc/tor/enola.d/<name>.conf`, `/etc/nginx/sites-available/<name>`, `/var/www/<name>` |
+| `static` | `virtual-port` 80 + `nginx-port` auto (20000-30000) | `/var/lib/tor/enola_<name>`, `/etc/tor/enola.d/<name>.conf`, `/etc/nginx/sites-available/<name>`, `/var/www/<name>` (lo crea el comando, vacío; si ya existe, `create` se niega) |
 | `files`/`fileserver` | `virtual-port` 80 + `nginx-port` auto (20000-30000) | prefijo `fileserver_` en Tor y Nginx + `/srv/enola-files/<name>` |
 
 Limitaciones reales de `tor create` que el plan señala en `📝 Notes`:

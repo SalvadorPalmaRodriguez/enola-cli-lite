@@ -1,5 +1,5 @@
 > **Documento usuario:** `docs/user/tor/commands-tor.md`
-> **Versión:** 2.5 | **Actualizado:** 2026-10-27
+> **Versión:** 2.6 | **Actualizado:** 2026-11-04
 > **Estado:** ✅ **VIGENTE — Guía de usuario**
 > **Referencias:** commands.md
 
@@ -10,7 +10,7 @@ Gestiona servicios ocultos Tor. Arquitectura: `.onion:VIRTUAL → Nginx:NGINX_PO
 Tipos de servicio:
 - `web` / `proxy` / `http`: HTTP via Nginx (Tor → Nginx → App) — **recomendado para web**
 - `raw` / `tcp`: Conexión TCP directa (Tor → App) — para SSH, bases de datos
-- `static`: Sitio estático servido por Nginx
+- `static`: Sitio web estático servido por Nginx desde `/var/www/<nombre>`. El comando crea esa carpeta vacía (`root:www-data`, `750`); **si ya existe, se niega** y debes elegir otro nombre. Copia tus ficheros (`index.html`…) dentro después de crear el servicio.
 - `files`: Servidor de archivos con directory listing
 
 **Cómo se resuelve `<NAME>`** en `tor start|stop|remove|rotate|edit`:
@@ -57,6 +57,7 @@ sudo enola-cli tor create --name miweb --target-port 3000
 
 # Servicio estático (Tor → Nginx, sin app backend)
 sudo enola-cli tor create --name estatico --service-type static
+# → crea /var/www/estatico (vacío, root:www-data 750); copia ahí tus ficheros HTML
 
 # Servidor de archivos
 sudo enola-cli tor create --name archivos --service-type files
@@ -118,6 +119,10 @@ sudo enola-cli tor remove <NOMBRE> --force
 ```bash
 sudo enola-cli tor remove miweb --force
 ```
+
+> En un servicio `static`, `tor remove` también elimina `/var/www/<nombre>` **solo si
+> está vacío**. Si contiene tus ficheros lo conserva y te avisa de dónde queda (bórralo
+> a mano si ya no lo necesitas). Lo mismo ocurre desde el panel web y MCP `tor_remove`.
 
 ---
 

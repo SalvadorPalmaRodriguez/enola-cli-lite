@@ -167,7 +167,7 @@ All share the same lifecycle: `list`, `create --name <n> --http-port <p>`, `star
 
 ## Key concepts
 
-- Hidden service types: `web` (Tor→Nginx→App, recommended), `static` (Tor→Nginx, files from /var/www/<name>), `files` (Nginx autoindex), `raw` (Tor→App direct TCP, for SSH/databases).
+- Hidden service types: `web` (Tor→Nginx→App, recommended), `static` (Tor→Nginx, files from /var/www/<name>; `tor create` creates that folder empty with root:www-data 750 and refuses if it already exists; `tor remove` deletes it only if empty), `files` (Nginx autoindex), `raw` (Tor→App direct TCP, for SSH/databases).
 - Everything is localhost-only: internal ports are never exposed to the network; visitors only ever see the .onion address.
 - Tor client authorization uses x25519 keypairs (like SSH keys): client generates, sends public key to operator, operator authorizes.
 - Post-quantum measures: ML-DSA-65 release signatures, optional ML-KEM hybrid TLS stack (`setup --pqc-tls`), WireGuard preshared keys (`--psk`), SSH sntrup761x25519 KEX (`ssh-harden-pqc`), Tor auth key rotation.

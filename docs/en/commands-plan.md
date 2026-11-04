@@ -1,5 +1,5 @@
 > **User document:** `docs/en/commands-plan.md`
-> **Version:** 1.2 | **Updated:** 2026-09-20
+> **Version:** 1.3 | **Updated:** 2026-11-04
 > **Status:** ✅ **CURRENT — `plan` command reference**
 > **Spanish original:** [`docs/user/general/commands-plan.md`](../user/general/commands-plan.md)
 > **References:** [commands.md](commands.md), [wp/commands-wp.md](../user/wp/commands-wp.md), [git/commands-git.md](../user/git/commands-git.md), [tor/commands-tor.md](../user/tor/commands-tor.md)
@@ -118,7 +118,7 @@ An unknown `--service-type` is an error (same message as `tor create`).
 |------|---------------|-------|
 | `raw`/`tcp` | `virtual-port` (the one you pass) + `target-port` (`--target-port`, or the virtual port if omitted) | `/var/lib/tor/enola_<name>` + `/etc/tor/enola.d/<name>.conf` |
 | `web`/`proxy`/`http` | `virtual-port` 80 + `nginx-port` auto (10000-20000) + `backend-port` (`--target-port`, default 8080). With `--ssl`: `virtual-port` 80 + `virtual-port-https` 443 + `nginx-http-port` auto (10000-15000) + `nginx-https-port` auto (15001-20000) + `backend-port` | same with `proxy_` prefix (`/var/lib/tor/enola_proxy_<name>`, `/etc/tor/enola.d/proxy_<name>.conf`) + `/etc/nginx/sites-available/proxy_<name>`; with `--ssl` also `/etc/nginx/ssl/<name>.crt` + `.key` |
-| `static` | `virtual-port` 80 + `nginx-port` auto (20000-30000) | `/var/lib/tor/enola_<name>`, `/etc/tor/enola.d/<name>.conf`, `/etc/nginx/sites-available/<name>`, `/var/www/<name>` |
+| `static` | `virtual-port` 80 + `nginx-port` auto (20000-30000) | `/var/lib/tor/enola_<name>`, `/etc/tor/enola.d/<name>.conf`, `/etc/nginx/sites-available/<name>`, `/var/www/<name>` (created empty by the command; `create` refuses if it already exists) |
 | `files`/`fileserver` | `virtual-port` 80 + `nginx-port` auto (20000-30000) | `fileserver_` prefix in Tor and Nginx + `/srv/enola-files/<name>` |
 
 Real `tor create` limitations that the plan reports in `📝 Notes`:
