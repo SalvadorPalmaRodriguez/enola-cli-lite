@@ -12,6 +12,17 @@
 # cargo-deny 0.20.2 — output is `warning[yanked]`, not `error[yanked]`).
 unmaintained = "all"
 
+# ── Unmaintained crates currently tolerated (reviewed 2026-11-21) ────────
+# RUSTSEC-2026-0543: `chrono` is unmaintained (all versions; no safe upgrade).
+# It is an "unmaintained" notice, NOT a vulnerability. `chrono` is a direct
+# dependency used in ~10 source files; replacing it (with `time` or `jiff`)
+# needs its own spec and is tracked as pending work.
+# Remove this entry once `chrono` is gone from Cargo.lock. Escalate at once if
+# `chrono` gets a real vulnerability advisory (that one would NOT be ignored).
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; migration to time/jiff pending (needs spec)" },
+]
+
 # ── Yanked crates currently tolerated (reviewed 2026-09-14) ──────────────
 # `chacha20 0.10.1` and `der 0.8.0` are reported as yanked by both
 # `cargo audit` ("2 allowed warnings") and `cargo deny` ("warning[yanked]").
