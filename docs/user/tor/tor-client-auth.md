@@ -1,4 +1,4 @@
-> **Versión:** 1.4 | **Actualizado:** 2026-10-24
+> **Versión:** 1.5 | **Actualizado:** 2026-11-21
 > **Estado:** ✅ **VIGENTE**
 > **Referencias:** commands.md
 # Tor Client Authorization — Guía para usuarios
@@ -139,9 +139,14 @@ chars) para evitar path traversal sobre `authorized_clients/`. Si existe un
 cliente **legado** creado antes de esa validación con un nombre fuera de la
 whitelist (p. ej. con espacios o barras), `tor auth revoke` no podrá
 borrarlo. Como el operador ya tiene root, el *workaround* es eliminar el
-fichero a mano:
+fichero a mano. La carpeta `authorized_clients/` está **dentro del directorio
+de cada servicio** (`/var/lib/tor/enola_<servicio>/`), no directamente en
+`/var/lib/tor/`; las comillas son necesarias si el nombre tiene espacios:
 
 ```bash
-sudo rm /var/lib/tor/authorized_clients/<cliente-legado>.auth
+sudo rm "/var/lib/tor/enola_<servicio>/authorized_clients/<cliente-legado>.auth"
 sudo systemctl reload tor
 ```
+
+Si el nombre contiene barras, localiza el fichero con
+`sudo ls -R /var/lib/tor/enola_<servicio>/authorized_clients/` antes de borrarlo.
